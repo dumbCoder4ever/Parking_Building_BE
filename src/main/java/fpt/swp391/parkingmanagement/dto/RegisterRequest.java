@@ -26,6 +26,6 @@ public class    RegisterRequest {
             min = 6,
             message = "Full Name must be at least 6 character"
     )
-   private String fullName;
+    private String fullName;
 
 }

@@ -33,6 +33,8 @@ public class AuthService {
 
         user.setRole(User.Role.DRIVER);
 
+        user.setFullName(request.getFullName());
+
         return userRepository.save(user);
     }
 
