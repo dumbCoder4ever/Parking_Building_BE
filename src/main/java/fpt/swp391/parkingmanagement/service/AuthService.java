@@ -31,8 +31,7 @@ public class AuthService {
                 )
         );
 
-        //user.setRole("ROLE_USER");
-        user.setRole(User.Role.valueOf("ROLE_USER"));
+        user.setRole(User.Role.DRIVER);
 
         return userRepository.save(user);
     }
