@@ -7,14 +7,15 @@ import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
-import fpt.swp391.parkingmanagement.service.UserManagementService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -51,13 +52,13 @@ public class UserManagementServiceImpl implements UserManagementService {
     }
 
     @Override
-    public UserResponse updateUser(Long userId, UserUpdateRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+    public UserResponse updateUser(Long id, UserUpdateRequest request) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + id));
 
         // Check for duplicate username
         if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
-            if (userRepository.existsByUsernameAndUserIdNot(request.getUsername(), userId)) {
+            if (userRepository.existsByUsernameAndIdNot(request.getUsername(), id)) {
                 throw new DuplicateResourceException("Username already exists: " + request.getUsername());
             }
             user.setUsername(request.getUsername());
@@ -65,7 +66,7 @@ public class UserManagementServiceImpl implements UserManagementService {
 
         // Check for duplicate email
         if (request.getGmail() != null && !request.getGmail().equals(user.getGmail())) {
-            if (userRepository.existsByGmailAndUserIdNot(request.getGmail(), userId)) {
+            if (userRepository.existsByGmailAndIdNot(request.getGmail(), id)) {
                 throw new DuplicateResourceException("Gmail already exists: " + request.getGmail());
             }
             user.setGmail(request.getGmail());
@@ -73,7 +74,7 @@ public class UserManagementServiceImpl implements UserManagementService {
 
         // Check for duplicate phone
         if (request.getPhone() != null && !request.getPhone().equals(user.getPhone())) {
-            if (userRepository.existsByPhoneAndUserIdNot(request.getPhone(), userId)) {
+            if (userRepository.existsByPhoneAndIdNot(request.getPhone(), id)) {
                 throw new DuplicateResourceException("Phone number already exists: " + request.getPhone());
             }
             user.setPhone(request.getPhone());
@@ -113,26 +114,34 @@ public class UserManagementServiceImpl implements UserManagementService {
         return convertToResponse(user);
     }
 
-    @Override
-    public Page<UserResponse> getAllUsers(Pageable pageable) {
-        return userRepository.findAll(pageable).map(this::convertToResponse);
-    }
+//    @Override
+//    public Page<UserResponse> getAllUsers(Pageable pageable) {
+//        return userRepository.findAll(pageable).map(this::convertToResponse);
+//    }
 
     @Override
-    public Page<UserResponse> searchUsers(String keyword, String role, String status, Pageable pageable) {
-        User.Role roleEnum = null;
-        if (role != null && !role.isEmpty()) {
-            roleEnum = User.Role.valueOf(role);
-        }
-
-        User.UserStatus statusEnum = null;
-        if (status != null && !status.isEmpty()) {
-            statusEnum = User.UserStatus.valueOf(status);
-        }
-
-        return userRepository.searchUsers(keyword, roleEnum, statusEnum, pageable)
-                .map(this::convertToResponse);
+    public List<UserResponse> getAllUsers() {
+        List<User> movies = userRepository.findAll();
+        return movies.stream()
+                .map(this::convertToResponse)
+                .collect(Collectors.toList());
     }
+
+//    @Override
+//    public Page<UserResponse> searchUsers(String keyword, String role, String status, Pageable pageable) {
+//        User.Role roleEnum = null;
+//        if (role != null && !role.isEmpty()) {
+//            roleEnum = User.Role.valueOf(role);
+//        }
+//
+//        User.UserStatus statusEnum = null;
+//        if (status != null && !status.isEmpty()) {
+//            statusEnum = User.UserStatus.valueOf(status);
+//        }
+//
+//        return userRepository.searchUsers(keyword, roleEnum, statusEnum, pageable)
+//                .map(this::convertToResponse);
+//    }
 
     @Override
     public void changeUserStatus(Long userId, String status) {
@@ -144,7 +153,7 @@ public class UserManagementServiceImpl implements UserManagementService {
 
     private UserResponse convertToResponse(User user) {
         UserResponse response = new UserResponse();
-        response.setUserId(user.getUserId());
+        response.setUserId(user.getId());
         response.setUsername(user.getUsername());
         response.setFullName(user.getFullName());
         response.setGmail(user.getGmail());

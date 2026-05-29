@@ -22,11 +22,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByPhone(String phone);
 
-    boolean existsByUsernameAndUserIdNot(String username, Long userId);
+    boolean existsByUsernameAndIdNot(String username, Long id);
 
-    boolean existsByGmailAndUserIdNot(String gmail, Long userId);
+    boolean existsByGmailAndIdNot(String gmail, Long id);
 
-    boolean existsByPhoneAndUserIdNot(String phone, Long userId);
+    boolean existsByPhoneAndIdNot(String phone, Long id);
 
     @Query("SELECT u FROM User u WHERE " +
             "(:keyword IS NULL OR LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
