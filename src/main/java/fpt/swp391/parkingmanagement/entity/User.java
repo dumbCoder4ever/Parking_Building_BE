@@ -1,49 +1,58 @@
 package fpt.swp391.parkingmanagement.entity;
 
-import jakarta.persistence.*;
-import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.SQLDelete;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.time.LocalDateTime;
+import java.util.UUID;
+
+import org.hibernate.annotations.SQLDelete;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import lombok.Data;
 
 @Entity
 @Data
-@Table(name = "Users")
-@SQLDelete(sql = "UPDATE users SET is_deleted = true, deleted_at = NOW() WHERE id = ?")
+@Table(name = "users")
+@SQLDelete(sql = "UPDATE users SET is_deleted = true, deleted_at = NOW() WHERE user_id = ?")
 public class User {
-@Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id")
-    private Long userId;
-    @Column(unique = true, nullable = false)
+
+    @Id
+    @Column(name = "user_id", length = 36)
+    private String userId;
+
+    @Column(unique = true, nullable = false, length = 50)
     private String username;
 
-    @Column(name = "gmail", unique = true)
-    private String gmail;
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
 
-    @Column(name = "phone", unique = true)
-    private String phone;
-
-    @Column(nullable = false)
-    private String password;
-
+    @Column(name = "full_name", length = 100)
     private String fullName;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "role")
-    private Role role;
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "status")
-    private UserStatus status;
+    @Column(unique = true, length = 100)
+    private String email;
 
-    @CreationTimestamp
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    @Column(nullable = false, length = 20)
+    private String role;
+
+    @Column(nullable = false, length = 20)
+    private String status;
+
+    @Column(name = "last_login")
+    private LocalDateTime lastLogin;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
@@ -53,12 +62,17 @@ public class User {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
-    // Enums
-    public enum Role {
-        ADMIN, MANAGER, STAFF, DRIVER
+    @PrePersist
+    public void prePersist() {
+        if (userId == null) userId = UUID.randomUUID().toString();
+        if (status == null) status = "ACTIVE";
+        if (role == null) role = "ROLE_USER";
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
     }
 
-    public enum UserStatus {
-        ACTIVE, INACTIVE, BAN
+    @PreUpdate
+    public void preUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 }
