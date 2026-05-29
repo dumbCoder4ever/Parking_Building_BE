@@ -35,6 +35,8 @@ public class AuthService {
 
         user.setFullName(request.getFullName());
 
+        user.setStatus(User.UserStatus.ACTIVE);
+
         return userRepository.save(user);
     }
 

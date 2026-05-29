@@ -15,6 +15,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
@@ -52,24 +54,34 @@ public class UserManagementController {
         return ResponseEntity.ok(response);
     }
 
-    // Get all users with pagination
+//    // Get all users with pagination
+//    @GetMapping
+//    public ResponseEntity<Page<UserResponse>> getAllUsers(
+//            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+//        Page<UserResponse> users = userManagementService.getAllUsers(pageable);
+//        return ResponseEntity.ok(users);
+//    }
+
     @GetMapping
-    public ResponseEntity<Page<UserResponse>> getAllUsers(
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        Page<UserResponse> users = userManagementService.getAllUsers(pageable);
-        return ResponseEntity.ok(users);
+    public ResponseEntity<List<UserResponse>> getAllUsers() {
+        try {
+            List<UserResponse> users = userManagementService.getAllUsers();
+            return ResponseEntity.ok(users);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
     // Search users with filters
-    @GetMapping("/search")
-    public ResponseEntity<Page<UserResponse>> searchUsers(
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String role,
-            @RequestParam(required = false) String status,
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        Page<UserResponse> users = userManagementService.searchUsers(keyword, role, status, pageable);
-        return ResponseEntity.ok(users);
-    }
+//    @GetMapping("/search")
+//    public ResponseEntity<Page<UserResponse>> searchUsers(
+//            @RequestParam(required = false) String keyword,
+//            @RequestParam(required = false) String role,
+//            @RequestParam(required = false) String status,
+//            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+//        Page<UserResponse> users = userManagementService.searchUsers(keyword, role, status, pageable);
+//        return ResponseEntity.ok(users);
+//    }
 
     // Change user status
     @PatchMapping("/{userId}/status")
