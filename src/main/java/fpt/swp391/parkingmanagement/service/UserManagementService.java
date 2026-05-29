@@ -6,6 +6,8 @@ import fpt.swp391.parkingmanagement.dto.UserUpdateRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 public interface UserManagementService {
 
     UserResponse createUser(UserRequest request);
@@ -16,9 +18,9 @@ public interface UserManagementService {
 
     UserResponse getUserById(Long userId);
 
-    Page<UserResponse> getAllUsers(Pageable pageable);
+    List<UserResponse> getAllUsers();
 
-    Page<UserResponse> searchUsers(String keyword, String role, String status, Pageable pageable);
+    //Page<UserResponse> searchUsers(String keyword, String role, String status, Pageable pageable);
 
     void changeUserStatus(Long userId, String status);
 }
