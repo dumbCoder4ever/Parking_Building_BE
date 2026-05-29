@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class RegisterRequest {
+public class    RegisterRequest {
 
     @NotBlank(message = "Username must not be blank")
     @Size(
