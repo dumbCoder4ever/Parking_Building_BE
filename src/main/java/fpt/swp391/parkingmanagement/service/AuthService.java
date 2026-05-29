@@ -31,14 +31,14 @@ public class AuthService {
                 )
         );
 
-        user.setRole("ROLE_USER");
+        user.setRole(User.Role.DRIVER);
 
         return userRepository.save(user);
     }
 
     public String login(LoginRequest loginRequest) {
 
-        User user = userRepository.findByUsername(loginRequest.getUsername()).orElseThrow(()->new RuntimeException("Username not found"));;
+        User user = userRepository.findByUsername(loginRequest.getUsername()).orElseThrow(()->new RuntimeException("Username not found"));
         boolean matches = passwordEncoder.matches(loginRequest.getPassword(), user.getPassword());
         if (!matches) {
             throw new RuntimeException("Wrong password");
