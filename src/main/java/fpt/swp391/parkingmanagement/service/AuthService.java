@@ -1,6 +1,7 @@
 package fpt.swp391.parkingmanagement.service;
 
 import fpt.swp391.parkingmanagement.dto.LoginRequest;
+import fpt.swp391.parkingmanagement.dto.LoginResponse;
 import fpt.swp391.parkingmanagement.dto.RegisterRequest;
 import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
@@ -23,7 +24,7 @@ public class AuthService {
 
         User user = new User();
 
-        user.setUsername(request.getUsername());
+        user.setGmail(request.getGmail());
 
         user.setPassword(
                 passwordEncoder.encode(
@@ -31,18 +32,27 @@ public class AuthService {
                 )
         );
 
-        user.setRole("ROLE_USER");
+        user.setRole(User.Role.DRIVER);
+ user.setUsername(request.getUserName());
+        user.setFullName(request.getFullName());
+        user.setPhone(request.getPhone());
+        user.setStatus(User.UserStatus.ACTIVE);
 
         return userRepository.save(user);
     }
 
-    public String login(LoginRequest loginRequest) {
+    public LoginResponse  login(LoginRequest loginRequest) {
 
-        User user = userRepository.findByUsername(loginRequest.getUsername()).orElseThrow(()->new RuntimeException("Username not found"));;
+        User user = userRepository.findByGmail(loginRequest.getGmail()).orElseThrow(()->new RuntimeException("Gmail not found"));
         boolean matches = passwordEncoder.matches(loginRequest.getPassword(), user.getPassword());
         if (!matches) {
             throw new RuntimeException("Wrong password");
         }
-        return jwtService.generateToken(user.getUsername());
+        String token = jwtService.generateToken(user.getGmail(), user.getRole().name());
+
+        return new LoginResponse(
+                token,
+                user.getRole()
+        );
     }
 }
