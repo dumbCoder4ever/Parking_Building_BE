@@ -9,7 +9,7 @@ version = '0.0.1-SNAPSHOT'
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21))
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -38,18 +38,13 @@ dependencies {
 
     // WebSocket
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.5'
 
     // Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
-<<<<<<< Updated upstream
-=======
     testImplementation 'org.springframework.boot:spring-boot-test-autoconfigure'
     testRuntimeOnly 'com.h2database:h2'
-
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
->>>>>>> Stashed changes
 }
 
 tasks.named('test') {

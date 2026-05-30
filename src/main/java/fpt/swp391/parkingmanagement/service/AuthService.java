@@ -34,7 +34,7 @@ public class AuthService {
         user.setFullName(request.getFullName());
         user.setPhoneNumber(request.getPhoneNumber());
         user.setEmail(request.getEmail());
-        user.setRole("ROLE_USER");
+        user.setRole("ROLE_DRIVER");
         user.setStatus("ACTIVE");
 
         return UserProfileResponse.from(userRepository.save(user));

@@ -72,13 +72,14 @@ public class ReservationService {
                     v.setBrand(req.getBrand());
                     v.setModel(req.getModel());
                     v.setVehicleType(vt);
+                    v.setUser(user);
                     return vehicleRepository.save(v);
                 });
 
-        var optSlot = parkingSlotRepository.findFirstAvailableByVehicleType(vt.getVehicleTypeId());
-        if (optSlot.isEmpty()) throw new RuntimeException("No available slot for this vehicle type");
+        var candidates = parkingSlotRepository.findAvailableByVehicleType(vt.getVehicleTypeId());
+        if (candidates == null || candidates.isEmpty()) throw new RuntimeException("No available slot for this vehicle type");
 
-        ParkingSlot slot = optSlot.get();
+        ParkingSlot slot = candidates.get(0);
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
 
