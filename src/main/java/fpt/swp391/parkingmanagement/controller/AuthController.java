@@ -1,30 +1,33 @@
 package fpt.swp391.parkingmanagement.controller;
 
-import fpt.swp391.parkingmanagement.dto.*;
+import fpt.swp391.parkingmanagement.dto.LoginRequest;
+import fpt.swp391.parkingmanagement.dto.LoginResponse;
+import fpt.swp391.parkingmanagement.dto.RegisterRequest;
+import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.service.AuthService;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/auth")
-@RequiredArgsConstructor
 public class AuthController {
 
-    private final AuthService authService;
+    @Autowired
+    private AuthService authService;
 
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse<UserProfileResponse>> register(
-            @Valid @RequestBody RegisterRequest request) {
-        UserProfileResponse profile = authService.register(request);
-        return ResponseEntity.ok(ApiResponse.ok("User registered successfully", profile));
+    public User register(
+            @Valid @RequestBody RegisterRequest request
+    ) {
+        return authService.register(request);
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<LoginResponse>> login(
-            @Valid @RequestBody LoginRequest request) {
-        LoginResponse response = authService.login(request);
-        return ResponseEntity.ok(ApiResponse.ok("Login successful", response));
+    public LoginResponse login(
+            @Valid @RequestBody LoginRequest request
+    ) {
+        String token = authService.login(request);
+        return new LoginResponse(token);
     }
 }

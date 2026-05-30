@@ -2,63 +2,62 @@ package fpt.swp391.parkingmanagement.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Entity
 @Data
 @Table(name = "users")
+@SQLDelete(sql = "UPDATE users SET is_deleted = true, deleted_at = NOW() WHERE user_id = ?")
 public class User {
-
     @Id
-    @Column(name = "user_id", length = 36)
-    private String userId;
-
-    @Column(unique = true, nullable = false, length = 50)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "user_id")
+    private Long id;
+    @Column(unique = true, nullable = false)
     private String username;
 
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
+    @Column(name = "gmail", unique = true)
+    private String gmail;
 
-    @Column(name = "full_name", length = 100)
+    @Column(name = "phone", unique = true)
+    private String phone;
+
+    @Column(nullable = false)
+    private String password;
+
     private String fullName;
 
-    @Column(name = "phone_number", length = 20)
-    private String phoneNumber;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role")
+    private Role role;
 
-    @Column(unique = true, length = 100)
-    private String email;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status")
+    private UserStatus status;
 
-    @Column(name = "avatar_url")
-    private String avatarUrl;
-
-    @Column(nullable = false, length = 20)
-    private String role;
-
-    @Column(nullable = false, length = 20)
-    private String status;
-
-    @Column(name = "last_login")
-    private LocalDateTime lastLogin;
-
+    @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @PrePersist
-    public void prePersist() {
-        if (userId == null) userId = UUID.randomUUID().toString();
-        if (status == null) status = "ACTIVE";
-        if (role == null) role = "ROLE_USER";
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
+    @Column(name = "is_deleted")
+    private Boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    public enum Role {
+        ADMIN, MANAGER, STAFF, DRIVER
     }
 
-    @PreUpdate
-    public void preUpdate() {
-        updatedAt = LocalDateTime.now();
+    public enum UserStatus {
+        ACTIVE, INACTIVE, BAN
     }
 }
