@@ -21,5 +21,11 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     boolean existsByPhoneNumber(String phoneNumber);
 
+    boolean existsByUsernameAndUserIdNot(String username, String userId);
+
+    boolean existsByEmailAndUserIdNot(String email, String userId);
+
+    boolean existsByPhoneNumberAndUserIdNot(String phoneNumber, String userId);
+
     List<User> findAllByOrderByCreatedAtDesc();
 }

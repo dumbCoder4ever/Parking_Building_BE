@@ -64,9 +64,15 @@ public class User {
 
     @PrePersist
     public void prePersist() {
-        if (userId == null) userId = UUID.randomUUID().toString();
-        if (status == null) status = "ACTIVE";
-        if (role == null) role = "ROLE_USER";
+        if (userId == null) {
+            userId = UUID.randomUUID().toString();
+        }
+        if (status == null) {
+            status = "ACTIVE";
+        }
+        if (role == null) {
+            role = "ROLE_DRIVER";
+        }
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
