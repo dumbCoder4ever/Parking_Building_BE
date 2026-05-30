@@ -5,8 +5,11 @@ import fpt.swp391.parkingmanagement.dto.RegisterRequest;
 import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 @Service
 public class AuthService {
