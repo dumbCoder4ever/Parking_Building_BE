@@ -66,5 +66,36 @@ public class AuthService {
                 .email(user.getEmail())
                 .avatarUrl(user.getAvatarUrl())
                 .build();
+
+        user.setGmail(request.getGmail());
+
+        user.setPassword(
+                passwordEncoder.encode(
+                        request.getPassword()
+                )
+        );
+
+        user.setRole(User.Role.DRIVER);
+ user.setUsername(request.getUserName());
+        user.setFullName(request.getFullName());
+        user.setPhone(request.getPhone());
+        user.setStatus(User.UserStatus.ACTIVE);
+
+        return userRepository.save(user);
+    }
+
+    public LoginResponse  login(LoginRequest loginRequest) {
+
+        User user = userRepository.findByGmail(loginRequest.getGmail()).orElseThrow(()->new RuntimeException("Gmail not found"));
+        boolean matches = passwordEncoder.matches(loginRequest.getPassword(), user.getPassword());
+        if (!matches) {
+            throw new RuntimeException("Wrong password");
+        }
+        String token = jwtService.generateToken(user.getGmail(), user.getRole().name());
+
+        return new LoginResponse(
+                token,
+                user.getRole()
+        );
     }
 }
