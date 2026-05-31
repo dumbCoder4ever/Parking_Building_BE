@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.dto;
 
+import fpt.swp391.parkingmanagement.entity.User;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,4 +19,6 @@ public class LoginResponse {
     private String role;
     private String email;
     private String avatarUrl;
+}
+    private User.Role role;
 }
