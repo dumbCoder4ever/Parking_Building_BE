@@ -20,5 +20,3 @@ public class LoginResponse {
     private String email;
     private String avatarUrl;
 }
-    private User.Role role;
-}
