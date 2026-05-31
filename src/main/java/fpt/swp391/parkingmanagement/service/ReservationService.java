@@ -59,8 +59,9 @@ public class ReservationService {
     }
 
     @Transactional
-    public ReservationResponse createReservation(String username, CreateReservationRequest req) {
-        User user = userRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("User not found"));
+    public ReservationResponse createReservation(String email, CreateReservationRequest req) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         VehicleType vt = vehicleTypeRepository.findById(req.getVehicleTypeId()).orElseThrow(() -> new RuntimeException("Vehicle type not found"));
 
