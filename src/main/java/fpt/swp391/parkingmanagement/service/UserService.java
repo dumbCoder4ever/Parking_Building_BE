@@ -80,7 +80,7 @@ public class UserService {
     }
 
     public UserProfileResponse updateUserRole(String userId, String role) {
-        if (!isAllowedRole(role)) {
+        if (!role.equals("ROLE_USER") && !role.equals("ROLE_STAFF") && !role.equals("ROLE_ADMIN")) {
             throw new RuntimeException("Invalid role: " + role);
         }
         User user = findById(userId);
@@ -102,12 +102,5 @@ public class UserService {
     private User findById(String userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-    }
-
-    private boolean isAllowedRole(String role) {
-        return "ROLE_DRIVER".equals(role)
-                || "ROLE_STAFF".equals(role)
-                || "ROLE_MANAGER".equals(role)
-                || "ROLE_ADMIN".equals(role);
     }
 }
