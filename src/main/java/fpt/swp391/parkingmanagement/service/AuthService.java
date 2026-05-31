@@ -41,8 +41,8 @@ public class AuthService {
     }
 
     public LoginResponse login(LoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("Username not found"));
+        User user = userRepository.findByEmail(request.getGmail())
+                .orElseThrow(() -> new RuntimeException("Email not found"));
 
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new RuntimeException("Account is " + user.getStatus().toLowerCase());
@@ -55,7 +55,7 @@ public class AuthService {
         user.setLastLogin(LocalDateTime.now());
         userRepository.save(user);
 
-        String token = jwtService.generateToken(user.getUsername(), user.getRole(), user.getUserId());
+        String token = jwtService.generateToken(user.getEmail(), user.getRole(), user.getUserId());
 
         return LoginResponse.builder()
                 .token(token)
