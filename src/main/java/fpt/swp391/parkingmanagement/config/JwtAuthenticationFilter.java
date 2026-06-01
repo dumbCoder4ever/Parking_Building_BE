@@ -42,11 +42,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (principal != null && role != null && !role.isBlank()
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
+            String authority = role.startsWith("ROLE_") ? role : "ROLE_" + role;
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
                             principal,
                             null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + role))
+                            List.of(new SimpleGrantedAuthority(authority))
                     );
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
