@@ -18,6 +18,8 @@ CREATE TABLE `users` (
   `avatar_url`   VARCHAR(255) DEFAULT NULL,
   `role`         VARCHAR(20)  NOT NULL,
   `status`       VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
+  `is_deleted`   TINYINT(1)   NOT NULL DEFAULT 0,
+  `deleted_at`   DATETIME     DEFAULT NULL,
   `last_login`   DATETIME     DEFAULT NULL,
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
