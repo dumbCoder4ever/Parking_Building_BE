@@ -8,4 +8,8 @@ import fpt.swp391.parkingmanagement.entity.Zone;
 
 public interface ZoneRepository extends JpaRepository<Zone, String> {
     List<Zone> findByFloorFloorId(String floorId);
+
+    boolean existsByFloorFloorIdAndZoneNameIgnoreCase(String floorId, String zoneName);
+
+    long countByFloorFloorId(String floorId);
 }
