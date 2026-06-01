@@ -1,7 +1,11 @@
 package fpt.swp391.parkingmanagement.dto;
 
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
+import org.aspectj.bridge.IMessage;
 
 @Data
 public class RegisterRequest {
@@ -15,6 +19,7 @@ public class RegisterRequest {
     private String password;
 
     @NotBlank(message = "Full name must not be blank")
+    @Size(min = 6, message = "Full Name must be at least 6 characters")
     private String fullName;
 
     @Pattern(regexp = "^(\\+?\\d{9,15})?$", message = "Invalid phone number")
