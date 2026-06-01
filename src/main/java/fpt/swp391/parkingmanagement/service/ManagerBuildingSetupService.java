@@ -136,14 +136,8 @@ public class ManagerBuildingSetupService {
 
     @Transactional
     public ManagerSetupResponse createFloor(String buildingId, CreateFloorRequest request) {
-        if (request.getVehicleTypeId() == null || request.getVehicleTypeId().isBlank()) {
-            throw new RuntimeException(
-                    "vehicleTypeId is required. Call GET /api/manager/setup/vehicle-types to list available IDs.");
-        }
-
         Building building = findBuilding(buildingId);
-        VehicleType vehicleType = vehicleTypeRepository.findById(request.getVehicleTypeId())
-                .orElseThrow(() -> new ResourceNotFoundException("Vehicle type not found: " + request.getVehicleTypeId()));
+        VehicleType vehicleType = resolveVehicleType(buildingId, request);
 
         validateFloorRequest(building, request, null);
 
@@ -235,6 +229,22 @@ public class ManagerBuildingSetupService {
     private Zone findZone(String zoneId) {
         return zoneRepository.findById(zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("Zone not found: " + zoneId));
+    }
+
+    private VehicleType resolveVehicleType(String buildingId, CreateFloorRequest request) {
+        String vehicleTypeId = normalizeText(request.getVehicleTypeId());
+
+        if (vehicleTypeId.equals(buildingId)) {
+            throw new RuntimeException(
+                    "vehicleTypeId must not be the buildingId from the URL. "
+                            + "Call GET /api/manager/setup/vehicle-types and copy vehicleTypeId from the response.");
+        }
+
+        return vehicleTypeRepository.findById(vehicleTypeId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Vehicle type not found for id: " + vehicleTypeId
+                                + ". Call GET /api/manager/setup/vehicle-types. "
+                                + "Example motorbike id: " + CreateFloorRequest.MOTORBIKE_TYPE_ID));
     }
 
     private void validateBuildingTimes(java.time.LocalTime start, java.time.LocalTime end) {
