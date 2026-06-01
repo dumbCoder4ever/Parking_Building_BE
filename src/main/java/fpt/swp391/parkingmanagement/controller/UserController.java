@@ -30,6 +30,7 @@ public class UserController {
             Authentication auth,
             @Valid @RequestBody UpdateProfileRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Profile updated", userService.updateMyProfile(auth.getName(), request)));
+
     }
 
     @PutMapping("/users/me/password")
