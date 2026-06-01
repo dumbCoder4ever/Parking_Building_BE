@@ -30,7 +30,7 @@ public class UserController {
     @PutMapping(value = "/users/me" ,    consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateMyProfile(
             Authentication auth,
-            @RequestPart("data") UpdateProfileRequest request) {
+            @ModelAttribute UpdateProfileRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Profile updated", userService.updateMyProfile(auth.getName(), request)));
     }
 

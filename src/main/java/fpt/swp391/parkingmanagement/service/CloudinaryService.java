@@ -15,17 +15,33 @@ public class CloudinaryService {
     private final Cloudinary cloudinary;
 
     public String upload(MultipartFile file) {
-        try {
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException("Avatar file is empty");
+        }
+        if (file.getContentType() != null && !file.getContentType().startsWith("image/")) {
+            throw new RuntimeException("Avatar file must be an image");
+        }
 
-            Map uploadResult = cloudinary.uploader().upload(
+        try {
+            Map<?, ?> uploadResult = cloudinary.uploader().upload(
                     file.getBytes(),
-                    ObjectUtils.emptyMap()
+                    ObjectUtils.asMap(
+                            "resource_type", "image",
+                            "folder", "parking-management/avatars")
             );
 
-            return uploadResult.get("secure_url").toString();
+            Object secureUrl = uploadResult.get("secure_url");
+            if (secureUrl == null) {
+                throw new RuntimeException("Cloudinary response missing secure_url");
+            }
+            return secureUrl.toString();
 
         } catch (Exception e) {
-            throw new RuntimeException("Upload failed");
+            String reason = e.getMessage();
+            if (reason == null && e.getCause() != null) {
+                reason = e.getCause().getMessage();
+            }
+            throw new RuntimeException("Upload failed: " + (reason == null ? "Unknown error" : reason));
         }
     }
 }
