@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import fpt.swp391.parkingmanagement.dto.CreateReservationRequest;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
@@ -37,6 +38,7 @@ public class ReservationService {
     private final VehicleTypeRepository vehicleTypeRepository;
     private final FloorRepository floorRepository;
     private final UserRepository userRepository;
+    private final VehicleService vehicleService;
 
     public List<SlotAvailabilityDto> getAvailability() {
         List<SlotAvailabilityDto> result = new ArrayList<>();
@@ -65,22 +67,13 @@ public class ReservationService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        VehicleType vt = vehicleTypeRepository.findById(req.getVehicleTypeId()).orElseThrow(() -> new RuntimeException("Vehicle type not found"));
-
-        Vehicle vehicle = vehicleRepository.findByPlateNumber(req.getPlateNumber())
-                .orElseGet(() -> {
-                    Vehicle v = new Vehicle();
-                    v.setPlateNumber(req.getPlateNumber());
-                    v.setVehicleColor(req.getVehicleColor());
-                    v.setBrand(req.getBrand());
-                    v.setModel(req.getModel());
-                    v.setVehicleType(vt);
-                    v.setUser(user);
-                    return vehicleRepository.save(v);
-                });
+        Vehicle vehicle = resolveVehicle(email, user, req);
+        VehicleType vt = vehicle.getVehicleType();
 
         var candidates = parkingSlotRepository.findAvailableByVehicleType(vt.getVehicleTypeId());
-        if (candidates == null || candidates.isEmpty()) throw new RuntimeException("No available slot for this vehicle type");
+        if (candidates == null || candidates.isEmpty()) {
+            throw new RuntimeException("No available slot for this vehicle type");
+        }
 
         ParkingSlot slot = candidates.get(0);
         slot.setSlotStatus("RESERVED");
@@ -112,5 +105,39 @@ public class ReservationService {
         resp.setQrCode(ticket.getQrCode());
 
         return resp;
+    }
+
+    private Vehicle resolveVehicle(String email, User user, CreateReservationRequest req) {
+        if (StringUtils.hasText(req.getVehicleId())) {
+            return vehicleService.getOwnedActiveVehicle(email, req.getVehicleId());
+        }
+
+        if (!StringUtils.hasText(req.getPlateNumber())) {
+            throw new RuntimeException("Plate number is required when vehicleId is not provided");
+        }
+        if (!StringUtils.hasText(req.getVehicleTypeId())) {
+            throw new RuntimeException("Vehicle type id is required when vehicleId is not provided");
+        }
+
+        VehicleType vt = vehicleTypeRepository.findById(req.getVehicleTypeId())
+                .orElseThrow(() -> new RuntimeException("Vehicle type not found"));
+
+        return vehicleRepository.findByPlateNumberIgnoreCase(req.getPlateNumber())
+                .map(existing -> {
+                    if (!existing.getUser().getUserId().equals(user.getUserId())) {
+                        throw new RuntimeException("Plate number belongs to another account");
+                    }
+                    return existing;
+                })
+                .orElseGet(() -> {
+                    Vehicle v = new Vehicle();
+                    v.setPlateNumber(req.getPlateNumber().trim().toUpperCase());
+                    v.setVehicleColor(req.getVehicleColor());
+                    v.setBrand(req.getBrand());
+                    v.setModel(req.getModel());
+                    v.setVehicleType(vt);
+                    v.setUser(user);
+                    return vehicleRepository.save(v);
+                });
     }
 }
