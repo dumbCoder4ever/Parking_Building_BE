@@ -22,4 +22,8 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
 
     @Query("select ps from ParkingSlot ps join ps.zone z join z.vehicleType vt where vt.vehicleTypeId = :vehicleTypeId and ps.slotStatus = 'AVAILABLE'")
     Optional<ParkingSlot> findFirstAvailableByVehicleType(@Param("vehicleTypeId") String vehicleTypeId);
+
+    long countByZoneZoneId(String zoneId);
+
+    boolean existsByZoneZoneIdAndSlotNameIgnoreCase(String zoneId, String slotName);
 }
