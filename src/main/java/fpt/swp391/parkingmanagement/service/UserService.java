@@ -18,6 +18,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CloudinaryService cloudinaryService;
     private final NotificationService notificationService;
 
     public UserProfileResponse getMyProfile(String email) {
@@ -29,7 +30,10 @@ public class UserService {
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
         if (request.getPhoneNumber() != null) user.setPhoneNumber(request.getPhoneNumber());
-        if (request.getAvatarUrl() != null) user.setAvatarUrl(request.getAvatarUrl());
+        if (request.getAvatarUrl() != null && !request.getAvatarUrl().isEmpty()) {
+            String imageUrl = cloudinaryService.upload(request.getAvatarUrl());
+            user.setAvatarUrl(imageUrl);
+        };
 
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
             if (userRepository.existsByEmail(request.getEmail())) {
