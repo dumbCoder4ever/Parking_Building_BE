@@ -1,0 +1,17 @@
+package fpt.swp391.parkingmanagement.dto;
+
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+@Data
+public class UpdateFloorRequest {
+
+    @NotBlank(message = "Floor name is required")
+    private String floorName;
+
+    @NotNull(message = "Max capacity is required")
+    @Min(value = 1, message = "Floor max capacity must be at least 1")
+    private Integer maxCapacity;
+}

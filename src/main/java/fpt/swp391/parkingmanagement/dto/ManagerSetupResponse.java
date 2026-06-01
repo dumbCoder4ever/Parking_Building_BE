@@ -16,11 +16,20 @@ public class ManagerSetupResponse {
     private String type;
     private Integer level;
     private Integer maxCapacity;
+    private Integer currentOccupancy;
     private Integer createdSlots;
+    private Integer totalFloors;
+    private Integer floorCount;
+    private Integer zoneCount;
+    private Integer slotCount;
+    private String address;
+    private String contactNumber;
     private String vehicleTypeId;
     private String vehicleTypeName;
+    private String note;
     private String status;
     private LocalTime operatingStartTime;
     private LocalTime operatingEndTime;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

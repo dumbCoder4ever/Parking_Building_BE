@@ -25,12 +25,6 @@ public class Zone {
     @EqualsAndHashCode.Exclude
     private Floor floor;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "vehicle_type_id")
-    @ToString.Exclude
-    @EqualsAndHashCode.Exclude
-    private VehicleType vehicleType;
-
     @Column(name = "zone_name")
     private String zoneName;
 

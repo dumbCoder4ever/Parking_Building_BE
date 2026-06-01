@@ -11,9 +11,6 @@ public class CreateZoneRequest {
     @NotBlank(message = "Zone name is required")
     private String zoneName;
 
-    @NotBlank(message = "Vehicle type id is required")
-    private String vehicleTypeId;
-
     @NotNull(message = "Zone max capacity is required")
     @Min(value = 1, message = "Zone max capacity must be at least 1")
     private Integer maxCapacity;
