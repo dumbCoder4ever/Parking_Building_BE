@@ -84,7 +84,10 @@ public class UserService {
     }
 
     public UserProfileResponse updateUserRole(String userId, String role) {
-        if (!role.equals("ROLE_USER") && !role.equals("ROLE_STAFF") && !role.equals("ROLE_ADMIN")) {
+        if (!role.equals("ROLE_USER")
+                && !role.equals("ROLE_STAFF")
+                && !role.equals("ROLE_ADMIN")
+                && !role.equals("ROLE_MANAGER")) {
             throw new RuntimeException("Invalid role: " + role);
         }
         User user = findById(userId);
