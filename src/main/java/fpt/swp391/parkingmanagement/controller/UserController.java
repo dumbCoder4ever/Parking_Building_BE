@@ -4,6 +4,7 @@ import fpt.swp391.parkingmanagement.dto.*;
 import fpt.swp391.parkingmanagement.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -26,10 +27,10 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.getMyProfile(auth.getName())));
     }
 
-    @PutMapping(value = "/users/me" ,   consumes = "multipart/form-data")
+    @PutMapping(value = "/users/me" ,    consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateMyProfile(
             Authentication auth,
-            @Valid @RequestBody UpdateProfileRequest request) {
+            @RequestPart("data") UpdateProfileRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Profile updated", userService.updateMyProfile(auth.getName(), request)));
     }
 
