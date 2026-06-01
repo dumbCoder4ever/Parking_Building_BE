@@ -580,17 +580,20 @@
     -- =========================================================
 
     INSERT INTO vehicle_types (
+        vehicle_type_id,
         type_name,
         size_category,
         description
     )
     VALUES
         (
+            '33333333-3333-3333-3333-333333333331',
             'Motorbike',
             'SMALL',
             'Standard motorbike'
         ),
         (
+            '33333333-3333-3333-3333-333333333332',
             'Car',
             'MEDIUM',
             '4-seat or 7-seat car'
