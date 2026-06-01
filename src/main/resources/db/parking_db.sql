@@ -43,6 +43,10 @@
 
                            is_active BOOLEAN DEFAULT TRUE,
 
+                           is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+
+                           deleted_at DATETIME,
+
                            last_login DATETIME,
 
                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -83,6 +87,22 @@
     );
 
     -- =========================================================
+    -- VEHICLE TYPES
+    -- =========================================================
+
+    CREATE TABLE vehicle_types (
+                                   vehicle_type_id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+
+                                   type_name VARCHAR(50) NOT NULL,
+
+                                   size_category VARCHAR(30),
+
+                                   description VARCHAR(255),
+
+                                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- =========================================================
     -- FLOORS
     -- =========================================================
 
@@ -90,6 +110,8 @@
                             floor_id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
 
                             building_id CHAR(36) NOT NULL,
+
+                            vehicle_type_id CHAR(36) NOT NULL,
 
                             floor_name VARCHAR(50) NOT NULL,
 
@@ -113,23 +135,14 @@
                             CONSTRAINT fk_floors_building
                                 FOREIGN KEY (building_id)
                                     REFERENCES buildings(building_id)
-                                    ON DELETE CASCADE
-    );
+                                    ON DELETE CASCADE,
 
-    -- =========================================================
-    -- VEHICLE TYPES
-    -- =========================================================
+                            CONSTRAINT fk_floors_vehicle_type
+                                FOREIGN KEY (vehicle_type_id)
+                                    REFERENCES vehicle_types(vehicle_type_id),
 
-    CREATE TABLE vehicle_types (
-                                   vehicle_type_id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-
-                                   type_name VARCHAR(50) NOT NULL,
-
-                                   size_category VARCHAR(30),
-
-                                   description VARCHAR(255),
-
-                                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                            CONSTRAINT uq_building_vehicle_type
+                                UNIQUE (building_id, vehicle_type_id)
     );
 
     -- =========================================================
@@ -140,8 +153,6 @@
                            zone_id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
 
                            floor_id CHAR(36) NOT NULL,
-
-                           vehicle_type_id CHAR(36) NOT NULL,
 
                            zone_name VARCHAR(50) NOT NULL,
 
@@ -164,11 +175,7 @@
                            CONSTRAINT fk_zones_floor
                                FOREIGN KEY (floor_id)
                                    REFERENCES floors(floor_id)
-                                   ON DELETE CASCADE,
-
-                           CONSTRAINT fk_zones_vehicle_type
-                               FOREIGN KEY (vehicle_type_id)
-                                   REFERENCES vehicle_types(vehicle_type_id)
+                                   ON DELETE CASCADE
     );
 
     -- =========================================================

@@ -41,19 +41,21 @@ public class ReservationService {
     public List<SlotAvailabilityDto> getAvailability() {
         List<SlotAvailabilityDto> result = new ArrayList<>();
         var floors = floorRepository.findAllByOrderByFloorLevelAsc();
-        var vehicleTypes = vehicleTypeRepository.findAll();
 
         for (Floor f : floors) {
-            for (VehicleType vt : vehicleTypes) {
-                long cnt = parkingSlotRepository.countAvailableByFloorAndVehicleType(f.getFloorId(), vt.getVehicleTypeId());
-                SlotAvailabilityDto dto = new SlotAvailabilityDto();
-                dto.setFloorId(f.getFloorId());
-                dto.setFloorName(f.getFloorName());
-                dto.setVehicleTypeId(vt.getVehicleTypeId());
-                dto.setVehicleTypeName(vt.getTypeName());
-                dto.setAvailableCount(cnt);
-                result.add(dto);
+            if (f.getVehicleType() == null) {
+                continue;
             }
+            VehicleType vt = f.getVehicleType();
+            long cnt = parkingSlotRepository.countAvailableByFloorAndVehicleType(
+                    f.getFloorId(), vt.getVehicleTypeId());
+            SlotAvailabilityDto dto = new SlotAvailabilityDto();
+            dto.setFloorId(f.getFloorId());
+            dto.setFloorName(f.getFloorName());
+            dto.setVehicleTypeId(vt.getVehicleTypeId());
+            dto.setVehicleTypeName(vt.getTypeName());
+            dto.setAvailableCount(cnt);
+            result.add(dto);
         }
         return result;
     }

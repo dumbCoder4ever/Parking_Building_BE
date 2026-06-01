@@ -25,6 +25,12 @@ public class Floor {
     @EqualsAndHashCode.Exclude
     private Building building;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "vehicle_type_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private VehicleType vehicleType;
+
     @Column(name = "floor_name")
     private String floorName;
 
