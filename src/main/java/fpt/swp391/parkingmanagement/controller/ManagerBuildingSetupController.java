@@ -36,42 +36,11 @@ public class ManagerBuildingSetupController {
 
     private final ManagerBuildingSetupService managerBuildingSetupService;
 
-    @GetMapping("/buildings")
-    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getAllBuildings() {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Buildings retrieved successfully",
-                managerBuildingSetupService.getAllBuildings()));
-    }
+    // --- Vehicle types (get vehicleTypeId before create floor) ---
 
-    @GetMapping("/buildings/{buildingId}")
-    public ResponseEntity<ApiResponse<ManagerSetupResponse>> getBuilding(@PathVariable String buildingId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Building retrieved successfully",
-                managerBuildingSetupService.getBuilding(buildingId)));
-    }
-
-    @GetMapping("/buildings/{buildingId}/floors")
-    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getFloorsByBuilding(
-            @PathVariable String buildingId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Floors retrieved successfully",
-                managerBuildingSetupService.getFloorsByBuilding(buildingId)));
-    }
-
-    @GetMapping("/floors/{floorId}/zones")
-    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getZonesByFloor(@PathVariable String floorId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Zones retrieved successfully",
-                managerBuildingSetupService.getZonesByFloor(floorId)));
-    }
-
-    @GetMapping("/zones/{zoneId}/slots")
-    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getSlotsByZone(@PathVariable String zoneId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Parking slots retrieved successfully",
-                managerBuildingSetupService.getSlotsByZone(zoneId)));
-    }
-
+    @Operation(
+            summary = "List vehicle types",
+            description = "Call this first. Copy vehicleTypeId from the response when creating a floor.")
     @GetMapping("/vehicle-types")
     public ResponseEntity<ApiResponse<List<VehicleTypeOptionResponse>>> getVehicleTypes() {
         return ResponseEntity.ok(ApiResponse.ok(
@@ -79,6 +48,17 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.getVehicleTypeOptions()));
     }
 
+    // --- Buildings ---
+
+    @Operation(summary = "List buildings")
+    @GetMapping("/buildings")
+    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getAllBuildings() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Buildings retrieved successfully",
+                managerBuildingSetupService.getAllBuildings()));
+    }
+
+    @Operation(summary = "Create building")
     @PostMapping("/buildings")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> createBuilding(
             @Valid @RequestBody CreateBuildingRequest request) {
@@ -87,6 +67,15 @@ public class ManagerBuildingSetupController {
                 .body(ApiResponse.ok("Building created successfully", response));
     }
 
+    @Operation(summary = "Get building by id")
+    @GetMapping("/buildings/{buildingId}")
+    public ResponseEntity<ApiResponse<ManagerSetupResponse>> getBuilding(@PathVariable String buildingId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Building retrieved successfully",
+                managerBuildingSetupService.getBuilding(buildingId)));
+    }
+
+    @Operation(summary = "Update building")
     @PutMapping("/buildings/{buildingId}")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateBuilding(
             @PathVariable String buildingId,
@@ -96,6 +85,7 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateBuilding(buildingId, request)));
     }
 
+    @Operation(summary = "Update building status")
     @PatchMapping("/buildings/{buildingId}/status")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateBuildingStatus(
             @PathVariable String buildingId,
@@ -105,10 +95,22 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateBuildingStatus(buildingId, request.getStatus())));
     }
 
+    // --- Floors ---
+
+    @Operation(summary = "List floors in building")
+    @GetMapping("/buildings/{buildingId}/floors")
+    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getFloorsByBuilding(
+            @PathVariable String buildingId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Floors retrieved successfully",
+                managerBuildingSetupService.getFloorsByBuilding(buildingId)));
+    }
+
     @Operation(
             summary = "Create floor",
             description = "Each floor serves one vehicle type. "
-                    + "Call GET /api/manager/setup/vehicle-types first to obtain vehicleTypeId.")
+                    + "Set vehicleTypeId from GET /api/manager/setup/vehicle-types. "
+                    + "Do not use buildingId from the URL path.")
     @PostMapping("/buildings/{buildingId}/floors")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> createFloor(
             @PathVariable String buildingId,
@@ -118,6 +120,7 @@ public class ManagerBuildingSetupController {
                 .body(ApiResponse.ok("Floor created successfully", response));
     }
 
+    @Operation(summary = "Update floor")
     @PutMapping("/floors/{floorId}")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateFloor(
             @PathVariable String floorId,
@@ -127,6 +130,7 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateFloor(floorId, request)));
     }
 
+    @Operation(summary = "Update floor status")
     @PatchMapping("/floors/{floorId}/status")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateFloorStatus(
             @PathVariable String floorId,
@@ -136,6 +140,17 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateFloorStatus(floorId, request.getStatus())));
     }
 
+    // --- Zones ---
+
+    @Operation(summary = "List zones on floor")
+    @GetMapping("/floors/{floorId}/zones")
+    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getZonesByFloor(@PathVariable String floorId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Zones retrieved successfully",
+                managerBuildingSetupService.getZonesByFloor(floorId)));
+    }
+
+    @Operation(summary = "Create zone and slots")
     @PostMapping("/floors/{floorId}/zones")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> createZoneAndSlots(
             @PathVariable String floorId,
@@ -145,6 +160,7 @@ public class ManagerBuildingSetupController {
                 .body(ApiResponse.ok("Zone and slots created successfully", response));
     }
 
+    @Operation(summary = "Update zone status")
     @PatchMapping("/zones/{zoneId}/status")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateZoneStatus(
             @PathVariable String zoneId,
@@ -152,5 +168,15 @@ public class ManagerBuildingSetupController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Zone status updated successfully",
                 managerBuildingSetupService.updateZoneStatus(zoneId, request.getStatus())));
+    }
+
+    // --- Slots ---
+
+    @Operation(summary = "List slots in zone")
+    @GetMapping("/zones/{zoneId}/slots")
+    public ResponseEntity<ApiResponse<List<ManagerSetupResponse>>> getSlotsByZone(@PathVariable String zoneId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Parking slots retrieved successfully",
+                managerBuildingSetupService.getSlotsByZone(zoneId)));
     }
 }
