@@ -13,7 +13,6 @@ public class UserRequest {
     private String fullName;
 
     @Email(message = "Invalid email format")
-    @Pattern(regexp = ".*@gmail\\.com$", message = "Only Gmail addresses are allowed")
     private String gmail;
 
     @Pattern(regexp = "^[0-9]{10,11}$", message = "Phone number must be 10-11 digits")
