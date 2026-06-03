@@ -18,18 +18,22 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CloudinaryService cloudinaryService;
     private final NotificationService notificationService;
 
-    public UserProfileResponse getMyProfile(String username) {
-        return UserProfileResponse.from(findByUsername(username));
+    public UserProfileResponse getMyProfile(String email) {
+        return UserProfileResponse.from(findByEmail(email));
     }
 
-    public UserProfileResponse updateMyProfile(String username, UpdateProfileRequest request) {
-        User user = findByUsername(username);
+    public UserProfileResponse updateMyProfile(String email, UpdateProfileRequest request) {
+        User user = findByEmail(email);
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
         if (request.getPhoneNumber() != null) user.setPhoneNumber(request.getPhoneNumber());
-        if (request.getAvatarUrl() != null) user.setAvatarUrl(request.getAvatarUrl());
+        if (request.getAvatarUrl() != null && !request.getAvatarUrl().isEmpty()) {
+            String imageUrl = cloudinaryService.upload(request.getAvatarUrl());
+            user.setAvatarUrl(imageUrl);
+        };
 
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
             if (userRepository.existsByEmail(request.getEmail())) {
@@ -39,13 +43,13 @@ public class UserService {
         }
 
         UserProfileResponse updated = UserProfileResponse.from(userRepository.save(user));
-        notificationService.sendToUser(username, "USER_PROFILE_UPDATED", updated);
+        notificationService.sendToUser(email, "USER_PROFILE_UPDATED", updated);
         notificationService.broadcastToAdmins("USER_UPDATED", updated);
         return updated;
     }
 
-    public void changePassword(String username, ChangePasswordRequest request) {
-        User user = findByUsername(username);
+    public void changePassword(String email, ChangePasswordRequest request) {
+        User user = findByEmail(email);
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             throw new RuntimeException("Current password is incorrect");
@@ -53,7 +57,7 @@ public class UserService {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
-        notificationService.sendToUser(username, "PASSWORD_CHANGED", null);
+        notificationService.sendToUser(email, "PASSWORD_CHANGED", null);
     }
 
     // ─── Admin operations ────────────────────────────────────────────────────
@@ -80,7 +84,10 @@ public class UserService {
     }
 
     public UserProfileResponse updateUserRole(String userId, String role) {
-        if (!role.equals("ROLE_USER") && !role.equals("ROLE_STAFF") && !role.equals("ROLE_ADMIN")) {
+        if (!role.equals("ROLE_USER")
+                && !role.equals("ROLE_STAFF")
+                && !role.equals("ROLE_ADMIN")
+                && !role.equals("ROLE_MANAGER")) {
             throw new RuntimeException("Invalid role: " + role);
         }
         User user = findById(userId);
@@ -94,9 +101,9 @@ public class UserService {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    private User findByUsername(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+    private User findByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Email not found"));
     }
 
     private User findById(String userId) {
