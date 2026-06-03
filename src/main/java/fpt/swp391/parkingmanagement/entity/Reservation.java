@@ -45,6 +45,9 @@ public class Reservation {
 
     private LocalDateTime reservationEnd;
 
+    @Column(name = "grace_period_minutes")
+    private Integer gracePeriodMinutes = 60;
+
     private BigDecimal estimatedFee;
 
     @Column(name = "reservation_status", length = 30)
@@ -61,6 +64,7 @@ public class Reservation {
     @PrePersist
     public void prePersist() {
         if (reservationId == null) reservationId = UUID.randomUUID().toString();
+        if (gracePeriodMinutes == null) gracePeriodMinutes = 60;
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
