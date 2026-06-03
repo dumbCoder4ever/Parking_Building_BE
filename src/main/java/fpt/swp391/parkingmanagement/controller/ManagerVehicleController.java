@@ -28,9 +28,12 @@ public class ManagerVehicleController {
 
     private final VehicleService vehicleService;
 
-    @Operation(summary = "Search vehicles", description = "Optional plateNumber filter.")
+    @Operation(
+            summary = "Get all vehicles",
+            description = "Returns all vehicles with owner username. "
+                    + "Optional plateNumber supports partial match (e.g. \"30\" matches \"30A - 12345\" and \"30A - 24567\").")
     @GetMapping
-    public ResponseEntity<ApiResponse<List<VehicleResponse>>> searchVehicles(
+    public ResponseEntity<ApiResponse<List<VehicleResponse>>> getAllVehicles(
             @RequestParam(required = false) String plateNumber) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Vehicles retrieved successfully",

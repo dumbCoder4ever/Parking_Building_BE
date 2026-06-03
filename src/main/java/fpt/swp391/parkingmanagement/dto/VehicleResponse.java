@@ -13,6 +13,7 @@ public class VehicleResponse {
 
     private String vehicleId;
     private String userId;
+    private String username;
     private String plateNumber;
     private String vehicleTypeId;
     private String vehicleTypeName;
@@ -28,6 +29,7 @@ public class VehicleResponse {
         return VehicleResponse.builder()
                 .vehicleId(vehicle.getVehicleId())
                 .userId(vehicle.getUser() != null ? vehicle.getUser().getUserId() : null)
+                .username(vehicle.getUser() != null ? vehicle.getUser().getUsername() : null)
                 .plateNumber(vehicle.getPlateNumber())
                 .vehicleTypeId(vehicleType != null ? vehicleType.getVehicleTypeId() : null)
                 .vehicleTypeName(vehicleType != null ? vehicleType.getTypeName() : null)
