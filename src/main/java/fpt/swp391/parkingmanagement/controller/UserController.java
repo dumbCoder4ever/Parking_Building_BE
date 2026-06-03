@@ -4,10 +4,12 @@ import fpt.swp391.parkingmanagement.dto.*;
 import fpt.swp391.parkingmanagement.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -25,10 +27,10 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok(userService.getMyProfile(auth.getName())));
     }
 
-    @PutMapping("/users/me")
+    @PutMapping(value = "/users/me" ,    consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateMyProfile(
             Authentication auth,
-            @Valid @RequestBody UpdateProfileRequest request) {
+            @ModelAttribute UpdateProfileRequest request) {
         return ResponseEntity.ok(ApiResponse.ok("Profile updated", userService.updateMyProfile(auth.getName(), request)));
     }
 
@@ -69,4 +71,5 @@ public class UserController {
             @RequestParam String role) {
         return ResponseEntity.ok(ApiResponse.ok("User role updated", userService.updateUserRole(userId, role)));
     }
+
 }
