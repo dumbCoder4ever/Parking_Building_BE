@@ -1,0 +1,118 @@
+{
+  "info": {
+    "_postman_id": "b1c6c9f3-9f5a-4f5a-9b2d-0e5a1f2a9b3c",
+    "name": "Parking Session Flows",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "Register (Driver)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"driver-test\",\n  \"password\": \"123456\",\n  \"fullName\": \"Driver Test\",\n  \"phoneNumber\": \"0909000000\",\n  \"email\": \"driver.test@gmail.com\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api","auth","register"] }
+      },
+      "response": []
+    },
+    {
+      "name": "Login (Driver / Staff)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"gmail\": \"driver.test@gmail.com\",\n  \"password\": \"123456\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api","auth","login"] }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var resp = pm.response.json();",
+              "if(resp && resp.data && resp.data.token) {",
+              "  pm.collectionVariables.set('token', resp.data.token);",
+              "}",
+              "if(resp && resp.data && resp.data.ticketCode){",
+              "  pm.collectionVariables.set('ticketCode', resp.data.ticketCode);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Reservation (Driver)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"plateNumber\": \"51A-12345\",\n  \"vehicleColor\": \"White\",\n  \"brand\": \"Honda\",\n  \"model\": \"City\",\n  \"vehicleTypeId\": \"<vehicleTypeId>\",\n  \"reservationStart\": \"2026-06-03T09:00:00\",\n  \"reservationEnd\": \"2026-06-03T12:00:00\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/reservations", "host": ["{{baseUrl}}"], "path": ["api","reservations"] }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": { "exec": [
+            "var r = pm.response.json();",
+            "if(r && r.data && r.data.ticketCode){ pm.collectionVariables.set('ticketCode', r.data.ticketCode); }",
+            "if(r && r.data && r.data.vehicleTypeId){ pm.collectionVariables.set('vehicleTypeId', r.data.vehicleTypeId); }"
+          ] }
+        }
+      ]
+    },
+    {
+      "name": "Check-in (Staff)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ticketCode\": \"{{ticketCode}}\",\n  \"qrCode\": \"<qrCode-if-any>\",\n  \"plateNumber\": \"51A-12345\",\n  \"vehicleColor\": \"White\",\n  \"vehicleTypeId\": \"<vehicleTypeId>\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/sessions/checkin", "host": ["{{baseUrl}}"], "path": ["api","sessions","checkin"] }
+      },
+      "response": []
+    },
+    {
+      "name": "Checkout (Staff)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ticketCode\": \"{{ticketCode}}\",\n  \"paymentMethod\": \"CASH\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/sessions/checkout", "host": ["{{baseUrl}}"], "path": ["api","sessions","checkout"] }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "ticketCode", "value": "" },
+    { "key": "vehicleTypeId", "value": "" }
+  ]
+}
