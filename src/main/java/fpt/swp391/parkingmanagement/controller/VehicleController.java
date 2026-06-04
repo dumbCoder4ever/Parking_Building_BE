@@ -80,17 +80,6 @@ public class VehicleController {
                 vehicleService.updateMyVehicle(auth.getName(), vehicleId, request)));
     }
 
-    @Operation(summary = "Update my vehicle status", description = "Allowed values: ACTIVE, INACTIVE")
-    @PatchMapping("/me/{vehicleId}/status")
-    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicleStatus(
-            Authentication auth,
-            @PathVariable String vehicleId,
-            @Valid @RequestBody UpdateVehicleStatusRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Vehicle status updated successfully",
-                vehicleService.updateMyVehicleStatus(auth.getName(), vehicleId, request.getStatus())));
-    }
-
     @Operation(summary = "Delete my vehicle")
     @DeleteMapping("/me/{vehicleId}")
     public ResponseEntity<ApiResponse<Void>> deleteMyVehicle(
