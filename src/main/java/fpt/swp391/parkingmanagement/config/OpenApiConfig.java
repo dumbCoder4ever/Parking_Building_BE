@@ -32,8 +32,11 @@ public class OpenApiConfig {
             "/api/vehicles/types",
             "/api/vehicles/me",
             "/api/vehicles/me/{vehicleId}",
+            "/api/manager/drivers",
+            "/api/manager/drivers/by-username/{username}/vehicles",
+            "/api/manager/drivers/{userId}/vehicles",
             "/api/manager/vehicles",
-            "/api/manager/vehicles/{vehicleId}",
+            "/api/manager/vehicles/{vehicleId}/status",
             "/api/slots/availability",
             "/api/reservations");
 
