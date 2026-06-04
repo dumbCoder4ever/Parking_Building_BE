@@ -141,11 +141,6 @@ public class VehicleService {
         return vehicles.stream().map(VehicleResponse::from).toList();
     }
 
-    @Transactional(readOnly = true)
-    public VehicleResponse getVehicleById(String vehicleId) {
-        return VehicleResponse.from(findVehicle(vehicleId));
-    }
-
     @Transactional
     public VehicleResponse updateVehicleStatus(String vehicleId, String status) {
         Vehicle vehicle = findVehicle(vehicleId);
