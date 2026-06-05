@@ -25,4 +25,6 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     boolean existsByPlateNumberIgnoreCase(String plateNumber);
 
     boolean existsByPlateNumberIgnoreCaseAndVehicleIdNot(String plateNumber, String vehicleId);
+
+    boolean existsByVehicleTypeVehicleTypeId(String vehicleTypeId);
 }

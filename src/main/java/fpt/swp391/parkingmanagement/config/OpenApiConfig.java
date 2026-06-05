@@ -19,7 +19,12 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 public class OpenApiConfig {
 
     private static final List<String> API_PATH_ORDER = List.of(
-            "/api/manager/setup/vehicle-types",
+            "/api/vehicles/types",
+            "/api/vehicles/types/{vehicleTypeId}",
+            "/api/manager/staff",
+            "/api/manager/staff/{userId}/buildings",
+            "/api/manager/buildings/{buildingId}/staff",
+            "/api/manager/buildings/{buildingId}/staff/{userId}",
             "/api/manager/setup/buildings",
             "/api/manager/setup/buildings/{buildingId}",
             "/api/manager/setup/buildings/{buildingId}/status",
@@ -29,7 +34,6 @@ public class OpenApiConfig {
             "/api/manager/setup/floors/{floorId}/zones",
             "/api/manager/setup/zones/{zoneId}/status",
             "/api/manager/setup/zones/{zoneId}/slots",
-            "/api/vehicles/types",
             "/api/vehicles/me",
             "/api/vehicles/me/{vehicleId}",
             "/api/manager/drivers",
@@ -37,6 +41,8 @@ public class OpenApiConfig {
             "/api/manager/drivers/{userId}/vehicles",
             "/api/manager/vehicles",
             "/api/manager/vehicles/{vehicleId}/status",
+            "/api/manager/parking-sessions/check-in",
+            "/api/manager/parking-sessions/{sessionId}/check-out",
             "/api/slots/availability",
             "/api/reservations");
 

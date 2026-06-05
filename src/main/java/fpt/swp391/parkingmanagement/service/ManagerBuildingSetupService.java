@@ -13,7 +13,6 @@ import fpt.swp391.parkingmanagement.dto.CreateZoneRequest;
 import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
-import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
@@ -75,18 +74,6 @@ public class ManagerBuildingSetupService {
         Zone zone = findZone(zoneId);
         return parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId()).stream()
                 .map(this::toSlotResponse)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<VehicleTypeOptionResponse> getVehicleTypeOptions() {
-        return vehicleTypeRepository.findAll().stream()
-                .map(vt -> VehicleTypeOptionResponse.builder()
-                        .vehicleTypeId(vt.getVehicleTypeId())
-                        .typeName(vt.getTypeName())
-                        .sizeCategory(vt.getSizeCategory())
-                        .description(vt.getDescription())
-                        .build())
                 .toList();
     }
 
@@ -237,13 +224,13 @@ public class ManagerBuildingSetupService {
         if (vehicleTypeId.equals(buildingId)) {
             throw new RuntimeException(
                     "vehicleTypeId must not be the buildingId from the URL. "
-                            + "Call GET /api/manager/setup/vehicle-types and copy vehicleTypeId from the response.");
+                            + "Call GET /api/vehicles/types and copy vehicleTypeId from the response.");
         }
 
         return vehicleTypeRepository.findById(vehicleTypeId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Vehicle type not found for id: " + vehicleTypeId
-                                + ". Call GET /api/manager/setup/vehicle-types. "
+                                + ". Call GET /api/vehicles/types. "
                                 + "Example motorbike id: " + CreateFloorRequest.MOTORBIKE_TYPE_ID));
     }
 
