@@ -8,7 +8,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import fpt.swp391.parkingmanagement.dto.CreateVehicleRequest;
+import fpt.swp391.parkingmanagement.dto.CreateVehicleTypeRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateVehicleRequest;
+import fpt.swp391.parkingmanagement.dto.UpdateVehicleTypeRequest;
 import fpt.swp391.parkingmanagement.dto.VehicleResponse;
 import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
 import fpt.swp391.parkingmanagement.entity.User;
@@ -16,7 +18,9 @@ import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
+import fpt.swp391.parkingmanagement.repository.FloorRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
+import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleRepository;
@@ -36,17 +40,55 @@ public class VehicleService {
     private final UserRepository userRepository;
     private final ReservationRepository reservationRepository;
     private final ParkingSessionRepository parkingSessionRepository;
+    private final FloorRepository floorRepository;
+    private final PricingPolicyRepository pricingPolicyRepository;
 
     @Transactional(readOnly = true)
     public List<VehicleTypeOptionResponse> getVehicleTypeOptions() {
         return vehicleTypeRepository.findAll().stream()
-                .map(vt -> VehicleTypeOptionResponse.builder()
-                        .vehicleTypeId(vt.getVehicleTypeId())
-                        .typeName(vt.getTypeName())
-                        .sizeCategory(vt.getSizeCategory())
-                        .description(vt.getDescription())
-                        .build())
+                .map(this::toVehicleTypeResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public VehicleTypeOptionResponse getVehicleType(String vehicleTypeId) {
+        return toVehicleTypeResponse(findVehicleType(vehicleTypeId));
+    }
+
+    @Transactional
+    public VehicleTypeOptionResponse createVehicleType(CreateVehicleTypeRequest request) {
+        String typeName = normalizeText(request.getTypeName());
+        if (vehicleTypeRepository.existsByTypeNameIgnoreCase(typeName)) {
+            throw new DuplicateResourceException("Vehicle type already exists: " + typeName);
+        }
+
+        VehicleType vehicleType = new VehicleType();
+        vehicleType.setTypeName(typeName);
+        vehicleType.setSizeCategory(normalizeText(request.getSizeCategory()));
+        vehicleType.setDescription(normalizeText(request.getDescription()));
+        return toVehicleTypeResponse(vehicleTypeRepository.save(vehicleType));
+    }
+
+    @Transactional
+    public VehicleTypeOptionResponse updateVehicleType(String vehicleTypeId, UpdateVehicleTypeRequest request) {
+        VehicleType vehicleType = findVehicleType(vehicleTypeId);
+        String typeName = normalizeText(request.getTypeName());
+
+        if (vehicleTypeRepository.existsByTypeNameIgnoreCaseAndVehicleTypeIdNot(typeName, vehicleTypeId)) {
+            throw new DuplicateResourceException("Vehicle type already exists: " + typeName);
+        }
+
+        vehicleType.setTypeName(typeName);
+        vehicleType.setSizeCategory(normalizeText(request.getSizeCategory()));
+        vehicleType.setDescription(normalizeText(request.getDescription()));
+        return toVehicleTypeResponse(vehicleTypeRepository.save(vehicleType));
+    }
+
+    @Transactional
+    public void deleteVehicleType(String vehicleTypeId) {
+        VehicleType vehicleType = findVehicleType(vehicleTypeId);
+        validateVehicleTypeNotInUse(vehicleTypeId);
+        vehicleTypeRepository.delete(vehicleType);
     }
 
     @Transactional(readOnly = true)
@@ -166,6 +208,27 @@ public class VehicleService {
     private VehicleType findVehicleType(String vehicleTypeId) {
         return vehicleTypeRepository.findById(normalizeText(vehicleTypeId))
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle type not found: " + vehicleTypeId));
+    }
+
+    private void validateVehicleTypeNotInUse(String vehicleTypeId) {
+        if (floorRepository.existsByVehicleTypeVehicleTypeId(vehicleTypeId)) {
+            throw new RuntimeException("Cannot delete vehicle type that is assigned to floors");
+        }
+        if (vehicleRepository.existsByVehicleTypeVehicleTypeId(vehicleTypeId)) {
+            throw new RuntimeException("Cannot delete vehicle type that is used by registered vehicles");
+        }
+        if (pricingPolicyRepository.existsByVehicleTypeVehicleTypeId(vehicleTypeId)) {
+            throw new RuntimeException("Cannot delete vehicle type that is used by pricing policies");
+        }
+    }
+
+    private VehicleTypeOptionResponse toVehicleTypeResponse(VehicleType vehicleType) {
+        return VehicleTypeOptionResponse.builder()
+                .vehicleTypeId(vehicleType.getVehicleTypeId())
+                .typeName(vehicleType.getTypeName())
+                .sizeCategory(vehicleType.getSizeCategory())
+                .description(vehicleType.getDescription())
+                .build();
     }
 
     private Vehicle findVehicle(String vehicleId) {

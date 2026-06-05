@@ -83,6 +83,7 @@ public class ReservationService {
         reservation.setReservationCode("RS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         reservation.setReservationStart(req.getReservationStart());
         reservation.setReservationEnd(req.getReservationEnd());
+        reservation.setReservationStatus("PENDING");
         reservation.setSlot(slot);
         reservation.setUser(user);
         reservation.setVehicle(vehicle);

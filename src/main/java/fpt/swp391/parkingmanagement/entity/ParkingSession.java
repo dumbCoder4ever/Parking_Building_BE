@@ -83,6 +83,11 @@ public class ParkingSession {
     @PrePersist
     public void prePersist() {
         if (sessionId == null) sessionId = UUID.randomUUID().toString();
+        if (sessionStatus == null) sessionStatus = "ACTIVE";
+        if (paymentStatus == null) paymentStatus = "UNPAID";
+        if (estimatedFee == null) estimatedFee = BigDecimal.ZERO;
+        if (totalFee == null) totalFee = BigDecimal.ZERO;
+        if (parkingDuration == null) parkingDuration = 0;
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
