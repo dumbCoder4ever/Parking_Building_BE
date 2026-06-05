@@ -22,7 +22,6 @@ import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateSetupStatusRequest;
-import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
 import fpt.swp391.parkingmanagement.service.ManagerBuildingSetupService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -35,18 +34,6 @@ import lombok.RequiredArgsConstructor;
 public class ManagerBuildingSetupController {
 
     private final ManagerBuildingSetupService managerBuildingSetupService;
-
-    // --- Vehicle types (get vehicleTypeId before create floor) ---
-
-    @Operation(
-            summary = "List vehicle types",
-            description = "Call this first. Copy vehicleTypeId from the response when creating a floor.")
-    @GetMapping("/vehicle-types")
-    public ResponseEntity<ApiResponse<List<VehicleTypeOptionResponse>>> getVehicleTypes() {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Vehicle types retrieved successfully",
-                managerBuildingSetupService.getVehicleTypeOptions()));
-    }
 
     // --- Buildings ---
 
@@ -109,7 +96,7 @@ public class ManagerBuildingSetupController {
     @Operation(
             summary = "Create floor",
             description = "Each floor serves one vehicle type. "
-                    + "Set vehicleTypeId from GET /api/manager/setup/vehicle-types. "
+                    + "Set vehicleTypeId from GET /api/vehicles/types. "
                     + "Do not use buildingId from the URL path.")
     @PostMapping("/buildings/{buildingId}/floors")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> createFloor(
