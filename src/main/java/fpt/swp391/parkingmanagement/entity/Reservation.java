@@ -65,6 +65,7 @@ public class Reservation {
     public void prePersist() {
         if (reservationId == null) reservationId = UUID.randomUUID().toString();
         if (gracePeriodMinutes == null) gracePeriodMinutes = 60;
+        if (reservationStatus == null) reservationStatus = "PENDING";
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
