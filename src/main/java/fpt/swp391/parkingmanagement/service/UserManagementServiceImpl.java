@@ -132,7 +132,7 @@ public class UserManagementServiceImpl implements UserManagementService {
         response.setUserId(user.getUserId());
         response.setUsername(user.getUsername());
         response.setFullName(user.getFullName());
-        response.setEmail(user.getEmail());
+        response.setGmail(user.getEmail());
         response.setPhoneNumber(user.getPhoneNumber());
         response.setRole(user.getRole());
         response.setStatus(user.getStatus());
