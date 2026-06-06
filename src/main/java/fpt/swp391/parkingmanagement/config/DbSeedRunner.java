@@ -98,6 +98,26 @@ public class DbSeedRunner implements CommandLineRunner {
                 System.out.println("Inserted vehicle_type Motorbike id=" + motorTypeId);
             }
 
+            String suvTypeId = null;
+            try {
+                suvTypeId = jdbcTemplate.queryForObject("SELECT vehicle_type_id FROM vehicle_types WHERE type_name = 'SUV' LIMIT 1", String.class);
+            } catch (Exception ignore) {}
+            if (suvTypeId == null) {
+                jdbcTemplate.update("INSERT INTO vehicle_types (type_name, size_category, description) VALUES ('SUV', 'LARGE', 'Sample SUV type for floor seeding')");
+                suvTypeId = jdbcTemplate.queryForObject("SELECT vehicle_type_id FROM vehicle_types WHERE type_name = 'SUV' LIMIT 1", String.class);
+                System.out.println("Inserted vehicle_type SUV id=" + suvTypeId);
+            }
+
+            String truckTypeId = null;
+            try {
+                truckTypeId = jdbcTemplate.queryForObject("SELECT vehicle_type_id FROM vehicle_types WHERE type_name = 'Truck' LIMIT 1", String.class);
+            } catch (Exception ignore) {}
+            if (truckTypeId == null) {
+                jdbcTemplate.update("INSERT INTO vehicle_types (type_name, size_category, description) VALUES ('Truck', 'LARGE', 'Sample truck type for floor seeding')");
+                truckTypeId = jdbcTemplate.queryForObject("SELECT vehicle_type_id FROM vehicle_types WHERE type_name = 'Truck' LIMIT 1", String.class);
+                System.out.println("Inserted vehicle_type Truck id=" + truckTypeId);
+            }
+
             // Find main building (fallback to first building if exact name not found)
             String buildingId = null;
             String preferredName = "Main Parking Building";
@@ -124,12 +144,18 @@ public class DbSeedRunner implements CommandLineRunner {
             } else {
                 for (int level = 1; level <= 4; level++) {
                     String floorId = null;
+                    String floorVehicleTypeId = switch (level) {
+                        case 1 -> carTypeId;
+                        case 2 -> motorTypeId;
+                        case 3 -> suvTypeId;
+                        default -> truckTypeId;
+                    };
                     try {
                         floorId = jdbcTemplate.queryForObject("SELECT floor_id FROM floors WHERE building_id = ? AND floor_level = ?", new Object[]{buildingId, level}, String.class);
                     } catch (Exception ignore) {}
                     if (floorId == null) {
                         // create floor if missing
-                        jdbcTemplate.update("INSERT INTO floors (building_id, floor_name, floor_level, max_capacity, status) VALUES (?, ?, ?, ?, 'ACTIVE')", buildingId, "Floor " + level, level, 30);
+                        jdbcTemplate.update("INSERT INTO floors (building_id, vehicle_type_id, floor_name, floor_level, max_capacity, status) VALUES (?, ?, ?, ?, ?, 'ACTIVE')", buildingId, floorVehicleTypeId, "Floor " + level, level, 30);
                         floorId = jdbcTemplate.queryForObject("SELECT floor_id FROM floors WHERE building_id = ? AND floor_level = ?", new Object[]{buildingId, level}, String.class);
                         System.out.println("Inserted Floor " + level + " id=" + floorId);
                     }

@@ -3,24 +3,43 @@
 -- Creates 4 floors (Floor 1..4) and 30 slots per floor (6 zones a..f × 5 slots each)
 -- Only inserts if corresponding rows do not already exist
 
+-- 0) Ensure the floor vehicle types exist.
+--    floors.vehicle_type_id is NOT NULL, and each floor in the same building
+--    must use a different vehicle_type_id because of the unique constraint.
+INSERT INTO vehicle_types (vehicle_type_id, type_name, size_category, description)
+SELECT '33333333-3333-3333-3333-333333333331', 'Motorbike', 'SMALL', 'Standard motorbike'
+WHERE NOT EXISTS (SELECT 1 FROM vehicle_types WHERE vehicle_type_id = '33333333-3333-3333-3333-333333333331');
+
+INSERT INTO vehicle_types (vehicle_type_id, type_name, size_category, description)
+SELECT '33333333-3333-3333-3333-333333333332', 'Car', 'MEDIUM', '4-seat or 7-seat car'
+WHERE NOT EXISTS (SELECT 1 FROM vehicle_types WHERE vehicle_type_id = '33333333-3333-3333-3333-333333333332');
+
+INSERT INTO vehicle_types (vehicle_type_id, type_name, size_category, description)
+SELECT '33333333-3333-3333-3333-333333333333', 'SUV', 'LARGE', 'Sample SUV type for floor seeding'
+WHERE NOT EXISTS (SELECT 1 FROM vehicle_types WHERE vehicle_type_id = '33333333-3333-3333-3333-333333333333');
+
+INSERT INTO vehicle_types (vehicle_type_id, type_name, size_category, description)
+SELECT '33333333-3333-3333-3333-333333333334', 'Truck', 'LARGE', 'Sample truck type for floor seeding'
+WHERE NOT EXISTS (SELECT 1 FROM vehicle_types WHERE vehicle_type_id = '33333333-3333-3333-3333-333333333334');
+
 -- 1) Insert floors (Floor 1..4) for the Main Parking Building
-INSERT INTO floors (building_id, floor_name, floor_level, max_capacity, status)
-SELECT b.building_id, 'Floor 1', 1, 30, 'ACTIVE' FROM buildings b
+INSERT INTO floors (building_id, vehicle_type_id, floor_name, floor_level, max_capacity, status)
+SELECT b.building_id, '33333333-3333-3333-3333-333333333332', 'Floor 1', 1, 30, 'ACTIVE' FROM buildings b
 WHERE b.building_name = 'Main Parking Building'
   AND NOT EXISTS (SELECT 1 FROM floors f WHERE f.building_id = b.building_id AND f.floor_level = 1);
 
-INSERT INTO floors (building_id, floor_name, floor_level, max_capacity, status)
-SELECT b.building_id, 'Floor 2', 2, 30, 'ACTIVE' FROM buildings b
+INSERT INTO floors (building_id, vehicle_type_id, floor_name, floor_level, max_capacity, status)
+SELECT b.building_id, '33333333-3333-3333-3333-333333333331', 'Floor 2', 2, 30, 'ACTIVE' FROM buildings b
 WHERE b.building_name = 'Main Parking Building'
   AND NOT EXISTS (SELECT 1 FROM floors f WHERE f.building_id = b.building_id AND f.floor_level = 2);
 
-INSERT INTO floors (building_id, floor_name, floor_level, max_capacity, status)
-SELECT b.building_id, 'Floor 3', 3, 30, 'ACTIVE' FROM buildings b
+INSERT INTO floors (building_id, vehicle_type_id, floor_name, floor_level, max_capacity, status)
+SELECT b.building_id, '33333333-3333-3333-3333-333333333333', 'Floor 3', 3, 30, 'ACTIVE' FROM buildings b
 WHERE b.building_name = 'Main Parking Building'
   AND NOT EXISTS (SELECT 1 FROM floors f WHERE f.building_id = b.building_id AND f.floor_level = 3);
 
-INSERT INTO floors (building_id, floor_name, floor_level, max_capacity, status)
-SELECT b.building_id, 'Floor 4', 4, 30, 'ACTIVE' FROM buildings b
+INSERT INTO floors (building_id, vehicle_type_id, floor_name, floor_level, max_capacity, status)
+SELECT b.building_id, '33333333-3333-3333-3333-333333333334', 'Floor 4', 4, 30, 'ACTIVE' FROM buildings b
 WHERE b.building_name = 'Main Parking Building'
   AND NOT EXISTS (SELECT 1 FROM floors f WHERE f.building_id = b.building_id AND f.floor_level = 4);
 
