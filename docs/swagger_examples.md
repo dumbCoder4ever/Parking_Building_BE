@@ -16,7 +16,7 @@ Body:
   "password": "123456",
   "fullName": "Driver Test",
   "phoneNumber": "0909000000",
-  "email": "driver.test@gmail.com"
+  "gmail": "driver.test@gmail.com"
 }
 
 Expected success: HTTP 200, body.data chứa profile.

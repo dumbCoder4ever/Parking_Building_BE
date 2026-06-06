@@ -14,7 +14,7 @@ public class UserProfileResponse {
     private String username;
     private String fullName;
     private String phoneNumber;
-    private String email;
+    private String gmail;
     private String avatarUrl;
     private String role;
     private String status;
@@ -28,7 +28,7 @@ public class UserProfileResponse {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .phoneNumber(user.getPhoneNumber())
-                .email(user.getEmail())
+                .gmail(user.getEmail())
                 .avatarUrl(user.getAvatarUrl())
                 .role(user.getRole())
                 .status(user.getStatus())
