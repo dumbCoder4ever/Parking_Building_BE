@@ -24,7 +24,7 @@ public class AuthService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new RuntimeException("Username already exists");
         }
-        if (request.getGmail() != null && userRepository.existsByEmail(request.getGmail())) {
+        if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email already in use");
         }
 
@@ -33,7 +33,7 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setFullName(request.getFullName());
         user.setPhoneNumber(request.getPhoneNumber());
-        user.setEmail(request.getGmail());
+        user.setEmail(request.getEmail());
         user.setRole("ROLE_DRIVER");
         user.setStatus("ACTIVE");
 
@@ -41,7 +41,7 @@ public class AuthService {
     }
 
     public LoginResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getGmail())
+        User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("Email not found"));
 
         if (!"ACTIVE".equals(user.getStatus())) {
@@ -63,7 +63,7 @@ public class AuthService {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .role(user.getRole())
-                .gmail(user.getEmail())
+                .email(user.getEmail())
                 .avatarUrl(user.getAvatarUrl())
                 .build();
     }

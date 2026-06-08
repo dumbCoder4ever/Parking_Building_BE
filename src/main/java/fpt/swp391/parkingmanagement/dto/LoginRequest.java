@@ -8,10 +8,10 @@ import lombok.Data;
 @Data
 public class LoginRequest {
 
-    @Schema(example = "abc@gmail.com")
+    @Schema(example = "abc@example.com")
     @NotBlank(message = "Email must not be blank")
     @Email(message = "Invalid email format")
-    private String gmail;
+    private String email;
 
     @Schema(example = "123456")
     @NotBlank(message = "Password must not be blank")

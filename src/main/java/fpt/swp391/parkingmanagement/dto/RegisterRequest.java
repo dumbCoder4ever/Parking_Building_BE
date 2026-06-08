@@ -25,5 +25,5 @@ public class RegisterRequest {
     private String phoneNumber;
 
     @Email(message = "Invalid email format")
-    private String gmail;
+    private String email;
 }
