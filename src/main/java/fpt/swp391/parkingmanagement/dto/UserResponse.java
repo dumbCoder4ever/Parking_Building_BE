@@ -9,7 +9,7 @@ public class UserResponse {
     private String userId;
     private String username;
     private String fullName;
-    private String gmail;
+    private String email;
     private String phoneNumber;
     private String role;
     private String status;
