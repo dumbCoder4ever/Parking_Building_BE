@@ -10,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -53,12 +52,12 @@ public class UserController {
         return ResponseEntity.status(201).body(response);
     }
 
-    @PutMapping("/admin/users/{userId}")
+    @PatchMapping("/admin/users/{userId}/role")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<UserResponse> updateUser(
+    public ResponseEntity<UserResponse> changeUserRole(
             @PathVariable String userId,
             @Valid @RequestBody UserUpdateRequest request) {
-        return ResponseEntity.ok(userManagementService.updateUser(userId, request));
+        return ResponseEntity.ok(userManagementService.changeUserRole(userId, request));
     }
 
     @DeleteMapping("/admin/users/{userId}")
