@@ -31,8 +31,8 @@ public class UserManagementServiceImpl implements UserManagementService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new DuplicateResourceException("Username already exists: " + request.getUsername());
         }
-        if (request.getGmail() != null && userRepository.existsByEmail(request.getGmail())) {
-            throw new DuplicateResourceException("Email already exists: " + request.getGmail());
+        if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
+            throw new DuplicateResourceException("Email already exists: " + request.getEmail());
         }
         if (request.getPhone() != null && userRepository.existsByPhoneNumber(request.getPhone())) {
             throw new DuplicateResourceException("Phone number already exists: " + request.getPhone());
@@ -41,7 +41,7 @@ public class UserManagementServiceImpl implements UserManagementService {
         User user = new User();
         user.setUsername(request.getUsername());
         user.setFullName(request.getFullName());
-        user.setEmail(request.getGmail());
+        user.setEmail(request.getEmail());
         user.setPhoneNumber(request.getPhone());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
@@ -63,12 +63,12 @@ public class UserManagementServiceImpl implements UserManagementService {
             user.setUsername(request.getUsername());
         }
 
-        if (request.getGmail() != null && !request.getGmail().equals(user.getEmail())) {
-            Optional<User> existingByEmail = userRepository.findByEmail(request.getGmail());
+        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            Optional<User> existingByEmail = userRepository.findByEmail(request.getEmail());
             if (existingByEmail.isPresent() && !existingByEmail.get().getUserId().equals(userId)) {
-                throw new DuplicateResourceException("Email already exists: " + request.getGmail());
+                throw new DuplicateResourceException("Email already exists: " + request.getEmail());
             }
-            user.setEmail(request.getGmail());
+            user.setEmail(request.getEmail());
         }
 
         if (request.getPhone() != null && !request.getPhone().equals(user.getPhoneNumber())) {
@@ -132,7 +132,7 @@ public class UserManagementServiceImpl implements UserManagementService {
         response.setUserId(user.getUserId());
         response.setUsername(user.getUsername());
         response.setFullName(user.getFullName());
-        response.setGmail(user.getEmail());
+        response.setEmail(user.getEmail());
         response.setPhoneNumber(user.getPhoneNumber());
         response.setRole(user.getRole());
         response.setStatus(user.getStatus());

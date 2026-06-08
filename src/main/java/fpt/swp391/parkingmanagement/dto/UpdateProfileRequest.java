@@ -13,7 +13,7 @@ public class UpdateProfileRequest {
     private String phoneNumber;
 
     @Email(message = "Invalid email format")
-    private String gmail;
+    private String email;
 
     private MultipartFile avatarUrl;
 }
