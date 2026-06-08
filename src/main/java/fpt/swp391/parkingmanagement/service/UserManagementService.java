@@ -10,7 +10,7 @@ public interface UserManagementService {
 
     UserResponse createUser(UserRequest request);
 
-    UserResponse updateUser(String userId, UserUpdateRequest request);
+    UserResponse changeUserRole(String userId, UserUpdateRequest request);
 
     void deleteUser(String userId);
 
