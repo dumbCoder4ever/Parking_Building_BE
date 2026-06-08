@@ -35,11 +35,11 @@ public class UserService {
             user.setAvatarUrl(imageUrl);
         };
 
-        if (request.getGmail() != null && !request.getGmail().equals(user.getEmail())) {
-            if (userRepository.existsByEmail(request.getGmail())) {
+        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            if (userRepository.existsByEmail(request.getEmail())) {
                 throw new RuntimeException("Email already in use");
             }
-            user.setEmail(request.getGmail());
+            user.setEmail(request.getEmail());
         }
 
         UserProfileResponse updated = UserProfileResponse.from(userRepository.save(user));

@@ -16,7 +16,7 @@ Body:
   "password": "123456",
   "fullName": "Driver Test",
   "phoneNumber": "0909000000",
-  "gmail": "driver.test@gmail.com"
+  "email": "driver.test@example.com"
 }
 
 Expected success: HTTP 200, body.data chứa profile.
@@ -29,7 +29,7 @@ POST /api/auth/login
 Body:
 
 {
-  "gmail": "driver.test@gmail.com",
+  "email": "driver.test@example.com",
   "password": "123456"
 }
 
