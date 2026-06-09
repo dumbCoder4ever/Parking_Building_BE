@@ -22,7 +22,7 @@ public class CreateFloorRequest {
     @NotBlank(message = "Vehicle type id is required")
     @JsonAlias("vehicle_type_id")
     @Schema(
-            description = "Vehicle type UUID from GET /api/manager/setup/vehicle-types. "
+            description = "Vehicle type UUID from GET /api/vehicles/types. "
                     + "Do not use buildingId from the URL.",
             example = MOTORBIKE_TYPE_ID,
             requiredMode = Schema.RequiredMode.REQUIRED)

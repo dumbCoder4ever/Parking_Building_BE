@@ -22,7 +22,7 @@ public class UserRequest {
     @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
 
-    @NotNull(message = "Role is required")
+    @NotNull(message = "Role is required") //role
     private String role;
 
     private String status = "ACTIVE";

@@ -96,7 +96,7 @@ public class ReservationService {
         Reservation reservation = new Reservation();
         reservation.setReservationCode("RS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         reservation.setReservationStart(req.getReservationStart());
-        reservation.setReservationEnd(req.getReservationStart().plusMinutes(30));
+        reservation.setReservationEnd(req.getReservationEnd());
         reservation.setSlot(slot);
         reservation.setUser(user);
         reservation.setVehicle(vehicle);
