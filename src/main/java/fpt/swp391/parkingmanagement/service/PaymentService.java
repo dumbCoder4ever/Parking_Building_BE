@@ -42,7 +42,7 @@ public class PaymentService {
         ParkingSession session = parkingSessionRepository.findById(paymentRequest.getSessionId())
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
 
-        if (!SessionStatus.ACTIVE.equals(session.getSessionStatus())) {
+        if (!session.getSessionStatus().equals("ACTIVE")) {
             throw new RuntimeException("Session is not active");
         }
 
@@ -60,29 +60,30 @@ public class PaymentService {
 
         Payment payment = new Payment();
         payment.setPaymentId(UUID.randomUUID().toString());
-        payment.setPaymentStatus(String.valueOf(PaymentStatus.UNPAID));
-        payment.setPaymentMethod(payment.getPaymentMethod());
+        payment.setAmount(paymentRequest.getAmount());
+        payment.setPaymentStatus("PENDING");
+        payment.setPaymentMethod(paymentRequest.getPaymentMethod());
         payment.setPaymentTime(LocalDateTime.now());
         payment.setTransactionCode(generateTransactionCode());
         payment.setCreatedAt(LocalDateTime.now());
-        payment.setSession(payment.getSession());
+        payment.setSession(session);
         payment.setNote(paymentRequest.getNote());
 
         Payment savedPayment = paymentRepository.save(payment);
 
         // Generate QR code for applicable methods
         String qrCode = null;
-        if ("VNPAY".equals(paymentRequest.getPaymentMethod().toString()) ||
-                "MOMO".equals(paymentRequest.getPaymentMethod().toString())) {
+        if ("VNPAY".equals(paymentRequest.getPaymentMethod()) ||
+                "MOMO".equals(paymentRequest.getPaymentMethod())) {
             qrCode = generateQRCode(savedPayment.getPaymentId(), paymentRequest.getAmount());
         }
 
         PaymentResponseDTO response = PaymentResponseDTO.builder()
                 .paymentId(savedPayment.getPaymentId())
                 .sessionId(session.getSessionId())
-                .paymentMethod(paymentRequest.getPaymentMethod().toString())
+                .paymentMethod(paymentRequest.getPaymentMethod())
                 .amount(paymentRequest.getAmount())
-                .paymentStatus(PaymentStatus.UNPAID)
+                .paymentStatus("UNPAID")
                 .transactionCode(savedPayment.getTransactionCode())
                 .paymentTime(LocalDateTime.now())
                 .qrCode(qrCode)
@@ -106,7 +107,7 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
-        payment.setPaymentStatus(String.valueOf(PaymentStatus.PAID));
+        payment.setPaymentStatus("SUCCESS");
         payment.setTransactionCode(transactionCode);
         payment.setPaymentTime(LocalDateTime.now());
 
@@ -123,7 +124,7 @@ public class PaymentService {
                 .sessionId(payment.getSession().getSessionId())
                 .paymentMethod(updatedPayment.getPaymentMethod())
                 .amount(updatedPayment.getAmount())
-                .paymentStatus(PaymentStatus.PAID)
+                .paymentStatus("PAID")
                 .transactionCode(updatedPayment.getTransactionCode())
                 .paymentTime(updatedPayment.getPaymentTime())
                 .message("Payment successful. Waiting for staff confirmation.")
@@ -153,20 +154,20 @@ public class PaymentService {
                 .driverId(confirmationRequest.getDriverId())
                 .staffId(confirmationRequest.getStaffId())
                 .amount(payment.getAmount())
-                .paymentMethod(payment.getPaymentMethod().toString())
+                .paymentMethod(payment.getPaymentMethod())
                 .transactionCode(payment.getTransactionCode())
                 .confirmedAt(LocalDateTime.now())
                 .build();
 
         if (confirmationRequest.getIsConfirmed()) {
-            payment.setPaymentStatus(String.valueOf(PaymentStatus.PAID));
-            session.setPaymentStatus(String.valueOf(PaymentStatus.PAID));
-            session.setSessionStatus(String.valueOf(SessionStatus.COMPLETED));
+            payment.setPaymentStatus("SUCCESS");
+            session.setPaymentStatus("PAID");
+            //session.setSessionStatus("COMPLETED"); Xóa vì conflict checkout
             confirmation.setConfirmationStatus("SUCCESS");
             confirmation.setMessage("Payment confirmed successfully. You may exit.");
         } else {
-            payment.setPaymentStatus(String.valueOf(PaymentStatus.FAILED));
-            session.setPaymentStatus(String.valueOf(PaymentStatus.FAILED));
+            payment.setPaymentStatus("FAILED");
+            session.setPaymentStatus("FAILED");
             confirmation.setConfirmationStatus("FAILED");
             confirmation.setReason(confirmationRequest.getReason());
             confirmation.setMessage("Payment confirmation failed: " + confirmationRequest.getReason());
@@ -189,20 +190,20 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
-        payment.setPaymentStatus(String.valueOf(PaymentStatus.FAILED));
+        payment.setPaymentStatus("FAILED");
         Payment updatedPayment = paymentRepository.save(payment);
 
         ParkingSession session = parkingSessionRepository.findById(payment.getSession().getSessionId())
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
-        session.setPaymentStatus(String.valueOf(PaymentStatus.FAILED));
+        session.setPaymentStatus("FAILED");
         parkingSessionRepository.save(session);
 
         return PaymentResponseDTO.builder()
                 .paymentId(updatedPayment.getPaymentId())
                 .sessionId(payment.getSession().getSessionId())
-                .paymentMethod(updatedPayment.getPaymentMethod().toString())
+                .paymentMethod(updatedPayment.getPaymentMethod())
                 .amount(updatedPayment.getAmount())
-                .paymentStatus(PaymentStatus.FAILED)
+                .paymentStatus("FAILED")
                 .transactionCode(updatedPayment.getTransactionCode())
                 .message("Payment failed: " + reason)
                 .build();
@@ -225,7 +226,7 @@ public class PaymentService {
                 .sessionId(payment.getSession().getSessionId())
                 .paymentMethod(payment.getPaymentMethod())
                 .amount(payment.getAmount())
-                .paymentStatus(PaymentStatus.valueOf(payment.getPaymentStatus()))
+                .paymentStatus(payment.getPaymentStatus())
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .build();
