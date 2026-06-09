@@ -87,6 +87,30 @@
     );
 
     -- =========================================================
+    -- BUILDING STAFF (manager assigns ROLE_STAFF to buildings)
+    -- =========================================================
+
+    CREATE TABLE building_staff (
+        assignment_id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+        building_id CHAR(36) NOT NULL,
+        user_id CHAR(36) NOT NULL,
+        assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+        CONSTRAINT fk_building_staff_building
+            FOREIGN KEY (building_id)
+                REFERENCES buildings(building_id)
+                ON DELETE CASCADE,
+
+        CONSTRAINT fk_building_staff_user
+            FOREIGN KEY (user_id)
+                REFERENCES users(user_id)
+                ON DELETE CASCADE,
+
+        CONSTRAINT uq_building_staff
+            UNIQUE (building_id, user_id)
+    );
+
+    -- =========================================================
     -- VEHICLE TYPES
     -- =========================================================
 
@@ -580,17 +604,20 @@
     -- =========================================================
 
     INSERT INTO vehicle_types (
+        vehicle_type_id,
         type_name,
         size_category,
         description
     )
     VALUES
         (
+            '33333333-3333-3333-3333-333333333331',
             'Motorbike',
             'SMALL',
             'Standard motorbike'
         ),
         (
+            '33333333-3333-3333-3333-333333333332',
             'Car',
             'MEDIUM',
             '4-seat or 7-seat car'
@@ -617,6 +644,17 @@
             '23:00:00',
             '0909000000'
         );
+
+    -- =========================================================
+    -- SAMPLE BUILDING STAFF (manager assigns staff to building)
+    -- =========================================================
+
+    INSERT INTO building_staff (assignment_id, building_id, user_id)
+    SELECT UUID(), b.building_id, u.user_id
+    FROM users u
+    JOIN buildings b ON b.building_name = 'Main Parking Building'
+    WHERE u.username = 'staff1'
+      AND u.role = 'ROLE_STAFF';
 
     -- =========================================================
     -- FINISHED

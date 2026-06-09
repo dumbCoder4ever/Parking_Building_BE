@@ -8,4 +8,10 @@ import fpt.swp391.parkingmanagement.entity.VehicleType;
 
 public interface VehicleTypeRepository extends JpaRepository<VehicleType, String> {
     Optional<VehicleType> findByTypeName(String typeName);
+
+    Optional<VehicleType> findByTypeNameIgnoreCase(String typeName);
+
+    boolean existsByTypeNameIgnoreCase(String typeName);
+
+    boolean existsByTypeNameIgnoreCaseAndVehicleTypeIdNot(String typeName, String vehicleTypeId);
 }

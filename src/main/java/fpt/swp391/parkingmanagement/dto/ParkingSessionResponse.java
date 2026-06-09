@@ -1,9 +1,13 @@
 package fpt.swp391.parkingmanagement.dto;
 
+import java.time.LocalDateTime;
+
 import lombok.Data;
 
 @Data
-public class SlotAvailabilityDto {
+public class ParkingSessionResponse {
+    private String sessionId;
+    private String ticketCode;
     private String buildingId;
     private String buildingName;
     private String floorId;
@@ -12,7 +16,6 @@ public class SlotAvailabilityDto {
     private String zoneName;
     private String slotId;
     private String slotName;
-    private String vehicleTypeId;
-    private String vehicleTypeName;
-    private long availableCount;
+    private String vehiclePlate;
+    private LocalDateTime checkinTime;
 }

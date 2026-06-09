@@ -13,8 +13,7 @@ public class UserRequest {
     private String fullName;
 
     @Email(message = "Invalid email format")
-    @Pattern(regexp = ".*@gmail\\.com$", message = "Only Gmail addresses are allowed")
-    private String gmail;
+    private String email;
 
     @Pattern(regexp = "^[0-9]{10,11}$", message = "Phone number must be 10-11 digits")
     private String phone;
@@ -23,7 +22,7 @@ public class UserRequest {
     @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
 
-    @NotNull(message = "Role is required")
+    @NotNull(message = "Role is required") //role
     private String role;
 
     private String status = "ACTIVE";
