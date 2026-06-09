@@ -26,6 +26,8 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
     boolean existsByBuildingBuildingIdAndVehicleTypeVehicleTypeId(
             String buildingId, String vehicleTypeId);
 
+    boolean existsByVehicleTypeVehicleTypeId(String vehicleTypeId);
+
     long countByBuildingBuildingId(String buildingId);
 
     @Query("select coalesce(sum(f.maxCapacity), 0) from Floor f where f.building.buildingId = :buildingId")
