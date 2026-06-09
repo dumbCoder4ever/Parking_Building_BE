@@ -12,6 +12,9 @@ import lombok.Data;
 @Schema(description = "Create a floor. Each floor is assigned exactly one vehicle type.")
 public class CreateFloorRequest {
 
+    public static final String MOTORBIKE_TYPE_ID = "33333333-3333-3333-3333-333333333331";
+    public static final String CAR_TYPE_ID = "33333333-3333-3333-3333-333333333332";
+
     @NotBlank(message = "Floor name is required")
     @Schema(example = "Tầng xe máy")
     private String floorName;
@@ -19,8 +22,9 @@ public class CreateFloorRequest {
     @NotBlank(message = "Vehicle type id is required")
     @JsonAlias("vehicle_type_id")
     @Schema(
-            description = "Vehicle type for this floor. Get IDs from GET /api/manager/setup/vehicle-types",
-            example = "00000000-0000-0000-0000-000000000001",
+            description = "Vehicle type UUID from GET /api/vehicles/types. "
+                    + "Do not use buildingId from the URL.",
+            example = MOTORBIKE_TYPE_ID,
             requiredMode = Schema.RequiredMode.REQUIRED)
     private String vehicleTypeId;
 
