@@ -54,15 +54,17 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(
                                 "/v3/api-docs/**",
-                                "/v3/api-docs.yaml",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/webjars/**")
-                        .permitAll()
-                        .requestMatchers("/ws/**").permitAll()
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "ADMIN")
-                        .anyRequest().authenticated());
+                                "/swagger-ui.html"
+                        ).permitAll()
+                        .requestMatchers("/api/test/public", "/api/public/**", "/api/auth/**").permitAll()
+                        .requestMatchers("/api/test/auth-check").permitAll()
+
+                        // Admin endpoints
+                        .requestMatchers("/api/admin/**").permitAll()
+                        .requestMatchers("/api/test/admin-check").hasRole("ADMIN")
+
+                        .anyRequest().permitAll()
+                );
 
         return http.build();
     }
