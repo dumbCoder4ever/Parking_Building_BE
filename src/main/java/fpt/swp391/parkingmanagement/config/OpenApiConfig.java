@@ -44,7 +44,11 @@ public class OpenApiConfig {
             "/api/manager/parking-sessions/check-in",
             "/api/manager/parking-sessions/{sessionId}/check-out",
             "/api/slots/availability",
-            "/api/reservations");
+            "/api/slots/{slotId}/status",
+            "/api/reservation-discovery",
+            "/api/reservations",
+            "/api/reservations/me",
+            "/api/manager/reservations/{reservationCode}/status");
 
     @Bean
     public OpenAPI customOpenAPI() {
