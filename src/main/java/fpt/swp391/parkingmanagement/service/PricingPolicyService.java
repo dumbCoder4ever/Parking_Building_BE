@@ -5,6 +5,7 @@ import fpt.swp391.parkingmanagement.dto.PricingPolicyResponse;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
+import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -25,11 +26,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional
 public class PricingPolicyService {
+    // Valid pricing types
+    private static final List<String> VALID_PRICING_TYPES = List.of("HOURLY", "DAILY", "OVERNIGHT");
+
     @Autowired
     private PricingPolicyRepository pricingPolicyRepository;
 
     @Autowired
     private Validator validator;
+
+    @Autowired
+    private VehicleTypeRepository vehicleTypeRepository;
 
     // Tạo policy mới
     public PricingPolicyResponse createPricingPolicy(PricingPolicyRequest pricingPolicyRequest) {
@@ -113,7 +120,7 @@ public class PricingPolicyService {
     // Lấy pricing policy theo ID
     public PricingPolicyResponse getPricingPolicyById(String id) {
         PricingPolicy policy = pricingPolicyRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found with id : "+id));
+                .orElseThrow(() -> new IllegalArgumentException("Event not found with id : " + id));
         Set<ConstraintViolation<PricingPolicy>> violations = validator.validate(policy);
         if (!violations.isEmpty()) {
             throw new IllegalArgumentException(
@@ -152,7 +159,8 @@ public class PricingPolicyService {
     private PricingPolicy convertToEntity(PricingPolicyRequest requestDTO) {
         PricingPolicy policy = new PricingPolicy();
         policy.setPolicyName(requestDTO.getPolicyName());
-        policy.setPricingType(requestDTO.getPricingType());
+        String pricingType = validateAndGetPricingType(requestDTO.getPricingType());
+        policy.setPricingType(pricingType);
         //policy.setStatus(requestDTO.getStatus());
         policy.setBasePrice(requestDTO.getBasePrice());
         policy.setEffectiveFrom(requestDTO.getEffectiveFrom());
@@ -162,7 +170,8 @@ public class PricingPolicyService {
         policy.setMaxDailyFee(requestDTO.getMaxDailyFee());
         policy.setOvernightFee(requestDTO.getOvernightFee());
         policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
-        VehicleType vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
+        VehicleType vehicleType = validateAndGetVehicleType(requestDTO.getVehicleTypeId());
+        //vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
         policy.setVehicleType(vehicleType);
         return policy;
     }
@@ -204,5 +213,34 @@ public class PricingPolicyService {
         } catch (Exception e) {
             log.error("Error updating expired pricing policies", e);
         }
+    }
+
+    private VehicleType validateAndGetVehicleType(String vehicleTypeId) {
+        if (vehicleTypeId == null || vehicleTypeId.isBlank()) {
+            throw new IllegalArgumentException("Vehicle Type ID cannot be null or empty");
+        }
+
+        return vehicleTypeRepository.findById(vehicleTypeId)
+                .orElseThrow(() -> {
+                    log.warn("Vehicle type not found with ID: {}", vehicleTypeId);
+                    return new IllegalArgumentException("Vehicle type not found with ID: " + vehicleTypeId);
+                });
+    }
+
+    private String validateAndGetPricingType(String pricingType) {
+        if (pricingType == null || pricingType.isBlank()) {
+            throw new IllegalArgumentException("Pricing type cannot be null or empty");
+        }
+
+        String upperPricingType = pricingType.trim().toUpperCase();
+
+        if (!VALID_PRICING_TYPES.contains(upperPricingType)) {
+            log.warn("Invalid pricing type: {}. Valid types are: {}", pricingType, VALID_PRICING_TYPES);
+            throw new IllegalArgumentException(
+                    "Invalid pricing type: '" + pricingType + "'. Valid types are: " +
+                            String.join(", ", VALID_PRICING_TYPES)
+            );
+        }
+        return upperPricingType;
     }
 }
