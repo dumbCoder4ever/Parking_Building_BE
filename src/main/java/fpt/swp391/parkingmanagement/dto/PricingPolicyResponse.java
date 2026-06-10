@@ -29,6 +29,4 @@ public class PricingPolicyResponse {
 
     //vehicle type data
     private String typeName;
-    private String sizeCategory;
-    private String description;
 }
