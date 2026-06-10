@@ -15,7 +15,9 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class PricingPolicyRequest {
     //private VehicleType vehicleType;
+    @NotNull(message = "Correct Vehicle type ID is required")
     private String vehicleTypeId;
+    @NotNull(message = "Policy name is required")
     private String policyName;
     private String pricingType;
     private BigDecimal basePrice;
