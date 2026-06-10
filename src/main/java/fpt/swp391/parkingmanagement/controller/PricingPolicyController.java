@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/pricing-policy")
+@RequestMapping("/api/manager/pricing-policy")
 @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
 public class PricingPolicyController {
 
