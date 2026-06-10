@@ -3,6 +3,7 @@ package fpt.swp391.parkingmanagement.repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -29,7 +30,13 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
 
     long countByZoneZoneId(String zoneId);
 
+    long countByZoneZoneIdAndSlotStatusIgnoreCase(String zoneId, String slotStatus);
+
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building", "zone.floor.vehicleType"})
     List<ParkingSlot> findByZoneZoneIdOrderBySlotNameAsc(String zoneId);
+
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building", "zone.floor.vehicleType"})
+    Optional<ParkingSlot> findBySlotId(String slotId);
 
     boolean existsByZoneZoneIdAndSlotNameIgnoreCase(String zoneId, String slotName);
 }
