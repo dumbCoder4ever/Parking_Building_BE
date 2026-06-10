@@ -52,6 +52,9 @@ public class ParkingSessionService {
 
         var reservation = ticket.getReservation();
         if (reservation == null) throw new RuntimeException("Reservation not found for ticket");
+        if (!"APPROVED".equalsIgnoreCase(reservation.getReservationStatus())) {
+            throw new RuntimeException("Reservation has not been approved yet");
+        }
 
         if (req.getPlateNumber() != null && reservation.getVehicle() != null) {
             if (!req.getPlateNumber().equalsIgnoreCase(reservation.getVehicle().getPlateNumber())) {
@@ -160,6 +163,9 @@ public class ParkingSessionService {
         session.setParkingDuration(hours);
         session.setPaymentStatus("PAID");
         session.setSessionStatus("COMPLETED");
+        if (session.getReservation() != null) {
+            session.getReservation().setReservationStatus("COMPLETED");
+        }
 
         ParkingSession saved = parkingSessionRepository.save(session);
 

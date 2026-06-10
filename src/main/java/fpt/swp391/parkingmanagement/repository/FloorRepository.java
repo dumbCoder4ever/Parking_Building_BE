@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.repository;
 
 import java.util.List;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,7 +12,11 @@ import fpt.swp391.parkingmanagement.entity.Floor;
 public interface FloorRepository extends JpaRepository<Floor, String> {
     List<Floor> findAllByOrderByFloorLevelAsc();
 
+    @EntityGraph(attributePaths = {"building", "vehicleType"})
     List<Floor> findByBuildingBuildingIdOrderByFloorLevelAsc(String buildingId);
+
+    @EntityGraph(attributePaths = {"building", "vehicleType"})
+    List<Floor> findByBuildingStatusIgnoreCaseOrderByBuildingBuildingNameAscFloorLevelAsc(String status);
 
     boolean existsByBuildingBuildingIdAndFloorLevel(String buildingId, Integer floorLevel);
 
