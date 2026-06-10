@@ -143,6 +143,10 @@ public class PricingPolicyService {
         responseDTO.setOvernightFee(pricingPolicy.getOvernightFee());
         responseDTO.setPeakHourMultiplier(pricingPolicy.getPeakHourMultiplier());
         responseDTO.setVehicleTypeId(pricingPolicy.getVehicleType().getVehicleTypeId());
+        //vehicle
+        responseDTO.setTypeName(pricingPolicy.getVehicleType().getTypeName());
+        responseDTO.setSizeCategory(pricingPolicy.getVehicleType().getSizeCategory());
+        responseDTO.setDescription(pricingPolicy.getVehicleType().getDescription());
         return responseDTO;
     }
 
