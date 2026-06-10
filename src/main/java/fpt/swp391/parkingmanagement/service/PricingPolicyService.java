@@ -179,7 +179,8 @@ public class PricingPolicyService {
     //Update field
     private void updatePricingPolicyFields(PricingPolicy policy, PricingPolicyRequest requestDTO) {
         policy.setPolicyName(requestDTO.getPolicyName());
-        policy.setPricingType(requestDTO.getPricingType());
+        String pricingType = validateAndGetPricingType(requestDTO.getPricingType());
+        policy.setPricingType(pricingType);
         //policy.setStatus(requestDTO.getStatus());
         policy.setBasePrice(requestDTO.getBasePrice());
         policy.setEffectiveFrom(requestDTO.getEffectiveFrom());
@@ -190,7 +191,9 @@ public class PricingPolicyService {
         policy.setOvernightFee(requestDTO.getOvernightFee());
         policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
         //policy.setVehicleType(requestDTO.getVehicleType());
-        VehicleType vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
+        VehicleType vehicleType = validateAndGetVehicleType(requestDTO.getVehicleTypeId());
+        //vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
+        policy.setVehicleType(vehicleType);
         policy.setVehicleType(vehicleType);
     }
 
