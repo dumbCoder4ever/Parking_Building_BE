@@ -1,7 +1,6 @@
 package fpt.swp391.parkingmanagement.dto;
 
-import fpt.swp391.parkingmanagement.entity.VehicleType;
-import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -14,11 +13,13 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 public class PricingPolicyRequest {
-    //private VehicleType vehicleType;
-    @NotNull(message = "Correct Vehicle type ID is required")
+
+    @NotBlank(message = "Correct Vehicle type ID is required")
     private String vehicleTypeId;
-    @NotNull(message = "Policy name is required")
+
+    @NotBlank(message = "Policy name is required")
     private String policyName;
+
     private String pricingType;
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;

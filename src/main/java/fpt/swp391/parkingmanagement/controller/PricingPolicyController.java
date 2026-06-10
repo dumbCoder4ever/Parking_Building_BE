@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.controller;
 
 import fpt.swp391.parkingmanagement.dto.PricingPolicyRequest;
 import fpt.swp391.parkingmanagement.dto.PricingPolicyResponse;
+import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.service.PricingPolicyService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -11,7 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/manager/pricing-policy")
@@ -21,11 +24,33 @@ public class PricingPolicyController {
     @Autowired
     private PricingPolicyService pricingPolicyService;
 
+    @Autowired
+    private VehicleTypeRepository vehicleTypeRepository;
+
     @Operation(summary = "Create pricing policy")
     @PostMapping
     public ResponseEntity<?> createPricingPolicy(@Valid @RequestBody PricingPolicyRequest pricingPolicyRequest) {
-        PricingPolicyResponse createdPricingPolicy = pricingPolicyService.createPricingPolicy(pricingPolicyRequest);
-        return ResponseEntity.status(HttpStatus.CREATED).body(createdPricingPolicy);
+        try {
+            if(pricingPolicyRequest.getPolicyName() == null || pricingPolicyRequest.getPolicyName().isEmpty())
+            {
+                return ResponseEntity.badRequest().body("Policy name is required");
+            }
+            if(pricingPolicyRequest.getVehicleTypeId() == null || pricingPolicyRequest.getVehicleTypeId().isEmpty()) {
+                return ResponseEntity.badRequest().body("Correct vehicle type ID is required");
+            }
+            PricingPolicyResponse createdPricingPolicy = pricingPolicyService.createPricingPolicy(pricingPolicyRequest);
+            return ResponseEntity.status(HttpStatus.CREATED).body(createdPricingPolicy);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Internal server error: " + e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        }
     }
 
     @Operation(summary = "Get all pricing policy")
