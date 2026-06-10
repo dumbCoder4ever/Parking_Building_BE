@@ -3,18 +3,27 @@ package fpt.swp391.parkingmanagement.service;
 import fpt.swp391.parkingmanagement.dto.PricingPolicyRequest;
 import fpt.swp391.parkingmanagement.dto.PricingPolicyResponse;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
+import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
+@RequiredArgsConstructor
+@Transactional
 public class PricingPolicyService {
     @Autowired
     private PricingPolicyRepository pricingPolicyRepository;
@@ -95,7 +104,7 @@ public class PricingPolicyService {
 
     // Lấy active pricing policies từ vehicle type ID
     public List<PricingPolicyResponse> findActiveStatusByVehicleTypeId(String vehicleTypeId) {
-        Optional<PricingPolicy> policies = pricingPolicyRepository.findActiveForVehicleType(vehicleTypeId);
+        List<PricingPolicy> policies = pricingPolicyRepository.findAllActiveForVehicleType(vehicleTypeId);
         return policies.stream()
                 .map(this::convertToResponseDTO)
                 .collect(Collectors.toList());
@@ -142,7 +151,7 @@ public class PricingPolicyService {
         PricingPolicy policy = new PricingPolicy();
         policy.setPolicyName(requestDTO.getPolicyName());
         policy.setPricingType(requestDTO.getPricingType());
-        policy.setStatus(requestDTO.getStatus());
+        //policy.setStatus(requestDTO.getStatus());
         policy.setBasePrice(requestDTO.getBasePrice());
         policy.setEffectiveFrom(requestDTO.getEffectiveFrom());
         policy.setEffectiveTo(requestDTO.getEffectiveTo());
@@ -151,7 +160,8 @@ public class PricingPolicyService {
         policy.setMaxDailyFee(requestDTO.getMaxDailyFee());
         policy.setOvernightFee(requestDTO.getOvernightFee());
         policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
-        policy.setVehicleType(requestDTO.getVehicleType());
+        VehicleType vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
+        policy.setVehicleType(vehicleType);
         return policy;
     }
 
@@ -159,7 +169,7 @@ public class PricingPolicyService {
     private void updatePricingPolicyFields(PricingPolicy policy, PricingPolicyRequest requestDTO) {
         policy.setPolicyName(requestDTO.getPolicyName());
         policy.setPricingType(requestDTO.getPricingType());
-        policy.setStatus(requestDTO.getStatus());
+        //policy.setStatus(requestDTO.getStatus());
         policy.setBasePrice(requestDTO.getBasePrice());
         policy.setEffectiveFrom(requestDTO.getEffectiveFrom());
         policy.setEffectiveTo(requestDTO.getEffectiveTo());
@@ -168,6 +178,29 @@ public class PricingPolicyService {
         policy.setMaxDailyFee(requestDTO.getMaxDailyFee());
         policy.setOvernightFee(requestDTO.getOvernightFee());
         policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
-        policy.setVehicleType(requestDTO.getVehicleType());
+        //policy.setVehicleType(requestDTO.getVehicleType());
+        VehicleType vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
+        policy.setVehicleType(vehicleType);
+    }
+
+    //Auto status INACTIVE after passes effective_to
+    @Scheduled(fixedRate = 60000)
+    public void updateExpiredPricingPolicies() {
+        try {
+            int updatedCount = pricingPolicyRepository.updateExpiredPolicies();
+
+            if (updatedCount > 0) {
+                log.info("Successfully deactivated {} expired pricing policies", updatedCount);
+
+                // Log details of expired policies
+                List<PricingPolicy> expiredPolicies = pricingPolicyRepository.findExpiredActivePolicies();
+                expiredPolicies.forEach(policy ->
+                        log.debug("Deactivated pricing policy '{}' (ID: {}). Effective until: {}",
+                                policy.getPolicyName(), policy.getPolicyId(), policy.getEffectiveTo())
+                );
+            }
+        } catch (Exception e) {
+            log.error("Error updating expired pricing policies", e);
+        }
     }
 }
