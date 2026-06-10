@@ -14,7 +14,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 public class PricingPolicyRequest {
-    private VehicleType vehicleType;
+    //private VehicleType vehicleType;
+    private String vehicleTypeId;
     private String policyName;
     private String pricingType;
     private BigDecimal basePrice;
@@ -25,5 +26,5 @@ public class PricingPolicyRequest {
     private BigDecimal maxDailyFee;
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
-    private String status;
+    //private String status;
 }
