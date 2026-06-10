@@ -20,4 +20,6 @@ public interface PricingPolicyRepository extends JpaRepository<PricingPolicy, St
             + "and (p.effectiveTo is null or p.effectiveTo >= CURRENT_TIMESTAMP) "
             + "order by p.createdAt desc")
     Optional<PricingPolicy> findActiveForVehicleType(@Param("vehicleTypeId") String vehicleTypeId);
+
+    Optional<PricingPolicy> findByPolicyName(String policyName);
 }

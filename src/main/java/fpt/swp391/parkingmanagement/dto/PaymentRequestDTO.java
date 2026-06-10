@@ -14,7 +14,7 @@ import java.math.BigDecimal;
 @Builder
 public class PaymentRequestDTO {
     private String sessionId;
-    private PaymentMethod paymentMethod;
+    private String paymentMethod;
     private BigDecimal amount;
     private String transactionCode;
     private String note;
