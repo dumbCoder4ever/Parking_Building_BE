@@ -145,8 +145,6 @@ public class PricingPolicyService {
         responseDTO.setVehicleTypeId(pricingPolicy.getVehicleType().getVehicleTypeId());
         //vehicle
         responseDTO.setTypeName(pricingPolicy.getVehicleType().getTypeName());
-        responseDTO.setSizeCategory(pricingPolicy.getVehicleType().getSizeCategory());
-        responseDTO.setDescription(pricingPolicy.getVehicleType().getDescription());
         return responseDTO;
     }
 
