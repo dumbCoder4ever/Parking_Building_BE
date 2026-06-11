@@ -63,4 +63,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             @Param("userId") String userId,
             @Param("statuses") Collection<String> statuses,
             @Param("date") LocalDateTime date);
+
+    // ============ STAFF APIs ============
+
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    List<Reservation> findAllByOrderByCreatedAtDesc();
+
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    List<Reservation> findByReservationStatusOrderByCreatedAtDesc(String status);
+
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    Optional<Reservation> findByReservationId(String reservationId);
+
+    @Query("SELECT r FROM Reservation r JOIN FETCH r.slot s JOIN FETCH s.zone z " +
+           "JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle JOIN FETCH r.user " +
+           "WHERE r.reservationCode = :reservationCode")
+    Optional<Reservation> findByReservationCodeFetchingDetails(@Param("reservationCode") String reservationCode);
 }

@@ -115,7 +115,7 @@ public class ReservationController {
 
     /**
      * Manager: Cập nhật trạng thái reservation
-     * 
+     *
      * PATCH /api/manager/reservations/{reservationCode}/status
      */
     @PatchMapping("/manager/reservations/{reservationCode}/status")
@@ -126,5 +126,64 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Reservation status updated successfully",
                 reservationService.updateReservationStatus(reservationCode, request.getStatus(), request.getNote())));
+    }
+
+    // =========================================================================
+    // STAFF APIs - Xem danh sách reservations để approve/reject
+    // =========================================================================
+
+    /**
+     * Staff: Xem TẤT CẢ reservations
+     *
+     * GET /api/staff/reservations
+     */
+    @GetMapping("/staff/reservations")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getAllReservations() {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "All reservations retrieved successfully",
+                reservationService.getAllReservations()));
+    }
+
+    /**
+     * Staff: Xem reservations theo status (PENDING, APPROVED, REJECTED, CANCELLED, COMPLETED, EXPIRED)
+     *
+     * GET /api/staff/reservations?status=PENDING
+     */
+    @GetMapping("/staff/reservations/by-status")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getReservationsByStatus(
+            @RequestParam String status) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservations retrieved successfully",
+                reservationService.getReservationsByStatus(status)));
+    }
+
+    /**
+     * Staff: Xem chi tiết 1 reservation theo ID
+     *
+     * GET /api/staff/reservations/{reservationId}
+     */
+    @GetMapping("/staff/reservations/{reservationId}")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<ReservationResponse>> getReservationById(
+            @PathVariable String reservationId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservation retrieved successfully",
+                reservationService.getReservationById(reservationId)));
+    }
+
+    /**
+     * Staff: Tìm reservation theo mã (ticket code hoặc reservation code)
+     *
+     * GET /api/staff/reservations/code/{reservationCode}
+     */
+    @GetMapping("/staff/reservations/code/{reservationCode}")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<ReservationResponse>> getReservationByCode(
+            @PathVariable String reservationCode) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservation found",
+                reservationService.getReservationByCode(reservationCode)));
     }
 }

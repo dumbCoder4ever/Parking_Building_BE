@@ -146,6 +146,36 @@ public class ReservationService {
                 .toList();
     }
 
+    // ============ STAFF APIs ============
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getAllReservations() {
+        return reservationRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getReservationsByStatus(String status) {
+        return reservationRepository.findByReservationStatusOrderByCreatedAtDesc(status).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationById(String reservationId) {
+        Reservation reservation = reservationRepository.findByReservationId(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationId));
+        return toReservationResponse(reservation);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationByCode(String reservationCode) {
+        Reservation reservation = reservationRepository.findByReservationCodeFetchingDetails(reservationCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+        return toReservationResponse(reservation);
+    }
+
     @Transactional
     public ReservationResponse createReservation(String email, CreateReservationRequest req) {
         User user = userRepository.findByEmail(email)
