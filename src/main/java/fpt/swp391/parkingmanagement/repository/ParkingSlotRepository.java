@@ -39,4 +39,6 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     Optional<ParkingSlot> findBySlotId(String slotId);
 
     boolean existsByZoneZoneIdAndSlotNameIgnoreCase(String zoneId, String slotName);
+
+    List<ParkingSlot> findBySlotStatusIgnoreCase(String slotStatus);
 }

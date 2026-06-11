@@ -8,6 +8,7 @@ import fpt.swp391.parkingmanagement.dto.CreateReservationRequest;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
+import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.entity.Zone;
@@ -21,6 +22,7 @@ import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
 import fpt.swp391.parkingmanagement.service.JwtService;
+import fpt.swp391.parkingmanagement.service.ReservationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,8 +84,19 @@ public class ReservationControllerIntegrationTest {
     @Autowired
     private JwtService jwtService;
 
+    @Autowired
+    private ReservationService reservationService;
+
+    @Autowired
+    private ReservationRepository reservationRepository;
+
+    @Autowired
+    private ParkingSlotRepository parkingSlotRepository;
+
     private String token;
     private VehicleType motorbikeType;
+    private ParkingSlot testSlot;
+    private User testUser;
 
     @BeforeEach
     void setup() {
@@ -98,16 +111,17 @@ public class ReservationControllerIntegrationTest {
         userRepository.deleteAll();
 
         String suffix = java.util.UUID.randomUUID().toString().substring(0, 8);
-        User user = new User();
-        user.setUsername("testuser-" + suffix);
-        user.setEmail("testuser-" + suffix + "@gmail.com");
-        user.setUserId(java.util.UUID.randomUUID().toString());
-        user.setRole("ROLE_DRIVER");
-        user.setStatus("ACTIVE");
-        user.setPasswordHash("test-password-hash");
-        userRepository.save(user);
 
-        token = jwtService.generateToken(user.getEmail(), user.getRole(), user.getUserId());
+        testUser = new User();
+        testUser.setUsername("testuser-" + suffix);
+        testUser.setEmail("testuser-" + suffix + "@gmail.com");
+        testUser.setUserId(java.util.UUID.randomUUID().toString());
+        testUser.setRole("ROLE_DRIVER");
+        testUser.setStatus("ACTIVE");
+        testUser.setPasswordHash("test-password-hash");
+        userRepository.save(testUser);
+
+        token = jwtService.generateToken(testUser.getEmail(), testUser.getRole(), testUser.getUserId());
 
         motorbikeType = new VehicleType();
         motorbikeType.setTypeName("Motorbike");
@@ -134,12 +148,12 @@ public class ReservationControllerIntegrationTest {
         z.setZoneName("Z1");
         zoneRepository.save(z);
 
-        ParkingSlot ps = new ParkingSlot();
-        ps.setSlotId(java.util.UUID.randomUUID().toString());
-        ps.setZone(z);
-        ps.setSlotName("S1");
-        ps.setSlotStatus("AVAILABLE");
-        parkingSlotRepository.save(ps);
+        testSlot = new ParkingSlot();
+        testSlot.setSlotId(java.util.UUID.randomUUID().toString());
+        testSlot.setZone(z);
+        testSlot.setSlotName("S1");
+        testSlot.setSlotStatus("AVAILABLE");
+        parkingSlotRepository.save(testSlot);
     }
 
     @Test
@@ -175,6 +189,112 @@ public class ReservationControllerIntegrationTest {
         String content = mvcResult.getResponse().getContentAsString();
         assertThat(content).contains("reservationCode");
         assertThat(content).contains("ticketCode");
+    }
+
+    @Test
+    void autoExpirePendingReservation_cancelsWhenGracePeriodExpired() {
+        // Tạo PENDING reservation đã hết grace period
+        CreateReservationRequest req = new CreateReservationRequest();
+        req.setSlotId(testSlot.getSlotId());
+        req.setPlateNumber("AUTO-CANCEL-PENDING");
+        req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
+        req.setReservationStart(LocalDateTime.now().minusHours(3));
+        req.setReservationEnd(LocalDateTime.now().minusHours(1)); // Đã hết hạn
+
+        var response = reservationService.createReservation(testUser.getEmail(), req);
+        String reservationCode = response.getReservationCode();
+
+        Reservation reservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
+        assertThat(reservation.getReservationStatus()).isEqualTo("PENDING");
+        assertThat(testSlot.getSlotStatus()).isEqualTo("RESERVED");
+
+        reservation.setGracePeriodMinutes(0);
+        reservationRepository.save(reservation);
+
+        int expiredCount = reservationService.autoExpireReservations();
+
+        assertThat(expiredCount).isEqualTo(1);
+
+        Reservation cancelledReservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
+        assertThat(cancelledReservation.getReservationStatus()).isEqualTo("CANCELLED");
+        assertThat(cancelledReservation.getNote()).contains("Auto-cancelled");
+
+        ParkingSlot releasedSlot = parkingSlotRepository.findBySlotId(testSlot.getSlotId()).orElseThrow();
+        assertThat(releasedSlot.getSlotStatus()).isEqualTo("AVAILABLE");
+    }
+
+    @Test
+    void autoExpireApprovedReservation_expiresWhenGracePeriodExpired() {
+        // Tạo APPROVED reservation đã hết grace period
+        CreateReservationRequest req = new CreateReservationRequest();
+        req.setSlotId(testSlot.getSlotId());
+        req.setPlateNumber("AUTO-EXPIRE-APPROVED");
+        req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
+        req.setReservationStart(LocalDateTime.now().minusHours(3));
+        req.setReservationEnd(LocalDateTime.now().minusHours(1)); // Đã hết hạn
+
+        var response = reservationService.createReservation(testUser.getEmail(), req);
+        String reservationCode = response.getReservationCode();
+
+        // Approve reservation trước
+        reservationService.updateReservationStatus(reservationCode, "APPROVED", "Staff approved");
+
+        Reservation reservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
+        assertThat(reservation.getReservationStatus()).isEqualTo("APPROVED");
+        assertThat(testSlot.getSlotStatus()).isEqualTo("RESERVED");
+
+        reservation.setGracePeriodMinutes(0);
+        reservationRepository.save(reservation);
+
+        int expiredCount = reservationService.autoExpireReservations();
+
+        assertThat(expiredCount).isEqualTo(1);
+
+        Reservation expiredReservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
+        assertThat(expiredReservation.getReservationStatus()).isEqualTo("EXPIRED");
+        assertThat(expiredReservation.getNote()).contains("Auto-expired");
+
+        ParkingSlot releasedSlot = parkingSlotRepository.findBySlotId(testSlot.getSlotId()).orElseThrow();
+        assertThat(releasedSlot.getSlotStatus()).isEqualTo("AVAILABLE");
+    }
+
+    @Test
+    void autoExpireReservation_doesNotCancelActiveReservation() {
+        // Tạo PENDING reservation còn hiệu lực (end time trong tương lai)
+        CreateReservationRequest req = new CreateReservationRequest();
+        req.setSlotId(testSlot.getSlotId());
+        req.setPlateNumber("ACTIVE-RESERVATION");
+        req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
+        req.setReservationStart(LocalDateTime.now().plusHours(1));
+        req.setReservationEnd(LocalDateTime.now().plusHours(3));
+
+        reservationService.createReservation(testUser.getEmail(), req);
+
+        int expiredCount = reservationService.autoExpireReservations();
+
+        assertThat(expiredCount).isEqualTo(0);
+
+        Reservation reservation = reservationRepository.findAll().get(0);
+        assertThat(reservation.getReservationStatus()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void autoExpireReservation_doesNotCancelAlreadyCancelledReservation() {
+        // Tạo PENDING reservation rồi cancel trước
+        CreateReservationRequest req = new CreateReservationRequest();
+        req.setSlotId(testSlot.getSlotId());
+        req.setPlateNumber("CANCELLED-TEST");
+        req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
+        req.setReservationStart(LocalDateTime.now().minusHours(3));
+        req.setReservationEnd(LocalDateTime.now().minusHours(1));
+
+        var response = reservationService.createReservation(testUser.getEmail(), req);
+
+        reservationService.updateReservationStatus(response.getReservationCode(), "CANCELLED", "Manual cancellation");
+
+        int expiredCount = reservationService.autoExpireReservations();
+
+        assertThat(expiredCount).isEqualTo(0);
     }
 
     @org.springframework.boot.test.context.TestConfiguration
