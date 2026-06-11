@@ -25,6 +25,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             String slotId, Collection<String> statuses);
 
     @EntityGraph(attributePaths = {"user"})
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findByUserUserIdOrderByCreatedAtDesc(String userId);
 
     @Query("SELECT r FROM Reservation r WHERE r.user.userId = :userId " +
