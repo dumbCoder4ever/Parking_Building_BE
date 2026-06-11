@@ -32,4 +32,9 @@ public class SlotAvailabilityDto {
     private String vehicleTypeName;
     private long availableCount;
     private List<SlotAvailabilityDto> slots;
+
+    // Reserved slot info (when slot is RESERVED)
+    private String reservedByUserId;
+    private String reservedByUsername;
+    private String reservedByVehicleId;
 }
