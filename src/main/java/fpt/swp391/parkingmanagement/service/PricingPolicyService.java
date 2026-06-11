@@ -192,8 +192,6 @@ public class PricingPolicyService {
         policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
         //policy.setVehicleType(requestDTO.getVehicleType());
         VehicleType vehicleType = validateAndGetVehicleType(requestDTO.getVehicleTypeId());
-        //vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
-        policy.setVehicleType(vehicleType);
         policy.setVehicleType(vehicleType);
     }
 
