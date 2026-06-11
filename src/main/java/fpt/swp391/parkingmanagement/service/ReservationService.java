@@ -62,6 +62,10 @@ public class ReservationService {
     private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
     private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
     private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED", "EXPIRED");
+    private static final Set<String> ACTIVE_BUILDING_FLOOR_STATUSES = Set.of("ACTIVE");
+    private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
+    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
+    private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED");
 
     private final ParkingSlotRepository parkingSlotRepository;
     private final BuildingRepository buildingRepository;
@@ -114,6 +118,21 @@ public class ReservationService {
             }
             VehicleType floorVehicleType = floor.getVehicleType();
             if (floorVehicleType == null || floorVehicleType.getVehicleTypeId() == null) {
+    @Transactional(readOnly = true)
+    public List<SlotAvailabilityDto> getAvailability(String buildingId, String vehicleTypeId) {
+        List<SlotAvailabilityDto> result = new ArrayList<>();
+        List<Floor> floors = resolveFloors(buildingId);
+
+        for (Floor floor : floors) {
+            if (!ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(floor.getStatus()))) {
+                continue;
+            }
+            VehicleType floorVehicleType = floor.getVehicleType();
+            if (floorVehicleType == null) {
+                continue;
+            }
+            if (StringUtils.hasText(vehicleTypeId)
+                    && !floorVehicleType.getVehicleTypeId().equals(normalizeText(vehicleTypeId))) {
                 continue;
             }
             if (StringUtils.hasText(vehicleTypeId)
@@ -138,6 +157,17 @@ public class ReservationService {
                         .map(slot -> toSlotAvailability(slot, floorVehicleType))
                         .toList();
 
+            List<Zone> zones = zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId());
+            for (Zone zone : zones) {
+                if (!ACTIVE_ZONE_STATUSES.contains(normalize(zone.getStatus()))) {
+                    continue;
+                }
+
+                List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
+                List<SlotAvailabilityDto> slotDtos = slots.stream()
+                        .map(slot -> toSlotAvailability(slot, floorVehicleType))
+                        .toList();
+
                 long availableSlots = slotDtos.stream()
                         .filter(slot -> "AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()))
                         .count();
@@ -145,6 +175,8 @@ public class ReservationService {
                 result.add(SlotAvailabilityDto.builder()
                         .buildingId(building.getBuildingId())
                         .buildingName(building.getBuildingName())
+                        .buildingId(floor.getBuilding().getBuildingId())
+                        .buildingName(floor.getBuilding().getBuildingName())
                         .floorId(floor.getFloorId())
                         .floorName(floor.getFloorName())
                         .floorLevel(floor.getFloorLevel())
@@ -207,6 +239,15 @@ public class ReservationService {
         if (!sameDayReservations.isEmpty()) {
             throw new RuntimeException("You already have an active reservation on this day. One user can only reserve one slot per day.");
         }
+
+
+        var activeReservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
+                slot.getSlotId(), ACTIVE_RESERVATION_STATUSES);
+        if (activeReservation.isPresent()) {
+            throw new RuntimeException("Selected slot already has an active reservation");
+        }
+
+        validateNoTimeConflict(user.getUserId(), req.getReservationStart(), req.getReservationEnd());
 
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
@@ -372,6 +413,33 @@ public class ReservationService {
         }
     }
 
+        return toReservationResponse(reservation, ticket);
+    }
+
+    @Transactional
+    public ReservationResponse updateReservationStatus(String reservationCode, String status, String note) {
+        Reservation reservation = reservationRepository.findByReservationCode(normalizeText(reservationCode))
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+
+        String normalizedStatus = validateReservationStatus(status);
+        reservation.setReservationStatus(normalizedStatus);
+        reservation.setNote(normalizeText(note));
+
+        ParkingSlot slot = reservation.getSlot();
+        if (slot != null) {
+            if ("APPROVED".equals(normalizedStatus)) {
+                slot.setSlotStatus("RESERVED");
+            } else if ("REJECTED".equals(normalizedStatus) || "CANCELLED".equals(normalizedStatus)) {
+                slot.setSlotStatus("AVAILABLE");
+            }
+            parkingSlotRepository.save(slot);
+        }
+
+        Reservation saved = reservationRepository.save(reservation);
+        Ticket ticket = ticketRepository.findByReservationReservationId(saved.getReservationId()).orElse(null);
+        return toReservationResponse(saved, ticket);
+    }
+
     private List<Floor> resolveFloors(String buildingId) {
         if (StringUtils.hasText(buildingId)) {
             return floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(normalizeText(buildingId));
@@ -405,6 +473,16 @@ public class ReservationService {
         }
         if (!"AVAILABLE".equalsIgnoreCase(slot.getSlotStatus())) {
             throw new RuntimeException("Selected slot is not available");
+        }
+
+        Floor floor = zone.getFloor();
+        if (!ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(floor.getStatus()))) {
+            throw new RuntimeException("Selected floor is not active");
+        }
+        if (!ACTIVE_ZONE_STATUSES.contains(normalize(zone.getStatus()))) {
+            throw new RuntimeException("Selected zone is not active");
+        }
+
         }
 
         Floor floor = zone.getFloor();
@@ -658,5 +736,11 @@ public class ReservationService {
 
     private String normalizeText(String value) {
         return StringUtils.hasText(value) ? value.trim() : "";
+    private String normalize(String value) {
+        return value == null ? null : value.trim().toUpperCase();
+    }
+
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 }

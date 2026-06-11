@@ -26,4 +26,7 @@ public class PricingPolicyResponse {
     private LocalDateTime effectiveTo;
     private String status;
     private LocalDateTime createdAt;
+
+    //vehicle type data
+    private String typeName;
 }
