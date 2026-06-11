@@ -42,7 +42,7 @@ public class VehicleTypeSyncService {
         Optional<VehicleType> existing = vehicleTypeRepository.findByTypeNameIgnoreCase(typeName);
         if (existing.isPresent()) {
             String oldId = existing.get().getVehicleTypeId();
-            if (!oldId.equals(canonicalId)) {
+            if (!canonicalId.equals(oldId)) {
                 reassignVehicleTypeId(existing.get(), canonicalId);
                 log.info("Synced vehicle type '{}' to canonical id {} (was {})", typeName, canonicalId, oldId);
             }

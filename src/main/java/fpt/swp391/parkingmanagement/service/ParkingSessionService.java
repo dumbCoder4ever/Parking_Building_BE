@@ -50,6 +50,11 @@ public class ParkingSessionService {
 
         if (Boolean.TRUE.equals(ticket.getIsUsed())) throw new RuntimeException("Ticket already used");
 
+        // Check if ticket has expired
+        if (ticket.getExpiredAt() != null && LocalDateTime.now().isAfter(ticket.getExpiredAt())) {
+            throw new RuntimeException("Ticket has expired");
+        }
+
         var reservation = ticket.getReservation();
         if (reservation == null) throw new RuntimeException("Reservation not found for ticket");
         if (!"APPROVED".equalsIgnoreCase(reservation.getReservationStatus())) {
@@ -65,7 +70,7 @@ public class ParkingSessionService {
         LocalDateTime now = LocalDateTime.now();
         if (reservation.getReservationEnd() != null) {
             Integer gracePeriodMinutes = reservation.getGracePeriodMinutes();
-            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 60;
+            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 15;
             if (now.isAfter(reservation.getReservationEnd().plusMinutes(grace))) {
                 throw new RuntimeException("Reservation expired");
             }

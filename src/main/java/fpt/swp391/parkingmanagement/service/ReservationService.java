@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -35,15 +36,32 @@ import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+// #region debug logging
+import java.io.FileWriter;
+import java.io.PrintWriter;
+import java.time.Instant;
+// #endregion
 
 @Service
-@RequiredArgsConstructor
 public class ReservationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
+    
+    // #region debug helpers
+    private void debugLog(String msg) {
+        try (PrintWriter pw = new PrintWriter(new FileWriter("d:/study/springBoot/Parking_Building_BE-main/debug-81867e.log", true))) {
+            pw.println(Instant.now() + " [ReservationService] " + msg);
+        } catch (Exception e) { log.error("debugLog failed", e); }
+    }
+    // #endregion
 
     private static final Set<String> ACTIVE_BUILDING_FLOOR_STATUSES = Set.of("ACTIVE");
     private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
     private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
-    private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED");
+    private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED", "EXPIRED");
 
     private final ParkingSlotRepository parkingSlotRepository;
     private final BuildingRepository buildingRepository;
@@ -55,10 +73,39 @@ public class ReservationService {
     private final ZoneRepository zoneRepository;
     private final UserRepository userRepository;
     private final VehicleService vehicleService;
+    private NotificationService notificationService;
+
+    public ReservationService(ParkingSlotRepository parkingSlotRepository,
+                             BuildingRepository buildingRepository,
+                             VehicleRepository vehicleRepository,
+                             ReservationRepository reservationRepository,
+                             TicketRepository ticketRepository,
+                             VehicleTypeRepository vehicleTypeRepository,
+                             FloorRepository floorRepository,
+                             ZoneRepository zoneRepository,
+                             UserRepository userRepository,
+                             VehicleService vehicleService) {
+        this.parkingSlotRepository = parkingSlotRepository;
+        this.buildingRepository = buildingRepository;
+        this.vehicleRepository = vehicleRepository;
+        this.reservationRepository = reservationRepository;
+        this.ticketRepository = ticketRepository;
+        this.vehicleTypeRepository = vehicleTypeRepository;
+        this.floorRepository = floorRepository;
+        this.zoneRepository = zoneRepository;
+        this.userRepository = userRepository;
+        this.vehicleService = vehicleService;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setNotificationService(NotificationService notificationService) {
+        this.notificationService = notificationService;
+    }
 
     @Transactional(readOnly = true)
     public List<SlotAvailabilityDto> getAvailability(String buildingId, String vehicleTypeId) {
         List<SlotAvailabilityDto> result = new ArrayList<>();
+
         List<Floor> floors = resolveFloors(buildingId);
 
         for (Floor floor : floors) {
@@ -66,11 +113,16 @@ public class ReservationService {
                 continue;
             }
             VehicleType floorVehicleType = floor.getVehicleType();
-            if (floorVehicleType == null) {
+            if (floorVehicleType == null || floorVehicleType.getVehicleTypeId() == null) {
                 continue;
             }
             if (StringUtils.hasText(vehicleTypeId)
-                    && !floorVehicleType.getVehicleTypeId().equals(normalizeText(vehicleTypeId))) {
+                    && !normalizeText(vehicleTypeId).equals(floorVehicleType.getVehicleTypeId())) {
+                continue;
+            }
+
+            Building building = floor.getBuilding();
+            if (building == null) {
                 continue;
             }
 
@@ -81,6 +133,7 @@ public class ReservationService {
                 }
 
                 List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
+
                 List<SlotAvailabilityDto> slotDtos = slots.stream()
                         .map(slot -> toSlotAvailability(slot, floorVehicleType))
                         .toList();
@@ -90,8 +143,8 @@ public class ReservationService {
                         .count();
 
                 result.add(SlotAvailabilityDto.builder()
-                        .buildingId(floor.getBuilding().getBuildingId())
-                        .buildingName(floor.getBuilding().getBuildingName())
+                        .buildingId(building.getBuildingId())
+                        .buildingName(building.getBuildingName())
                         .floorId(floor.getFloorId())
                         .floorName(floor.getFloorName())
                         .floorLevel(floor.getFloorLevel())
@@ -148,6 +201,13 @@ public class ReservationService {
 
         validateNoTimeConflict(user.getUserId(), req.getReservationStart(), req.getReservationEnd());
 
+        // Bug fix: 1 user chỉ được 1 slot active trong 1 ngày
+        List<Reservation> sameDayReservations = reservationRepository.findByUserIdAndStatusesAndDate(
+                user.getUserId(), ACTIVE_RESERVATION_STATUSES, req.getReservationStart());
+        if (!sameDayReservations.isEmpty()) {
+            throw new RuntimeException("You already have an active reservation on this day. One user can only reserve one slot per day.");
+        }
+
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
 
@@ -167,7 +227,20 @@ public class ReservationService {
         ticket.setQrCode(java.util.Base64.getEncoder().encodeToString(ticket.getTicketCode().getBytes()));
         ticket = ticketRepository.save(ticket);
 
-        return toReservationResponse(reservation, ticket);
+        ReservationResponse response = toReservationResponse(reservation, ticket);
+
+        sendReservationNotification(reservation, "RESERVATION_CREATED", "Reservation created successfully");
+
+        return response;
+    }
+
+    private void sendReservationNotification(Reservation reservation, String event, String message) {
+        if (notificationService != null && reservation.getUser() != null) {
+            User driver = reservation.getUser();
+            ReservationResponse payload = toReservationResponse(reservation);
+            notificationService.sendToUser(driver.getUsername(), event, payload);
+            System.out.println("NOTIFICATION TO " + driver.getUsername() + ": " + message);
+        }
     }
 
     @Transactional
@@ -175,6 +248,7 @@ public class ReservationService {
         Reservation reservation = reservationRepository.findByReservationCode(normalizeText(reservationCode))
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
 
+        String oldStatus = reservation.getReservationStatus();
         String normalizedStatus = validateReservationStatus(status);
         reservation.setReservationStatus(normalizedStatus);
         reservation.setNote(normalizeText(note));
@@ -191,7 +265,111 @@ public class ReservationService {
 
         Reservation saved = reservationRepository.save(reservation);
         Ticket ticket = ticketRepository.findByReservationReservationId(saved.getReservationId()).orElse(null);
-        return toReservationResponse(saved, ticket);
+
+        // Set ticket expiredAt when reservation is approved
+        if (ticket != null && "APPROVED".equals(normalizedStatus)) {
+            Integer gracePeriodMinutes = saved.getGracePeriodMinutes();
+            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 15;
+            if (saved.getReservationEnd() != null) {
+                ticket.setExpiredAt(saved.getReservationEnd().plusMinutes(grace));
+                ticketRepository.save(ticket);
+            }
+        }
+
+        ReservationResponse response = toReservationResponse(saved, ticket);
+
+        if (oldStatus != null && !oldStatus.equals(normalizedStatus)) {
+            sendStatusChangeNotification(reservation, oldStatus, normalizedStatus);
+        }
+
+        return response;
+    }
+
+    private void sendStatusChangeNotification(Reservation reservation, String oldStatus, String newStatus) {
+        if (notificationService != null && reservation.getUser() != null) {
+            User driver = reservation.getUser();
+            String message;
+            switch (newStatus) {
+                case "APPROVED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been APPROVED. Please arrive on time.";
+                    break;
+                case "REJECTED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been REJECTED. Reason: " + (reservation.getNote() != null ? reservation.getNote() : "N/A");
+                    break;
+                case "CANCELLED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED.";
+                    break;
+                case "COMPLETED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been COMPLETED. Thank you for using our service.";
+                    break;
+                case "EXPIRED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED. You did not check-in before the grace period.";
+                    break;
+                default:
+                    message = "Your reservation status changed from " + oldStatus + " to " + newStatus;
+            }
+            ReservationResponse payload = toReservationResponse(reservation);
+            notificationService.sendToUser(driver.getUsername(), "RESERVATION_STATUS_CHANGED", payload);
+            System.out.println("NOTIFICATION TO " + driver.getUsername() + ": " + message);
+        }
+    }
+
+    @Transactional
+    public int autoExpireReservations() {
+        LocalDateTime now = LocalDateTime.now();
+
+        // PENDING reservations -> CANCELLED (staff không approve kịp)
+        List<Reservation> expiredPending = reservationRepository.findExpiredPendingReservations(now);
+        int cancelledCount = 0;
+        for (Reservation reservation : expiredPending) {
+            ParkingSlot slot = reservation.getSlot();
+            if (slot != null) {
+                reservation.setReservationStatus("CANCELLED");
+                reservation.setNote("Auto-cancelled: staff did not approve before grace period");
+                reservationRepository.save(reservation);
+
+                slot.setSlotStatus("AVAILABLE");
+                parkingSlotRepository.save(slot);
+
+                sendAutoExpireNotification(reservation, "CANCELLED");
+                cancelledCount++;
+            }
+        }
+
+        // APPROVED reservations -> EXPIRED (driver không check-in kịp)
+        List<Reservation> expiredApproved = reservationRepository.findExpiredApprovedReservations(now);
+        int expiredCount = 0;
+        for (Reservation reservation : expiredApproved) {
+            ParkingSlot slot = reservation.getSlot();
+            if (slot != null) {
+                reservation.setReservationStatus("EXPIRED");
+                reservation.setNote("Auto-expired: driver did not check-in before grace period");
+                reservationRepository.save(reservation);
+
+                slot.setSlotStatus("AVAILABLE");
+                parkingSlotRepository.save(slot);
+
+                sendAutoExpireNotification(reservation, "EXPIRED");
+                expiredCount++;
+            }
+        }
+
+        return cancelledCount + expiredCount;
+    }
+
+    private void sendAutoExpireNotification(Reservation reservation, String newStatus) {
+        if (notificationService != null && reservation.getUser() != null) {
+            User driver = reservation.getUser();
+            String message;
+            if ("EXPIRED".equals(newStatus)) {
+                message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED. You did not check-in before the grace period. Please book again.";
+            } else {
+                message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED. Please book again.";
+            }
+            ReservationResponse payload = toReservationResponse(reservation);
+            notificationService.sendToUser(driver.getUsername(), "RESERVATION_" + newStatus, payload);
+            System.out.println("NOTIFICATION TO " + driver.getUsername() + ": " + message);
+        }
     }
 
     private List<Floor> resolveFloors(String buildingId) {
@@ -286,6 +464,20 @@ public class ReservationService {
         dto.setAvailableCount("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()) ? 1 : 0);
         dto.setVehicleTypeId(floorVehicleType.getVehicleTypeId());
         dto.setVehicleTypeName(floorVehicleType.getTypeName());
+
+        // Set reserved user info nếu slot đang RESERVED
+        if ("RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
+            var reservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
+                    slot.getSlotId(), ACTIVE_RESERVATION_STATUSES).orElse(null);
+            if (reservation != null) {
+                User user = reservation.getUser();
+                Vehicle vehicle = reservation.getVehicle();
+                dto.setReservedByUserId(user != null ? user.getUserId() : null);
+                dto.setReservedByUsername(user != null ? user.getUsername() : null);
+                dto.setReservedByVehicleId(vehicle != null ? vehicle.getVehicleId() : null);
+            }
+        }
+
         return dto;
     }
 
@@ -302,6 +494,19 @@ public class ReservationService {
         resp.setReservationNote(reservation.getNote());
         resp.setReservationStart(reservation.getReservationStart());
         resp.setReservationEnd(reservation.getReservationEnd());
+
+        // User info
+        if (reservation.getUser() != null) {
+            resp.setUserId(reservation.getUser().getUserId());
+            resp.setUsername(reservation.getUser().getUsername());
+        }
+
+        // Vehicle info
+        Vehicle vehicle = reservation.getVehicle();
+        if (vehicle != null) {
+            resp.setVehicleId(vehicle.getVehicleId());
+            resp.setVehiclePlate(vehicle.getPlateNumber());
+        }
 
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
@@ -425,11 +630,33 @@ public class ReservationService {
         }
     }
 
+    // Bug fix: Sync reservations với slots - nếu slot bị xóa thì cancel reservation
+    private void syncReservationsWithSlots() {
+        List<ParkingSlot> allSlots = parkingSlotRepository.findAll();
+        Set<String> existingSlotIds = allSlots.stream()
+                .map(ParkingSlot::getSlotId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<Reservation> activeReservations = reservationRepository.findAll().stream()
+                .filter(r -> ACTIVE_RESERVATION_STATUSES.contains(r.getReservationStatus()))
+                .toList();
+
+        for (Reservation reservation : activeReservations) {
+            ParkingSlot slot = reservation.getSlot();
+            if (slot != null && slot.getSlotId() != null && !existingSlotIds.contains(slot.getSlotId())) {
+                // Slot bị xóa, cancel reservation
+                reservation.setReservationStatus("CANCELLED");
+                reservation.setNote("Auto-cancelled: reserved slot was deleted");
+                reservationRepository.save(reservation);
+            }
+        }
+    }
+
     private String normalize(String value) {
-        return value == null ? null : value.trim().toUpperCase();
+        return value == null ? "" : value.trim().toUpperCase();
     }
 
     private String normalizeText(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
+        return StringUtils.hasText(value) ? value.trim() : "";
     }
 }
