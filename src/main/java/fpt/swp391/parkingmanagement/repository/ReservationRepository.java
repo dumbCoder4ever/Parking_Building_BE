@@ -24,7 +24,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     Optional<Reservation> findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
             String slotId, Collection<String> statuses);
 
-    @EntityGraph(attributePaths = {"user"})
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findByUserUserIdOrderByCreatedAtDesc(String userId);
 

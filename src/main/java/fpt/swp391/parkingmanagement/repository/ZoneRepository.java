@@ -11,7 +11,6 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
     List<Zone> findByFloorFloorId(String floorId);
 
     @EntityGraph(attributePaths = {"floor", "floor.building", "floor.vehicleType"})
-    @EntityGraph(attributePaths = {"floor", "floor.building"})
     List<Zone> findByFloorFloorIdOrderByZoneNameAsc(String floorId);
 
     boolean existsByFloorFloorIdAndZoneNameIgnoreCase(String floorId, String zoneName);
