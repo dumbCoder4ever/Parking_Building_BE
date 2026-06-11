@@ -10,8 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import fpt.swp391.parkingmanagement.dto.CheckinRequest;
-import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CreateReservationRequest;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityDto;
@@ -39,33 +37,16 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-// #region debug logging
-import java.io.FileWriter;
-import java.io.PrintWriter;
-import java.time.Instant;
-// #endregion
-
 @Service
+@RequiredArgsConstructor
 public class ReservationService {
 
     private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
-    
-    // #region debug helpers
-    private void debugLog(String msg) {
-        try (PrintWriter pw = new PrintWriter(new FileWriter("d:/study/springBoot/Parking_Building_BE-main/debug-81867e.log", true))) {
-            pw.println(Instant.now() + " [ReservationService] " + msg);
-        } catch (Exception e) { log.error("debugLog failed", e); }
-    }
-    // #endregion
 
     private static final Set<String> ACTIVE_BUILDING_FLOOR_STATUSES = Set.of("ACTIVE");
     private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
     private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
     private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED", "EXPIRED");
-    private static final Set<String> ACTIVE_BUILDING_FLOOR_STATUSES = Set.of("ACTIVE");
-    private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
-    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
-    private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED");
 
     private final ParkingSlotRepository parkingSlotRepository;
     private final BuildingRepository buildingRepository;
@@ -78,28 +59,6 @@ public class ReservationService {
     private final UserRepository userRepository;
     private final VehicleService vehicleService;
     private NotificationService notificationService;
-
-    public ReservationService(ParkingSlotRepository parkingSlotRepository,
-                             BuildingRepository buildingRepository,
-                             VehicleRepository vehicleRepository,
-                             ReservationRepository reservationRepository,
-                             TicketRepository ticketRepository,
-                             VehicleTypeRepository vehicleTypeRepository,
-                             FloorRepository floorRepository,
-                             ZoneRepository zoneRepository,
-                             UserRepository userRepository,
-                             VehicleService vehicleService) {
-        this.parkingSlotRepository = parkingSlotRepository;
-        this.buildingRepository = buildingRepository;
-        this.vehicleRepository = vehicleRepository;
-        this.reservationRepository = reservationRepository;
-        this.ticketRepository = ticketRepository;
-        this.vehicleTypeRepository = vehicleTypeRepository;
-        this.floorRepository = floorRepository;
-        this.zoneRepository = zoneRepository;
-        this.userRepository = userRepository;
-        this.vehicleService = vehicleService;
-    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public void setNotificationService(NotificationService notificationService) {
@@ -118,21 +77,6 @@ public class ReservationService {
             }
             VehicleType floorVehicleType = floor.getVehicleType();
             if (floorVehicleType == null || floorVehicleType.getVehicleTypeId() == null) {
-    @Transactional(readOnly = true)
-    public List<SlotAvailabilityDto> getAvailability(String buildingId, String vehicleTypeId) {
-        List<SlotAvailabilityDto> result = new ArrayList<>();
-        List<Floor> floors = resolveFloors(buildingId);
-
-        for (Floor floor : floors) {
-            if (!ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(floor.getStatus()))) {
-                continue;
-            }
-            VehicleType floorVehicleType = floor.getVehicleType();
-            if (floorVehicleType == null) {
-                continue;
-            }
-            if (StringUtils.hasText(vehicleTypeId)
-                    && !floorVehicleType.getVehicleTypeId().equals(normalizeText(vehicleTypeId))) {
                 continue;
             }
             if (StringUtils.hasText(vehicleTypeId)
@@ -157,17 +101,6 @@ public class ReservationService {
                         .map(slot -> toSlotAvailability(slot, floorVehicleType))
                         .toList();
 
-            List<Zone> zones = zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId());
-            for (Zone zone : zones) {
-                if (!ACTIVE_ZONE_STATUSES.contains(normalize(zone.getStatus()))) {
-                    continue;
-                }
-
-                List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
-                List<SlotAvailabilityDto> slotDtos = slots.stream()
-                        .map(slot -> toSlotAvailability(slot, floorVehicleType))
-                        .toList();
-
                 long availableSlots = slotDtos.stream()
                         .filter(slot -> "AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()))
                         .count();
@@ -175,8 +108,6 @@ public class ReservationService {
                 result.add(SlotAvailabilityDto.builder()
                         .buildingId(building.getBuildingId())
                         .buildingName(building.getBuildingName())
-                        .buildingId(floor.getBuilding().getBuildingId())
-                        .buildingName(floor.getBuilding().getBuildingName())
                         .floorId(floor.getFloorId())
                         .floorName(floor.getFloorName())
                         .floorLevel(floor.getFloorLevel())
@@ -225,6 +156,7 @@ public class ReservationService {
         ParkingSlot slot = findSlot(req.getSlotId());
         validateSlotSelection(slot, vehicle);
 
+        // Check if slot already has an active reservation
         var activeReservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
                 slot.getSlotId(), ACTIVE_RESERVATION_STATUSES);
         if (activeReservation.isPresent()) {
@@ -233,21 +165,12 @@ public class ReservationService {
 
         validateNoTimeConflict(user.getUserId(), req.getReservationStart(), req.getReservationEnd());
 
-        // Bug fix: 1 user chỉ được 1 slot active trong 1 ngày
+        // 1 user chỉ được 1 slot active trong 1 ngày
         List<Reservation> sameDayReservations = reservationRepository.findByUserIdAndStatusesAndDate(
                 user.getUserId(), ACTIVE_RESERVATION_STATUSES, req.getReservationStart());
         if (!sameDayReservations.isEmpty()) {
             throw new RuntimeException("You already have an active reservation on this day. One user can only reserve one slot per day.");
         }
-
-
-        var activeReservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
-                slot.getSlotId(), ACTIVE_RESERVATION_STATUSES);
-        if (activeReservation.isPresent()) {
-            throw new RuntimeException("Selected slot already has an active reservation");
-        }
-
-        validateNoTimeConflict(user.getUserId(), req.getReservationStart(), req.getReservationEnd());
 
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
@@ -299,6 +222,8 @@ public class ReservationService {
             if ("APPROVED".equals(normalizedStatus)) {
                 slot.setSlotStatus("RESERVED");
             } else if ("REJECTED".equals(normalizedStatus) || "CANCELLED".equals(normalizedStatus)) {
+                slot.setSlotStatus("AVAILABLE");
+            } else if ("COMPLETED".equals(normalizedStatus) || "EXPIRED".equals(normalizedStatus)) {
                 slot.setSlotStatus("AVAILABLE");
             }
             parkingSlotRepository.save(slot);
@@ -413,33 +338,6 @@ public class ReservationService {
         }
     }
 
-        return toReservationResponse(reservation, ticket);
-    }
-
-    @Transactional
-    public ReservationResponse updateReservationStatus(String reservationCode, String status, String note) {
-        Reservation reservation = reservationRepository.findByReservationCode(normalizeText(reservationCode))
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
-
-        String normalizedStatus = validateReservationStatus(status);
-        reservation.setReservationStatus(normalizedStatus);
-        reservation.setNote(normalizeText(note));
-
-        ParkingSlot slot = reservation.getSlot();
-        if (slot != null) {
-            if ("APPROVED".equals(normalizedStatus)) {
-                slot.setSlotStatus("RESERVED");
-            } else if ("REJECTED".equals(normalizedStatus) || "CANCELLED".equals(normalizedStatus)) {
-                slot.setSlotStatus("AVAILABLE");
-            }
-            parkingSlotRepository.save(slot);
-        }
-
-        Reservation saved = reservationRepository.save(reservation);
-        Ticket ticket = ticketRepository.findByReservationReservationId(saved.getReservationId()).orElse(null);
-        return toReservationResponse(saved, ticket);
-    }
-
     private List<Floor> resolveFloors(String buildingId) {
         if (StringUtils.hasText(buildingId)) {
             return floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(normalizeText(buildingId));
@@ -458,7 +356,7 @@ public class ReservationService {
         }
     }
 
-    private void validateNoTimeConflict(String userId, java.time.LocalDateTime start, java.time.LocalDateTime end) {
+    private void validateNoTimeConflict(String userId, LocalDateTime start, LocalDateTime end) {
         List<Reservation> overlapping = reservationRepository.findOverlappingReservations(
                 userId, start, end, ACTIVE_RESERVATION_STATUSES);
         if (!overlapping.isEmpty()) {
@@ -473,16 +371,6 @@ public class ReservationService {
         }
         if (!"AVAILABLE".equalsIgnoreCase(slot.getSlotStatus())) {
             throw new RuntimeException("Selected slot is not available");
-        }
-
-        Floor floor = zone.getFloor();
-        if (!ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(floor.getStatus()))) {
-            throw new RuntimeException("Selected floor is not active");
-        }
-        if (!ACTIVE_ZONE_STATUSES.contains(normalize(zone.getStatus()))) {
-            throw new RuntimeException("Selected zone is not active");
-        }
-
         }
 
         Floor floor = zone.getFloor();
@@ -514,7 +402,7 @@ public class ReservationService {
 
         return vehicleRepository.findByPlateNumberIgnoreCase(req.getPlateNumber())
                 .map(existing -> {
-                    if (!existing.getUser().getUserId().equals(user.getUserId())) {
+                    if (existing.getUser() != null && !existing.getUser().getUserId().equals(user.getUserId())) {
                         throw new RuntimeException("Plate number already registered by another user");
                     }
                     existing.setVehicleColor(req.getVehicleColor());
@@ -708,39 +596,11 @@ public class ReservationService {
         }
     }
 
-    // Bug fix: Sync reservations với slots - nếu slot bị xóa thì cancel reservation
-    private void syncReservationsWithSlots() {
-        List<ParkingSlot> allSlots = parkingSlotRepository.findAll();
-        Set<String> existingSlotIds = allSlots.stream()
-                .map(ParkingSlot::getSlotId)
-                .collect(java.util.stream.Collectors.toSet());
-
-        List<Reservation> activeReservations = reservationRepository.findAll().stream()
-                .filter(r -> ACTIVE_RESERVATION_STATUSES.contains(r.getReservationStatus()))
-                .toList();
-
-        for (Reservation reservation : activeReservations) {
-            ParkingSlot slot = reservation.getSlot();
-            if (slot != null && slot.getSlotId() != null && !existingSlotIds.contains(slot.getSlotId())) {
-                // Slot bị xóa, cancel reservation
-                reservation.setReservationStatus("CANCELLED");
-                reservation.setNote("Auto-cancelled: reserved slot was deleted");
-                reservationRepository.save(reservation);
-            }
-        }
-    }
-
     private String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase();
     }
 
     private String normalizeText(String value) {
         return StringUtils.hasText(value) ? value.trim() : "";
-    private String normalize(String value) {
-        return value == null ? null : value.trim().toUpperCase();
-    }
-
-    private String normalizeText(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
     }
 }
