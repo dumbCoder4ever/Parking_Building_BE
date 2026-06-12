@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import lombok.Data;
 
@@ -31,4 +32,9 @@ public class CheckoutResponse {
     private BigDecimal overnightCharge;
     private boolean lostTicketCharge;
     private int parkingHours;
+    private int parkingMinutes;
+
+    // Tiered pricing breakdown
+    private List<PricingTierResponse> pricingTiers;
+    private String feeExplanation;
 }

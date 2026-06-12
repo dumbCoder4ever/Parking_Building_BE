@@ -29,4 +29,15 @@ public class PricingPolicyResponse {
 
     //vehicle type data
     private String typeName;
+
+    // Tiered pricing
+    private Integer tier1Hours;
+    private BigDecimal tier1Price;
+    private Integer tier2Hours;
+    private BigDecimal tier2Price;
+    private Integer tier3Hours;
+    private BigDecimal tier3Price;
+    private Integer tier4Hours;
+    private BigDecimal tier4Price;
+    private BigDecimal perDayPrice;
 }
