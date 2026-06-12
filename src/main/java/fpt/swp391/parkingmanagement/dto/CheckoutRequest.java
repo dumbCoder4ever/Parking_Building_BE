@@ -9,8 +9,7 @@ public class CheckoutRequest {
     @NotBlank(message = "Ticket code is required")
     private String ticketCode;
 
-    private String paymentMethod; // CASH, BANKING, ...
+    private String paymentMethod;
 
-    @NotBlank(message = "Building ID is required for staff check-out")
-    private String buildingId;
+    private boolean lostTicket;
 }

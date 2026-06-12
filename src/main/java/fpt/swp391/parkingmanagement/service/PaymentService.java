@@ -74,7 +74,6 @@ public class PaymentService {
         } catch (Exception ignored) {}
 
         String paymentUrl = null;
-        String qrCode = null;
         if ("VNPAY".equals(paymentRequest.getPaymentMethod())) {
             paymentUrl = vnPayService.createPaymentUrl(
                     savedPayment.getPaymentId(),
@@ -91,8 +90,6 @@ public class PaymentService {
             savedPayment.setTransactionCode(String.valueOf(payosResponse.getOrderCode()));
             paymentRepository.save(savedPayment);
             paymentUrl = payosResponse.getCheckoutUrl();
-        } else if ("MOMO".equals(paymentRequest.getPaymentMethod())) {
-            qrCode = generateQRCode(savedPayment.getPaymentId(), paymentRequest.getAmount());
         }
 
         PaymentResponseDTO response = PaymentResponseDTO.builder()
@@ -103,7 +100,6 @@ public class PaymentService {
                 .paymentStatus("PENDING")
                 .transactionCode(savedPayment.getTransactionCode())
                 .paymentTime(LocalDateTime.now())
-                .qrCode(qrCode)
                 .paymentUrl(paymentUrl)
                 .message("Payment initiated. Driver can now proceed with payment.")
                 .build();
@@ -222,10 +218,6 @@ public class PaymentService {
 
     private String generateTransactionCode() {
         return "TXN-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 10000);
-    }
-
-    private String generateQRCode(String paymentId, BigDecimal amount) {
-        return "QR_" + paymentId + "_" + amount;
     }
 
     public PaymentResponseDTO getPaymentDetails(String paymentId) {

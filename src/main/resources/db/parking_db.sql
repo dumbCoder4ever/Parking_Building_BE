@@ -339,8 +339,6 @@
 
                              ticket_code VARCHAR(50) NOT NULL UNIQUE,
 
-                             qr_code VARCHAR(255),
-
                              is_used BOOLEAN DEFAULT FALSE,
 
                              is_lost BOOLEAN DEFAULT FALSE,

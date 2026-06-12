@@ -1,12 +1,14 @@
 package fpt.swp391.parkingmanagement.dto;
 
+import lombok.Builder;
+import lombok.Data;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-import lombok.Data;
-
 @Data
-public class ParkingSessionResponse {
+@Builder
+public class DriverCurrentSessionResponse {
     private String sessionId;
     private String ticketCode;
     private String buildingId;
@@ -18,14 +20,23 @@ public class ParkingSessionResponse {
     private String slotId;
     private String slotName;
     private String vehiclePlate;
+    private String vehicleColor;
+    private String vehicleBrand;
+    private String vehicleModel;
     private LocalDateTime checkinTime;
+    private LocalDateTime currentTime;
+    private int parkingMinutes;
+    private String sessionStatus;
+    private String paymentStatus;
 
-    private BigDecimal estimatedFee;
     private String vehicleTypeId;
     private String vehicleTypeName;
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
-    private BigDecimal overnightFee;
     private BigDecimal peakHourMultiplier;
     private BigDecimal maxDailyFee;
+    private BigDecimal overnightFee;
+    private BigDecimal estimatedFee;
+    private BigDecimal currentAccumulatedFee;
+    private int estimatedHours;
 }
