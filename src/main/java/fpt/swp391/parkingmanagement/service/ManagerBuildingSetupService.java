@@ -1,6 +1,7 @@
 package fpt.swp391.parkingmanagement.service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -74,6 +75,7 @@ public class ManagerBuildingSetupService {
     public List<ManagerSetupResponse> getSlotsByZone(String zoneId) {
         Zone zone = findZone(zoneId);
         return parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId()).stream()
+                .sorted(slotByIndexAscending())
                 .map(this::toSlotResponse)
                 .toList();
     }
@@ -249,6 +251,12 @@ public class ManagerBuildingSetupService {
             parkingSlotRepository.saveAll(newSlots);
         }
 
+        if (request.getSlotPrefix() != null && !request.getSlotPrefix().isBlank()) {
+            List<ParkingSlot> slotsToRename =
+                    parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
+            renameZoneSlots(slotsToRename, normalizeText(request.getSlotPrefix()));
+        }
+
         zone.setZoneName(normalizedName);
         zone.setMaxCapacity(targetSlotCount);
         ManagerSetupResponse response = toZoneResponse(zoneRepository.save(zone));
@@ -372,18 +380,11 @@ public class ManagerBuildingSetupService {
     }
 
     private void removeAvailableSlots(List<ParkingSlot> slots, int slotsToRemove) {
-        List<ParkingSlot> removableSlots = new ArrayList<>(slots);
-        removableSlots.sort((left, right) -> right.getSlotName().compareToIgnoreCase(left.getSlotName()));
-
-        List<ParkingSlot> toDelete = new ArrayList<>(slotsToRemove);
-        for (ParkingSlot slot : removableSlots) {
-            if (toDelete.size() >= slotsToRemove) {
-                break;
-            }
-            if ("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus())) {
-                toDelete.add(slot);
-            }
-        }
+        List<ParkingSlot> toDelete = slots.stream()
+                .filter(slot -> "AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()))
+                .sorted(slotByIndexDescending())
+                .limit(slotsToRemove)
+                .toList();
 
         if (toDelete.size() < slotsToRemove) {
             throw new RuntimeException("Not enough available slots to remove");
@@ -403,6 +404,37 @@ public class ManagerBuildingSetupService {
             return slotName.substring(0, lastDash);
         }
         return slotName;
+    }
+
+    private String resolveSlotPrefix(String zoneId) {
+        return parkingSlotRepository.findFirstByZoneZoneIdOrderBySlotNameAsc(zoneId)
+                .map(slot -> deriveSlotPrefix(List.of(slot)))
+                .orElse(null);
+    }
+
+    private void renameZoneSlots(List<ParkingSlot> slots, String slotPrefix) {
+        if (slots.isEmpty()) {
+            return;
+        }
+
+        String currentPrefix = deriveSlotPrefix(slots);
+        if (slotPrefix.equalsIgnoreCase(currentPrefix)) {
+            return;
+        }
+
+        List<ParkingSlot> orderedSlots = new ArrayList<>(slots);
+        orderedSlots.sort(slotByIndexAscending());
+
+        for (ParkingSlot slot : orderedSlots) {
+            slot.setSlotName("__rename_" + slot.getSlotId());
+        }
+        parkingSlotRepository.saveAll(orderedSlots);
+        parkingSlotRepository.flush();
+
+        for (int i = 0; i < orderedSlots.size(); i++) {
+            orderedSlots.get(i).setSlotName(slotPrefix + "-" + (i + 1));
+        }
+        parkingSlotRepository.saveAll(orderedSlots);
     }
 
     private String validateBuildingOrFloorStatus(String status) {
@@ -475,6 +507,7 @@ public class ManagerBuildingSetupService {
                 .maxCapacity(zone.getMaxCapacity())
                 .currentOccupancy(zone.getCurrentOccupancy())
                 .slotCount((int) slotCount)
+                .slotPrefix(resolveSlotPrefix(zone.getZoneId()))
                 .status(zone.getStatus())
                 .createdAt(zone.getCreatedAt())
                 .updatedAt(zone.getUpdatedAt())
@@ -496,5 +529,33 @@ public class ManagerBuildingSetupService {
 
     private String normalizeText(String value) {
         return value == null ? null : value.trim().replaceAll("\\s+", " ");
+    }
+
+    private int extractSlotIndex(ParkingSlot slot) {
+        String slotName = slot.getSlotName();
+        int lastDash = slotName.lastIndexOf('-');
+        if (lastDash >= 0 && lastDash < slotName.length() - 1) {
+            try {
+                return Integer.parseInt(slotName.substring(lastDash + 1).trim());
+            } catch (NumberFormatException ignored) {
+                // Fall back to lexical ordering below.
+            }
+        }
+        return -1;
+    }
+
+    private Comparator<ParkingSlot> slotByIndexAscending() {
+        return (left, right) -> {
+            int leftIndex = extractSlotIndex(left);
+            int rightIndex = extractSlotIndex(right);
+            if (leftIndex >= 0 && rightIndex >= 0 && leftIndex != rightIndex) {
+                return Integer.compare(leftIndex, rightIndex);
+            }
+            return left.getSlotName().compareToIgnoreCase(right.getSlotName());
+        };
+    }
+
+    private Comparator<ParkingSlot> slotByIndexDescending() {
+        return slotByIndexAscending().reversed();
     }
 }

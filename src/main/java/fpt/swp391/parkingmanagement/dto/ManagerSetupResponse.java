@@ -22,6 +22,7 @@ public class ManagerSetupResponse {
     private Integer floorCount;
     private Integer zoneCount;
     private Integer slotCount;
+    private String slotPrefix;
     private String address;
     private String contactNumber;
     private String vehicleTypeId;
