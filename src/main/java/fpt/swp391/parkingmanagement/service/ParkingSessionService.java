@@ -3,6 +3,7 @@ package fpt.swp391.parkingmanagement.service;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import fpt.swp391.parkingmanagement.dto.CheckinRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
+import fpt.swp391.parkingmanagement.dto.PricingTierResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
@@ -32,6 +34,7 @@ import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import fpt.swp391.parkingmanagement.service.PricingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -47,6 +50,7 @@ public class ParkingSessionService {
     private final PricingPolicyRepository pricingPolicyRepository;
     private final PaymentRepository paymentRepository;
     private final BuildingStaffRepository buildingStaffRepository;
+    private final PricingService pricingService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
         String userId = userRepository.findByEmail(staffEmail)
@@ -199,24 +203,15 @@ public class ParkingSessionService {
         int hours = (int) Math.ceil(minutes / 60.0);
 
         BigDecimal total = BigDecimal.ZERO;
-        BigDecimal overnightCharge = BigDecimal.ZERO;
-        boolean overnightApplied = false;
         PricingPolicy policy = null;
         if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
-            policy = pricingPolicyRepository.findActiveForVehicleType(vtId).orElse(null);
+            policy = pricingService.getActivePolicy(vtId);
 
             if (policy == null) {
                 log.warn("No active pricing policy for vehicleTypeId={}", vtId);
             } else {
-                BigDecimal fee = computeParkingFee(policy, hours, now);
-                total = total.add(fee);
-
-                overnightApplied = isOvernightParking(session.getCheckinTime(), now);
-                if (overnightApplied && policy.getOvernightFee() != null) {
-                    overnightCharge = policy.getOvernightFee();
-                    total = total.add(overnightCharge);
-                }
+                total = pricingService.calculateFeeByPolicy(policy, hours);
             }
         }
 
@@ -251,7 +246,8 @@ public class ParkingSessionService {
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
         resp.setParkingHours(hours);
-        resp.setOvernightCharge(overnightCharge);
+        resp.setParkingMinutes((int) minutes);
+        resp.setOvernightCharge(BigDecimal.ZERO);
         if (policy != null) {
             resp.setBasePrice(policy.getBasePrice());
             resp.setHourlyRate(policy.getHourlyRate());
@@ -259,6 +255,8 @@ public class ParkingSessionService {
             resp.setMaxDailyFee(policy.getMaxDailyFee());
             resp.setOvernightFee(policy.getOvernightFee());
             resp.setLostTicketFee(policy.getLostTicketFee());
+            resp.setPricingTiers(pricingService.toTierList(policy));
+            resp.setFeeExplanation(buildFeeExplanation(policy, hours));
             if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
                 resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
                 resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
@@ -317,35 +315,18 @@ public class ParkingSessionService {
         }
     }
 
-    private BigDecimal computeParkingFee(PricingPolicy policy, int hours, LocalDateTime checkoutTime) {
-        BigDecimal total = BigDecimal.ZERO;
-
-        if (policy.getBasePrice() != null) {
-            total = total.add(policy.getBasePrice());
-        }
-        if (policy.getHourlyRate() != null) {
-            total = total.add(policy.getHourlyRate().multiply(BigDecimal.valueOf(hours)));
-        }
-
-        BigDecimal peakMultiplier = policy.getPeakHourMultiplier();
-        if (peakMultiplier != null && peakMultiplier.compareTo(BigDecimal.ONE) > 0) {
-            int hourOfDay = checkoutTime.getHour();
-            boolean isPeak = (hourOfDay >= 7 && hourOfDay < 9) || (hourOfDay >= 17 && hourOfDay < 19);
-            if (isPeak) {
-                total = total.multiply(peakMultiplier);
+    private String buildFeeExplanation(PricingPolicy policy, int hours) {
+        if (policy == null || hours <= 0) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append(hours).append("h parking: ");
+        List<PricingTierResponse> tiers = pricingService.toTierList(policy);
+        for (int i = 0; i < tiers.size(); i++) {
+            PricingTierResponse tier = tiers.get(i);
+            if (hours <= tier.getMaxHours() || i == tiers.size() - 1) {
+                sb.append(tier.getTierLabel()).append(" = ").append(tier.getPrice()).append(" VND");
+                break;
             }
         }
-
-        BigDecimal maxDaily = policy.getMaxDailyFee();
-        if (maxDaily != null && maxDaily.compareTo(BigDecimal.ZERO) > 0 && total.compareTo(maxDaily) > 0) {
-            total = maxDaily;
-        }
-
-        return total;
-    }
-
-    private boolean isOvernightParking(LocalDateTime checkin, LocalDateTime checkout) {
-        if (checkin == null || checkout == null) return false;
-        return checkin.toLocalDate().isBefore(checkout.toLocalDate());
+        return sb.toString();
     }
 }

@@ -37,4 +37,7 @@ public class SlotAvailabilityDto {
     private String reservedByUserId;
     private String reservedByUsername;
     private String reservedByVehicleId;
+
+    // Pricing tiers for this vehicle type
+    private List<PricingTierResponse> pricingTiers;
 }

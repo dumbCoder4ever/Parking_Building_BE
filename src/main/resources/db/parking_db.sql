@@ -488,7 +488,8 @@
                                       pricing_type ENUM(
             'HOURLY',
             'DAILY',
-            'OVERNIGHT'
+            'OVERNIGHT',
+            'TIERED'
         ) NOT NULL,
 
                                       base_price DECIMAL(10,2) DEFAULT 0,
@@ -502,6 +503,16 @@
                                       peak_hour_multiplier DECIMAL(5,2) DEFAULT 1,
 
                                       max_daily_fee DECIMAL(10,2) DEFAULT 0,
+
+                                      tier1_hours INT DEFAULT 0,
+                                      tier1_price DECIMAL(10,2) DEFAULT 0,
+                                      tier2_hours INT DEFAULT 0,
+                                      tier2_price DECIMAL(10,2) DEFAULT 0,
+                                      tier3_hours INT DEFAULT 0,
+                                      tier3_price DECIMAL(10,2) DEFAULT 0,
+                                      tier4_hours INT DEFAULT 0,
+                                      tier4_price DECIMAL(10,2) DEFAULT 0,
+                                      per_day_price DECIMAL(10,2) DEFAULT 0,
 
                                       effective_from DATETIME,
 
