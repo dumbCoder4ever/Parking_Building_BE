@@ -1,17 +1,16 @@
 package fpt.swp391.parkingmanagement.service;
 
+import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
-import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.User;
-import fpt.swp391.parkingmanagement.enums.PaymentStatus;
-import fpt.swp391.parkingmanagement.enums.SessionStatus;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,18 +23,13 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class PaymentService {
-    @Autowired
-    private PaymentRepository paymentRepository;
 
-    @Autowired
-    private ParkingSessionRepository parkingSessionRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private NotificationService notificationService;
+    private final PaymentRepository paymentRepository;
+    private final ParkingSessionRepository parkingSessionRepository;
+    private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Autowired
     private VnPayService vnPayService;
@@ -49,25 +43,12 @@ public class PaymentService {
      */
     @Transactional
     public PaymentResponseDTO initiatePayment(PaymentRequestDTO paymentRequest) {
-        // Validate session exists and is active
         ParkingSession session = parkingSessionRepository.findById(paymentRequest.getSessionId())
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
 
         if (!session.getSessionStatus().equals("ACTIVE")) {
             throw new RuntimeException("Session is not active");
         }
-
-        // Create payment record with PENDING status
-//        Payment payment = Payment.builder()
-//                .paymentId(UUID.randomUUID().toString())
-//                .sessionId(session.getSessionId())
-//                .paymentMethod(paymentRequest.getPaymentMethod())
-//                .amount(paymentRequest.getAmount())
-//                .paymentStatus(PaymentStatus.PENDING)
-//                .transactionCode(generateTransactionCode())
-//                .note(paymentRequest.getNote())
-//                .createdAt(LocalDateTime.now())
-//                .build();
 
         Payment payment = new Payment();
         payment.setPaymentId(UUID.randomUUID().toString());
@@ -82,7 +63,6 @@ public class PaymentService {
 
         Payment savedPayment = paymentRepository.save(payment);
 
-        // Lấy IP của request hiện tại
         String clientIp = "127.0.0.1";
         try {
             ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
@@ -128,7 +108,6 @@ public class PaymentService {
                 .message("Payment initiated. Driver can now proceed with payment.")
                 .build();
 
-        // STEP 2: Send payment details to DRIVER
         User driver = userRepository.findById(paymentRequest.getDriverId())
                 .orElseThrow(() -> new RuntimeException("Driver not found"));
 
@@ -151,10 +130,9 @@ public class PaymentService {
 
         Payment updatedPayment = paymentRepository.save(payment);
 
-        // Update parking session payment status
         ParkingSession session = parkingSessionRepository.findById(payment.getSession().getSessionId())
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
-        session.setPaymentStatus(String.valueOf(PaymentStatus.PAID));
+        session.setPaymentStatus("PAID");
         parkingSessionRepository.save(session);
 
         return PaymentResponseDTO.builder()
@@ -183,9 +161,6 @@ public class PaymentService {
         User driver = userRepository.findById(confirmationRequest.getDriverId())
                 .orElseThrow(() -> new RuntimeException("Driver not found"));
 
-        User staff = userRepository.findById(confirmationRequest.getStaffId())
-                .orElseThrow(() -> new RuntimeException("Staff not found"));
-
         PaymentConfirmationDTO confirmation = PaymentConfirmationDTO.builder()
                 .paymentId(confirmationRequest.getPaymentId())
                 .sessionId(payment.getSession().getSessionId())
@@ -200,7 +175,6 @@ public class PaymentService {
         if (confirmationRequest.getIsConfirmed()) {
             payment.setPaymentStatus("SUCCESS");
             session.setPaymentStatus("PAID");
-            //session.setSessionStatus("COMPLETED"); Xóa vì conflict checkout
             confirmation.setConfirmationStatus("SUCCESS");
             confirmation.setMessage("Payment confirmed successfully. You may exit.");
         } else {
@@ -214,7 +188,6 @@ public class PaymentService {
         paymentRepository.save(payment);
         parkingSessionRepository.save(session);
 
-        // STEP 5: Send final confirmation back to DRIVER
         notificationService.sendPaymentConfirmationToDriver(driver, confirmation);
 
         return confirmation;

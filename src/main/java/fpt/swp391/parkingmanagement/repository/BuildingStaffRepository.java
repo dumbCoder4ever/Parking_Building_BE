@@ -5,6 +5,8 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import fpt.swp391.parkingmanagement.entity.BuildingStaff;
 
@@ -23,4 +25,7 @@ public interface BuildingStaffRepository extends JpaRepository<BuildingStaff, St
     void deleteByBuildingBuildingIdAndUserUserId(String buildingId, String userId);
 
     long countByUserUserId(String userId);
+
+    @Query("SELECT bs.building.buildingId FROM BuildingStaff bs WHERE bs.user.userId = :userId")
+    List<String> findBuildingIdsByUserId(@Param("userId") String userId);
 }

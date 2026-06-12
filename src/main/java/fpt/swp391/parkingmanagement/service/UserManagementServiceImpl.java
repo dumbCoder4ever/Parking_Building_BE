@@ -7,6 +7,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import fpt.swp391.parkingmanagement.dto.UpdateUserStatusRequest;
 import fpt.swp391.parkingmanagement.dto.UserRequest;
 import fpt.swp391.parkingmanagement.dto.UserResponse;
 import fpt.swp391.parkingmanagement.dto.UserUpdateRequest;
@@ -80,10 +81,10 @@ public class UserManagementServiceImpl implements UserManagementService {
     }
 
     @Override
-    public void changeUserStatus(String userId, String status) {
+    public void changeUserStatus(String userId, UpdateUserStatusRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-        user.setStatus(status);
+        user.setStatus(request.getStatus());
         userRepository.save(user);
     }
 

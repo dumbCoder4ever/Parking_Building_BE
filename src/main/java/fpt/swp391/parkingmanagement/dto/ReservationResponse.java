@@ -20,6 +20,9 @@ public class ReservationResponse {
     // Vehicle info
     private String vehicleId;
     private String vehiclePlate;
+    private String vehicleColor;
+    private String vehicleBrand;
+    private String vehicleModel;
 
     // Slot info
     private String buildingId;
