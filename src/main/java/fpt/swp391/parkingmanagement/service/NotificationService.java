@@ -1,6 +1,9 @@
 package fpt.swp391.parkingmanagement.service;
 
+import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
+import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
 import fpt.swp391.parkingmanagement.dto.WsMessage;
+import fpt.swp391.parkingmanagement.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -35,5 +38,13 @@ public class NotificationService {
     /** Broadcast trạng thái parking (cho màn hình tổng quan) */
     public <T> void broadcastParkingUpdate(String event, T payload) {
         messagingTemplate.convertAndSend("/topic/parking/status", WsMessage.of(event, payload));
+    }
+
+    public void sendPaymentInitiationToDriver(User driver, PaymentResponseDTO paymentResponse) {
+        sendToUser(driver.getUsername(), "PAYMENT_INITIATED", paymentResponse);
+    }
+
+    public void sendPaymentConfirmationToDriver(User driver, PaymentConfirmationDTO confirmation) {
+        sendToUser(driver.getUsername(), "PAYMENT_CONFIRMED", confirmation);
     }
 }

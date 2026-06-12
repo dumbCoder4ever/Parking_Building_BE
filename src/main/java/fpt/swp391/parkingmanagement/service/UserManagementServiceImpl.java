@@ -1,7 +1,6 @@
 package fpt.swp391.parkingmanagement.service;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,8 +30,8 @@ public class UserManagementServiceImpl implements UserManagementService {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new DuplicateResourceException("Username already exists: " + request.getUsername());
         }
-        if (request.getGmail() != null && userRepository.existsByEmail(request.getGmail())) {
-            throw new DuplicateResourceException("Email already exists: " + request.getGmail());
+        if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
+            throw new DuplicateResourceException("Email already exists: " + request.getEmail());
         }
         if (request.getPhone() != null && userRepository.existsByPhoneNumber(request.getPhone())) {
             throw new DuplicateResourceException("Phone number already exists: " + request.getPhone());
@@ -41,7 +40,7 @@ public class UserManagementServiceImpl implements UserManagementService {
         User user = new User();
         user.setUsername(request.getUsername());
         user.setFullName(request.getFullName());
-        user.setEmail(request.getGmail());
+        user.setEmail(request.getEmail());
         user.setPhoneNumber(request.getPhone());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
@@ -51,50 +50,11 @@ public class UserManagementServiceImpl implements UserManagementService {
     }
 
     @Override
-    public UserResponse updateUser(String userId, UserUpdateRequest request) {
+    public UserResponse changeUserRole(String userId, UserUpdateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
 
-        if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
-            Optional<User> existingByUsername = userRepository.findByUsername(request.getUsername());
-            if (existingByUsername.isPresent() && !existingByUsername.get().getUserId().equals(userId)) {
-                throw new DuplicateResourceException("Username already exists: " + request.getUsername());
-            }
-            user.setUsername(request.getUsername());
-        }
-
-        if (request.getGmail() != null && !request.getGmail().equals(user.getEmail())) {
-            Optional<User> existingByEmail = userRepository.findByEmail(request.getGmail());
-            if (existingByEmail.isPresent() && !existingByEmail.get().getUserId().equals(userId)) {
-                throw new DuplicateResourceException("Email already exists: " + request.getGmail());
-            }
-            user.setEmail(request.getGmail());
-        }
-
-        if (request.getPhone() != null && !request.getPhone().equals(user.getPhoneNumber())) {
-            Optional<User> existingByPhone = userRepository.findByPhoneNumber(request.getPhone());
-            if (existingByPhone.isPresent() && !existingByPhone.get().getUserId().equals(userId)) {
-                throw new DuplicateResourceException("Phone number already exists: " + request.getPhone());
-            }
-            user.setPhoneNumber(request.getPhone());
-        }
-
-        if (request.getFullName() != null) {
-            user.setFullName(request.getFullName());
-        }
-
-        if (request.getPassword() != null && !request.getPassword().isEmpty()) {
-            user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        }
-
-        if (request.getRole() != null) {
-            user.setRole(request.getRole());
-        }
-
-        if (request.getStatus() != null) {
-            user.setStatus(request.getStatus());
-        }
-
+        user.setRole(request.role());
         return convertToResponse(userRepository.save(user));
     }
 
