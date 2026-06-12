@@ -22,6 +22,7 @@ import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateSetupStatusRequest;
+import fpt.swp391.parkingmanagement.dto.UpdateZoneRequest;
 import fpt.swp391.parkingmanagement.service.ManagerBuildingSetupService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -107,7 +108,10 @@ public class ManagerBuildingSetupController {
                 .body(ApiResponse.ok("Floor created successfully", response));
     }
 
-    @Operation(summary = "Update floor")
+    @Operation(
+            summary = "Update floor",
+            description = "Update floor name, max capacity, and vehicle type. "
+                    + "Set vehicleTypeId from GET /api/vehicles/types.")
     @PutMapping("/floors/{floorId}")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateFloor(
             @PathVariable String floorId,
@@ -145,6 +149,18 @@ public class ManagerBuildingSetupController {
         ManagerSetupResponse response = managerBuildingSetupService.createZoneAndSlots(floorId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Zone and slots created successfully", response));
+    }
+
+    @Operation(
+            summary = "Update zone",
+            description = "Update zone name and change the number of slots by adjusting maxCapacity.")
+    @PutMapping("/zones/{zoneId}")
+    public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateZone(
+            @PathVariable String zoneId,
+            @Valid @RequestBody UpdateZoneRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Zone updated successfully",
+                managerBuildingSetupService.updateZone(zoneId, request)));
     }
 
     @Operation(summary = "Update zone status")
