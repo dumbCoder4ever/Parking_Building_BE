@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -9,8 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import fpt.swp391.parkingmanagement.dto.CheckinRequest;
-import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CreateReservationRequest;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityDto;
@@ -24,6 +23,8 @@ import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.entity.Zone;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
@@ -34,16 +35,19 @@ import fpt.swp391.parkingmanagement.repository.UserRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
-import lombok.RequiredArgsConstructor;
+import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
-@RequiredArgsConstructor
 public class ReservationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
 
     private static final Set<String> ACTIVE_BUILDING_FLOOR_STATUSES = Set.of("ACTIVE");
     private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
     private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
-    private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED");
+    private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "REJECTED", "CANCELLED", "COMPLETED", "EXPIRED");
 
     private final ParkingSlotRepository parkingSlotRepository;
     private final BuildingRepository buildingRepository;
@@ -55,10 +59,41 @@ public class ReservationService {
     private final ZoneRepository zoneRepository;
     private final UserRepository userRepository;
     private final VehicleService vehicleService;
+    private final NotificationService notificationService;
+    private final BuildingStaffRepository buildingStaffRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ReservationService(
+            ParkingSlotRepository parkingSlotRepository,
+            BuildingRepository buildingRepository,
+            VehicleRepository vehicleRepository,
+            ReservationRepository reservationRepository,
+            TicketRepository ticketRepository,
+            VehicleTypeRepository vehicleTypeRepository,
+            FloorRepository floorRepository,
+            ZoneRepository zoneRepository,
+            UserRepository userRepository,
+            VehicleService vehicleService,
+            NotificationService notificationService,
+            BuildingStaffRepository buildingStaffRepository) {
+        this.parkingSlotRepository = parkingSlotRepository;
+        this.buildingRepository = buildingRepository;
+        this.vehicleRepository = vehicleRepository;
+        this.reservationRepository = reservationRepository;
+        this.ticketRepository = ticketRepository;
+        this.vehicleTypeRepository = vehicleTypeRepository;
+        this.floorRepository = floorRepository;
+        this.zoneRepository = zoneRepository;
+        this.userRepository = userRepository;
+        this.vehicleService = vehicleService;
+        this.notificationService = notificationService;
+        this.buildingStaffRepository = buildingStaffRepository;
+    }
 
     @Transactional(readOnly = true)
     public List<SlotAvailabilityDto> getAvailability(String buildingId, String vehicleTypeId) {
         List<SlotAvailabilityDto> result = new ArrayList<>();
+
         List<Floor> floors = resolveFloors(buildingId);
 
         for (Floor floor : floors) {
@@ -66,11 +101,16 @@ public class ReservationService {
                 continue;
             }
             VehicleType floorVehicleType = floor.getVehicleType();
-            if (floorVehicleType == null) {
+            if (floorVehicleType == null || floorVehicleType.getVehicleTypeId() == null) {
                 continue;
             }
             if (StringUtils.hasText(vehicleTypeId)
-                    && !floorVehicleType.getVehicleTypeId().equals(normalizeText(vehicleTypeId))) {
+                    && !normalizeText(vehicleTypeId).equals(floorVehicleType.getVehicleTypeId())) {
+                continue;
+            }
+
+            Building building = floor.getBuilding();
+            if (building == null) {
                 continue;
             }
 
@@ -81,6 +121,7 @@ public class ReservationService {
                 }
 
                 List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
+
                 List<SlotAvailabilityDto> slotDtos = slots.stream()
                         .map(slot -> toSlotAvailability(slot, floorVehicleType))
                         .toList();
@@ -90,8 +131,8 @@ public class ReservationService {
                         .count();
 
                 result.add(SlotAvailabilityDto.builder()
-                        .buildingId(floor.getBuilding().getBuildingId())
-                        .buildingName(floor.getBuilding().getBuildingName())
+                        .buildingId(building.getBuildingId())
+                        .buildingName(building.getBuildingName())
                         .floorId(floor.getFloorId())
                         .floorName(floor.getFloorName())
                         .floorLevel(floor.getFloorLevel())
@@ -130,6 +171,78 @@ public class ReservationService {
                 .toList();
     }
 
+    // ============ STAFF APIs ============
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getAllReservations(String staffEmail, String buildingId) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        return reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getAllReservationsForStaff(String staffEmail) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getReservationsByStatusForStaff(String staffEmail, String status) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getReservationsByStatus(String staffEmail, String buildingId, String status) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationById(String staffEmail, String buildingId, String reservationId) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        Reservation reservation = reservationRepository.findByBuildingBuildingIdAndReservationId(buildingId, reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationId));
+        return toReservationResponse(reservation);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationByCode(String staffEmail, String buildingId, String reservationCode) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        Reservation reservation = reservationRepository
+                .findByBuildingBuildingIdAndReservationCodeFetchingDetails(buildingId, reservationCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+        return toReservationResponse(reservation);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationByCodeForStaff(String staffEmail, String reservationCode) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        Reservation reservation = reservationRepository
+                .findByReservationCodeFetchingDetails(reservationCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+        if (reservation.getSlot() != null && reservation.getSlot().getZone() != null
+                && reservation.getSlot().getZone().getFloor() != null
+                && !buildingId.equals(reservation.getSlot().getZone().getFloor().getBuilding().getBuildingId())) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED, "Reservation does not belong to your building");
+        }
+        return toReservationResponse(reservation);
+    }
+
+    @Transactional
+    public ReservationResponse updateReservationStatusForStaff(String staffEmail, String reservationCode,
+            String status, String note) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return updateReservationStatus(staffEmail, buildingId, reservationCode, status, note);
+    }
+
     @Transactional
     public ReservationResponse createReservation(String email, CreateReservationRequest req) {
         User user = userRepository.findByEmail(email)
@@ -140,6 +253,7 @@ public class ReservationService {
         ParkingSlot slot = findSlot(req.getSlotId());
         validateSlotSelection(slot, vehicle);
 
+        // Check if slot already has an active reservation
         var activeReservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
                 slot.getSlotId(), ACTIVE_RESERVATION_STATUSES);
         if (activeReservation.isPresent()) {
@@ -147,6 +261,13 @@ public class ReservationService {
         }
 
         validateNoTimeConflict(user.getUserId(), req.getReservationStart(), req.getReservationEnd());
+
+        // 1 user chỉ được 1 slot active trong 1 ngày
+        List<Reservation> sameDayReservations = reservationRepository.findByUserIdAndStatusesAndDate(
+                user.getUserId(), ACTIVE_RESERVATION_STATUSES, req.getReservationStart());
+        if (!sameDayReservations.isEmpty()) {
+            throw new RuntimeException("You already have an active reservation on this day. One user can only reserve one slot per day.");
+        }
 
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
@@ -164,17 +285,33 @@ public class ReservationService {
         Ticket ticket = new Ticket();
         ticket.setReservation(reservation);
         ticket.setTicketCode("T-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-        ticket.setQrCode(java.util.Base64.getEncoder().encodeToString(ticket.getTicketCode().getBytes()));
         ticket = ticketRepository.save(ticket);
 
-        return toReservationResponse(reservation, ticket);
+        ReservationResponse response = toReservationResponse(reservation, ticket);
+
+        sendReservationNotification(reservation, "RESERVATION_CREATED", "Reservation created successfully");
+
+        return response;
+    }
+
+    private void sendReservationNotification(Reservation reservation, String event, String message) {
+        if (reservation.getUser() != null) {
+            User driver = reservation.getUser();
+            ReservationResponse payload = toReservationResponse(reservation);
+            notificationService.sendToUser(driver.getUsername(), event, payload);
+            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
+        }
     }
 
     @Transactional
-    public ReservationResponse updateReservationStatus(String reservationCode, String status, String note) {
-        Reservation reservation = reservationRepository.findByReservationCode(normalizeText(reservationCode))
+    public ReservationResponse updateReservationStatus(
+            String staffEmail, String buildingId, String reservationCode, String status, String note) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        Reservation reservation = reservationRepository
+                .findByBuildingBuildingIdAndReservationCodeFetchingDetails(buildingId, normalizeText(reservationCode))
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
 
+        String oldStatus = reservation.getReservationStatus();
         String normalizedStatus = validateReservationStatus(status);
         reservation.setReservationStatus(normalizedStatus);
         reservation.setNote(normalizeText(note));
@@ -185,13 +322,119 @@ public class ReservationService {
                 slot.setSlotStatus("RESERVED");
             } else if ("REJECTED".equals(normalizedStatus) || "CANCELLED".equals(normalizedStatus)) {
                 slot.setSlotStatus("AVAILABLE");
+            } else if ("COMPLETED".equals(normalizedStatus) || "EXPIRED".equals(normalizedStatus)) {
+                slot.setSlotStatus("AVAILABLE");
             }
             parkingSlotRepository.save(slot);
         }
 
         Reservation saved = reservationRepository.save(reservation);
         Ticket ticket = ticketRepository.findByReservationReservationId(saved.getReservationId()).orElse(null);
-        return toReservationResponse(saved, ticket);
+
+        // Set ticket expiredAt when reservation is approved
+        if (ticket != null && "APPROVED".equals(normalizedStatus)) {
+            Integer gracePeriodMinutes = saved.getGracePeriodMinutes();
+            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 15;
+            if (saved.getReservationEnd() != null) {
+                ticket.setExpiredAt(saved.getReservationEnd().plusMinutes(grace));
+                ticketRepository.save(ticket);
+            }
+        }
+
+        ReservationResponse response = toReservationResponse(saved, ticket);
+
+        if (oldStatus != null && !oldStatus.equals(normalizedStatus)) {
+            sendStatusChangeNotification(reservation, oldStatus, normalizedStatus);
+        }
+
+        return response;
+    }
+
+    private void sendStatusChangeNotification(Reservation reservation, String oldStatus, String newStatus) {
+        if (reservation.getUser() != null) {
+            User driver = reservation.getUser();
+            String message;
+            switch (newStatus) {
+                case "APPROVED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been APPROVED. Please arrive on time.";
+                    break;
+                case "REJECTED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been REJECTED. Reason: " + (reservation.getNote() != null ? reservation.getNote() : "N/A");
+                    break;
+                case "CANCELLED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED.";
+                    break;
+                case "COMPLETED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has been COMPLETED. Thank you for using our service.";
+                    break;
+                case "EXPIRED":
+                    message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED. You did not check-in before the grace period.";
+                    break;
+                default:
+                    message = "Your reservation status changed from " + oldStatus + " to " + newStatus;
+            }
+            ReservationResponse payload = toReservationResponse(reservation);
+            notificationService.sendToUser(driver.getUsername(), "RESERVATION_STATUS_CHANGED", payload);
+            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
+        }
+    }
+
+    @Transactional
+    public int autoExpireReservations() {
+        LocalDateTime now = LocalDateTime.now();
+
+        // PENDING reservations -> CANCELLED (staff không approve kịp)
+        List<Reservation> expiredPending = reservationRepository.findExpiredPendingReservations(now);
+        int cancelledCount = 0;
+        for (Reservation reservation : expiredPending) {
+            ParkingSlot slot = reservation.getSlot();
+            if (slot != null) {
+                reservation.setReservationStatus("CANCELLED");
+                reservation.setNote("Auto-cancelled: staff did not approve before grace period");
+                reservationRepository.save(reservation);
+
+                slot.setSlotStatus("AVAILABLE");
+                parkingSlotRepository.save(slot);
+
+                sendAutoExpireNotification(reservation, "CANCELLED");
+                cancelledCount++;
+            }
+        }
+
+        // APPROVED reservations -> EXPIRED (driver không check-in kịp)
+        List<Reservation> expiredApproved = reservationRepository.findExpiredApprovedReservations(now);
+        int expiredCount = 0;
+        for (Reservation reservation : expiredApproved) {
+            ParkingSlot slot = reservation.getSlot();
+            if (slot != null) {
+                reservation.setReservationStatus("EXPIRED");
+                reservation.setNote("Auto-expired: driver did not check-in before grace period");
+                reservationRepository.save(reservation);
+
+                slot.setSlotStatus("AVAILABLE");
+                parkingSlotRepository.save(slot);
+
+                sendAutoExpireNotification(reservation, "EXPIRED");
+                expiredCount++;
+            }
+        }
+
+        return cancelledCount + expiredCount;
+    }
+
+    private void sendAutoExpireNotification(Reservation reservation, String newStatus) {
+        if (reservation.getUser() != null) {
+            User driver = reservation.getUser();
+            String message;
+            if ("EXPIRED".equals(newStatus)) {
+                message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED. You did not check-in before the grace period. Please book again.";
+            } else {
+                message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED. Please book again.";
+            }
+            ReservationResponse payload = toReservationResponse(reservation);
+            notificationService.sendToUser(driver.getUsername(), "RESERVATION_" + newStatus, payload);
+            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
+        }
     }
 
     private List<Floor> resolveFloors(String buildingId) {
@@ -212,7 +455,7 @@ public class ReservationService {
         }
     }
 
-    private void validateNoTimeConflict(String userId, java.time.LocalDateTime start, java.time.LocalDateTime end) {
+    private void validateNoTimeConflict(String userId, LocalDateTime start, LocalDateTime end) {
         List<Reservation> overlapping = reservationRepository.findOverlappingReservations(
                 userId, start, end, ACTIVE_RESERVATION_STATUSES);
         if (!overlapping.isEmpty()) {
@@ -258,7 +501,7 @@ public class ReservationService {
 
         return vehicleRepository.findByPlateNumberIgnoreCase(req.getPlateNumber())
                 .map(existing -> {
-                    if (!existing.getUser().getUserId().equals(user.getUserId())) {
+                    if (existing.getUser() != null && !existing.getUser().getUserId().equals(user.getUserId())) {
                         throw new RuntimeException("Plate number already registered by another user");
                     }
                     existing.setVehicleColor(req.getVehicleColor());
@@ -286,6 +529,20 @@ public class ReservationService {
         dto.setAvailableCount("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()) ? 1 : 0);
         dto.setVehicleTypeId(floorVehicleType.getVehicleTypeId());
         dto.setVehicleTypeName(floorVehicleType.getTypeName());
+
+        // Set reserved user info nếu slot đang RESERVED
+        if ("RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
+            var reservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
+                    slot.getSlotId(), ACTIVE_RESERVATION_STATUSES).orElse(null);
+            if (reservation != null) {
+                User user = reservation.getUser();
+                Vehicle vehicle = reservation.getVehicle();
+                dto.setReservedByUserId(user != null ? user.getUserId() : null);
+                dto.setReservedByUsername(user != null ? user.getUsername() : null);
+                dto.setReservedByVehicleId(vehicle != null ? vehicle.getVehicleId() : null);
+            }
+        }
+
         return dto;
     }
 
@@ -303,6 +560,22 @@ public class ReservationService {
         resp.setReservationStart(reservation.getReservationStart());
         resp.setReservationEnd(reservation.getReservationEnd());
 
+        // User info
+        if (reservation.getUser() != null) {
+            resp.setUserId(reservation.getUser().getUserId());
+            resp.setUsername(reservation.getUser().getUsername());
+        }
+
+        // Vehicle info
+        Vehicle vehicle = reservation.getVehicle();
+        if (vehicle != null) {
+            resp.setVehicleId(vehicle.getVehicleId());
+            resp.setVehiclePlate(vehicle.getPlateNumber());
+            resp.setVehicleColor(vehicle.getVehicleColor());
+            resp.setVehicleBrand(vehicle.getBrand());
+            resp.setVehicleModel(vehicle.getModel());
+        }
+
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
             applyHierarchy(resp, slot);
@@ -311,7 +584,6 @@ public class ReservationService {
 
         if (ticket != null) {
             resp.setTicketCode(ticket.getTicketCode());
-            resp.setQrCode(ticket.getQrCode());
         }
         return resp;
     }
@@ -426,10 +698,36 @@ public class ReservationService {
     }
 
     private String normalize(String value) {
-        return value == null ? null : value.trim().toUpperCase();
+        return value == null ? "" : value.trim().toUpperCase();
     }
 
     private String normalizeText(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
+        return StringUtils.hasText(value) ? value.trim() : "";
+    }
+
+    private void checkStaffBuildingAssignment(String email, String buildingId) {
+        if (!buildingStaffRepository.existsByBuildingBuildingIdAndUserUserId(buildingId, getUserIdByEmail(email))) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
+                    "You are not assigned to this building");
+        }
+    }
+
+    private String getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(User::getUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
+    private String getBuildingIdByStaffEmail(String email) {
+        String userId = getUserIdByEmail(email);
+        List<String> buildingIds = buildingStaffRepository.findBuildingIdsByUserId(userId);
+        if (buildingIds.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED, "Staff is not assigned to any building");
+        }
+        if (buildingIds.size() > 1) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
+                    "Staff is assigned to multiple buildings. Please specify a building.");
+        }
+        return buildingIds.get(0);
     }
 }

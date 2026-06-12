@@ -10,7 +10,7 @@ import fpt.swp391.parkingmanagement.entity.Zone;
 public interface ZoneRepository extends JpaRepository<Zone, String> {
     List<Zone> findByFloorFloorId(String floorId);
 
-    @EntityGraph(attributePaths = {"floor", "floor.building"})
+    @EntityGraph(attributePaths = {"floor", "floor.building", "floor.vehicleType"})
     List<Zone> findByFloorFloorIdOrderByZoneNameAsc(String floorId);
 
     boolean existsByFloorFloorIdAndZoneNameIgnoreCase(String floorId, String zoneName);

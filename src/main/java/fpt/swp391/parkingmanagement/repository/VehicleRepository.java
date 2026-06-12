@@ -27,4 +27,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     boolean existsByPlateNumberIgnoreCaseAndVehicleIdNot(String plateNumber, String vehicleId);
 
     boolean existsByVehicleTypeVehicleTypeId(String vehicleTypeId);
+
+    List<Vehicle> findByUserUserId(String userId);
+
+    boolean existsByPlateNumber(String plateNumber);
+
+    int countByUserUserId(String userId);
 }
