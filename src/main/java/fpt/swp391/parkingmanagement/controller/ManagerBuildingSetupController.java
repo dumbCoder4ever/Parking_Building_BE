@@ -153,7 +153,7 @@ public class ManagerBuildingSetupController {
 
     @Operation(
             summary = "Update zone",
-            description = "Update zone name and change the number of slots by adjusting maxCapacity.")
+            description = "Update zone name, rename slot prefix, and change the number of slots by adjusting maxCapacity.")
     @PutMapping("/zones/{zoneId}")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateZone(
             @PathVariable String zoneId,

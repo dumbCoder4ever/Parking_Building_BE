@@ -20,8 +20,9 @@ public class UpdateZoneRequest {
     private Integer maxCapacity;
 
     @Schema(
-            description = "Prefix for new slots when increasing capacity (e.g. A -> A-1, A-2). "
-                    + "If omitted, the prefix is derived from existing slots.",
+            description = "Prefix for parking slots (e.g. A -> A-1, A-2). "
+                    + "When provided, all slots in the zone are renamed to use this prefix. "
+                    + "If omitted while increasing capacity, the prefix is derived from existing slots.",
             example = "A")
     private String slotPrefix;
 }
