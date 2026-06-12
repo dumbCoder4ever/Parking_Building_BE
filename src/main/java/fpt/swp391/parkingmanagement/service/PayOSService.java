@@ -25,7 +25,7 @@ public class PayOSService {
     /**
      * Tạo payment link PayOS.
      *
-     * @param paymentId  ID payment trong DB (dùng trong description)
+     * @param paymentId  ID payment trong DB (lưu qua transactionCode/orderCode)
      * @param amount     số tiền VND (PayOS dùng số nguyên)
      * @return response chứa checkoutUrl và orderCode
      */
@@ -36,7 +36,8 @@ public class PayOSService {
         CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
                 .orderCode(orderCode)
                 .amount(amountVnd)
-                .description("Thanh toan phi do xe: " + paymentId)
+                // PayOS giới hạn description ~25 ký tự; không gắn UUID vào đây
+                .description("Phi do xe")
                 .returnUrl(config.getReturnUrl())
                 .cancelUrl(config.getCancelUrl())
                 .item(PaymentLinkItem.builder()
