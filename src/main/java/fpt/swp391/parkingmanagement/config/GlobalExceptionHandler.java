@@ -12,11 +12,41 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BaseAPIException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBaseAPIException(BaseAPIException ex) {
+        ErrorCode errorCode = ex.getErrorCode();
+        HttpStatus status;
+        
+        switch (errorCode) {
+            case USER_NOT_FOUND:
+            case VEHICLE_NOT_FOUND:
+            case RESERVATION_NOT_FOUND:
+            case VEHICLE_TYPE_NOT_FOUND:
+            case TICKET_NOT_FOUND:
+            case SLOT_NOT_FOUND:
+            case SESSION_NOT_FOUND:
+                status = HttpStatus.NOT_FOUND;
+                break;
+            case UNAUTHORIZED:
+            case INTERNAL_ERROR:
+                status = HttpStatus.INTERNAL_SERVER_ERROR;
+                break;
+            case VEHICLE_ALREADY_EXISTS:
+                status = HttpStatus.CONFLICT;
+                break;
+            default:
+                status = HttpStatus.BAD_REQUEST;
+        }
+        return ResponseEntity.status(status).body(ApiResponse.error(ex.getMessage()));
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleResourceNotFound(ResourceNotFoundException ex) {

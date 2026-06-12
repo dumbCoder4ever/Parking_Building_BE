@@ -1,17 +1,21 @@
 package fpt.swp391.parkingmanagement.entity;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.EqualsAndHashCode;
+import lombok.Builder;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
 @Data
+@Builder
 @NoArgsConstructor
+@AllArgsConstructor
 @Table(name = "vehicles")
 public class Vehicle {
 

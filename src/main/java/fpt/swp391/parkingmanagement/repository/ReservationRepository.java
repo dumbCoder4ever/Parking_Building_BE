@@ -72,12 +72,42 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findByReservationStatusOrderByCreatedAtDesc(String status);
 
+    @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId ORDER BY r.createdAt DESC",
+           countQuery = "SELECT COUNT(r) FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId")
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
-    Optional<Reservation> findByReservationId(String reservationId);
+    List<Reservation> findByBuildingBuildingIdOrderByCreatedAtDesc(@Param("buildingId") String buildingId);
+
+    @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId AND r.reservationStatus = :status ORDER BY r.createdAt DESC",
+           countQuery = "SELECT COUNT(r) FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId AND r.reservationStatus = :status")
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    List<Reservation> findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(
+            @Param("buildingId") String buildingId, @Param("status") String reservationStatus);
+
+    @Query("SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId AND r.reservationId = :reservationId")
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    Optional<Reservation> findByBuildingBuildingIdAndReservationId(
+            @Param("buildingId") String buildingId, @Param("reservationId") String reservationId);
+
+    @Query("SELECT r FROM Reservation r JOIN FETCH r.slot s JOIN FETCH s.zone z " +
+           "JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle JOIN FETCH r.user " +
+           "WHERE f.building.buildingId = :buildingId AND r.reservationCode = :reservationCode")
+    Optional<Reservation> findByBuildingBuildingIdAndReservationCodeFetchingDetails(
+            @Param("buildingId") String buildingId,
+            @Param("reservationCode") String reservationCode);
 
     @Query("SELECT r FROM Reservation r JOIN FETCH r.slot s JOIN FETCH s.zone z " +
            "JOIN FETCH z.floor f JOIN FETCH f.building " +
            "JOIN FETCH r.vehicle JOIN FETCH r.user " +
            "WHERE r.reservationCode = :reservationCode")
     Optional<Reservation> findByReservationCodeFetchingDetails(@Param("reservationCode") String reservationCode);
+
+    int countByUserUserId(String userId);
+
+    Optional<Reservation> findFirstByUserUserIdOrderByCreatedAtAsc(String userId);
 }
