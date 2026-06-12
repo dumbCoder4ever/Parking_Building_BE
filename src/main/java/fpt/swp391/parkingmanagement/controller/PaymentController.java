@@ -1,90 +1,63 @@
 package fpt.swp391.parkingmanagement.controller;
 
+import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
-import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.service.PaymentService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/payments")
+@RequiredArgsConstructor
 public class PaymentController {
-    @Autowired
-    private PaymentService paymentService;
 
+    private final PaymentService paymentService;
+
+    @Operation(summary = "Initiate payment for a parking session")
     @PostMapping("/initiate")
-    public ResponseEntity<PaymentResponseDTO> initiatePayment(
+    public ResponseEntity<ApiResponse<PaymentResponseDTO>> initiatePayment(
             @RequestBody PaymentRequestDTO paymentRequest) {
-        try {
-            PaymentResponseDTO response = paymentService.initiatePayment(paymentRequest);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(PaymentResponseDTO.builder()
-                            .message("Error initiating payment: " + e.getMessage())
-                            .build());
-        }
+        PaymentResponseDTO response = paymentService.initiatePayment(paymentRequest);
+        return ResponseEntity.ok(ApiResponse.ok("Payment initiated successfully", response));
     }
 
+    @Operation(summary = "Confirm successful payment from gateway callback")
     @PostMapping("/confirm-success")
-    public ResponseEntity<PaymentResponseDTO> confirmPaymentSuccess(
+    public ResponseEntity<ApiResponse<PaymentResponseDTO>> confirmPaymentSuccess(
             @RequestParam String paymentId,
             @RequestParam String transactionCode) {
-        try {
-            PaymentResponseDTO response = paymentService.confirmPaymentSuccess(paymentId, transactionCode);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(PaymentResponseDTO.builder()
-                            .message("Error confirming payment: " + e.getMessage())
-                            .build());
-        }
+        PaymentResponseDTO response = paymentService.confirmPaymentSuccess(paymentId, transactionCode);
+        return ResponseEntity.ok(ApiResponse.ok("Payment confirmed successfully", response));
     }
 
+    @Operation(summary = "Staff confirms payment completion")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @PostMapping("/confirm-by-staff")
-    public ResponseEntity<PaymentConfirmationDTO> confirmPaymentByStaff(
+    public ResponseEntity<ApiResponse<PaymentConfirmationDTO>> confirmPaymentByStaff(
             @RequestBody PaymentConfirmationDTO confirmationRequest) {
-        try {
-            PaymentConfirmationDTO response = paymentService.confirmPaymentByStaff(confirmationRequest);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(PaymentConfirmationDTO.builder()
-                            .confirmationStatus("ERROR")
-                            .reason(e.getMessage())
-                            .build());
-        }
+        PaymentConfirmationDTO response = paymentService.confirmPaymentByStaff(confirmationRequest);
+        return ResponseEntity.ok(ApiResponse.ok("Payment reviewed successfully", response));
     }
 
+    @Operation(summary = "Handle payment failure from gateway")
     @PostMapping("/handle-failure")
-    public ResponseEntity<PaymentResponseDTO> handlePaymentFailure(
+    public ResponseEntity<ApiResponse<PaymentResponseDTO>> handlePaymentFailure(
             @RequestParam String paymentId,
             @RequestParam String reason) {
-        try {
-            PaymentResponseDTO response = paymentService.handlePaymentFailure(paymentId, reason);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(PaymentResponseDTO.builder()
-                            .message("Error handling payment failure: " + e.getMessage())
-                            .build());
-        }
+        PaymentResponseDTO response = paymentService.handlePaymentFailure(paymentId, reason);
+        return ResponseEntity.ok(ApiResponse.ok("Payment failure recorded", response));
     }
 
+    @Operation(summary = "Get payment details by payment ID")
     @GetMapping("/{paymentId}")
-    public ResponseEntity<PaymentResponseDTO> getPaymentDetails(
+    public ResponseEntity<ApiResponse<PaymentResponseDTO>> getPaymentDetails(
             @PathVariable String paymentId) {
-        try {
-            PaymentResponseDTO response = paymentService.getPaymentDetails(paymentId);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(PaymentResponseDTO.builder()
-                            .message("Payment not found: " + e.getMessage())
-                            .build());
-        }
+        PaymentResponseDTO response = paymentService.getPaymentDetails(paymentId);
+        return ResponseEntity.ok(ApiResponse.ok("Payment details retrieved successfully", response));
     }
 }

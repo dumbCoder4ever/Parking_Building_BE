@@ -54,6 +54,15 @@ public class ManagerStaffService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<StaffAssignmentResponse> getBuildingsByEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        return buildingStaffRepository.findByUserUserIdOrderByAssignedAtDesc(user.getUserId()).stream()
+                .map(this::toAssignmentResponse)
+                .toList();
+    }
+
     @Transactional
     public StaffAssignmentResponse assignStaffToBuilding(String buildingId, String userId) {
         Building building = findBuilding(buildingId);

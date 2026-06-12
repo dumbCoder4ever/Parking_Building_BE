@@ -9,7 +9,9 @@ import java.util.UUID;
 
 @Entity
 @Data
+@Builder
 @NoArgsConstructor
+@AllArgsConstructor
 @Table(name = "payments")
 public class Payment {
 
@@ -22,6 +24,12 @@ public class Payment {
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private ParkingSession session;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private User user;
 
     @Column(name = "payment_method", length = 40)
     private String paymentMethod;

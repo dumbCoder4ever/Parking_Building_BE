@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.service;
 
 import java.util.List;
 
+import fpt.swp391.parkingmanagement.dto.UpdateUserStatusRequest;
 import fpt.swp391.parkingmanagement.dto.UserRequest;
 import fpt.swp391.parkingmanagement.dto.UserResponse;
 import fpt.swp391.parkingmanagement.dto.UserUpdateRequest;
@@ -18,5 +19,5 @@ public interface UserManagementService {
 
     List<UserResponse> getAllUsers();
 
-    void changeUserStatus(String userId, String status);
+    void changeUserStatus(String userId, UpdateUserStatusRequest request);
 }

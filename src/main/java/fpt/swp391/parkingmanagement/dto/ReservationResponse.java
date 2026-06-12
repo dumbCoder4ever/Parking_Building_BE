@@ -12,6 +12,19 @@ public class ReservationResponse {
     private String reservationNote;
     private LocalDateTime reservationStart;
     private LocalDateTime reservationEnd;
+
+    // User info
+    private String userId;
+    private String username;
+
+    // Vehicle info
+    private String vehicleId;
+    private String vehiclePlate;
+    private String vehicleColor;
+    private String vehicleBrand;
+    private String vehicleModel;
+
+    // Slot info
     private String buildingId;
     private String buildingName;
     private String floorId;
@@ -25,6 +38,7 @@ public class ReservationResponse {
     private String slotId;
     private String slotName;
     private String slotStatus;
+
+    // Ticket info
     private String ticketCode;
-    private String qrCode;
 }
