@@ -19,4 +19,7 @@ public class PaymentRequestDTO {
     private String transactionCode;
     private String note;
     private String driverId;
+    // VNPay specific (optional)
+    private String bankCode;  // null = để VNPay tự chọn; hoặc "VNPAYQR","VNBANK","INTCARD"
+    private String language;  // "vn" hoặc "en" (mặc định "vn")
 }
