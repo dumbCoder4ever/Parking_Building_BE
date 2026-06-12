@@ -3,7 +3,10 @@ package fpt.swp391.parkingmanagement.repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 
@@ -16,4 +19,21 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     boolean existsByReservationReservationIdAndSessionStatus(String reservationId, String sessionStatus);
 
     Optional<ParkingSession> findBySessionIdAndSessionStatus(String sessionId, String sessionStatus);
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId, Pageable pageable);
+
+    int countByReservationUserUserId(String userId);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'COMPLETED'")
+    int countCompletedByUserId(@Param("userId") String userId);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'ACTIVE'")
+    int countActiveByUserId(@Param("userId") String userId);
+
+    @Query("SELECT COALESCE(SUM(TIMESTAMPDIFF(MINUTE, ps.checkinTime, ps.checkoutTime)), 0) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'COMPLETED'")
+    Long sumDurationMinutesByUserId(@Param("userId") String userId);
+
+    @Query("SELECT ps FROM ParkingSession ps JOIN ps.reservation r WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC")
+    Optional<ParkingSession> findLastByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId);
 }

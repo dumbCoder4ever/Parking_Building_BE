@@ -1,36 +1,30 @@
 package fpt.swp391.parkingmanagement.service;
 
+import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
-import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.User;
-import fpt.swp391.parkingmanagement.enums.PaymentStatus;
-import fpt.swp391.parkingmanagement.enums.SessionStatus;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class PaymentService {
-    @Autowired
-    private PaymentRepository paymentRepository;
 
-    @Autowired
-    private ParkingSessionRepository parkingSessionRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private NotificationService notificationService;
+    private final PaymentRepository paymentRepository;
+    private final ParkingSessionRepository parkingSessionRepository;
+    private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     /**
      * STEP 1: STAFF initiates checkout for DRIVER
@@ -116,7 +110,7 @@ public class PaymentService {
         // Update parking session payment status
         ParkingSession session = parkingSessionRepository.findById(payment.getSession().getSessionId())
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
-        session.setPaymentStatus(String.valueOf(PaymentStatus.PAID));
+        session.setPaymentStatus("PAID");
         parkingSessionRepository.save(session);
 
         return PaymentResponseDTO.builder()

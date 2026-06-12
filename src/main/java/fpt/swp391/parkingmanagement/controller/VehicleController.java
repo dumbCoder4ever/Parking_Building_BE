@@ -40,6 +40,7 @@ public class VehicleController {
             summary = "List vehicle types",
             description = "Use vehicleTypeId when registering a vehicle or creating a floor.")
     @GetMapping("/types")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<VehicleTypeOptionResponse>>> getVehicleTypes() {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Vehicle types retrieved successfully",
@@ -48,6 +49,7 @@ public class VehicleController {
 
     @Operation(summary = "Get vehicle type by id")
     @GetMapping("/types/{vehicleTypeId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<VehicleTypeOptionResponse>> getVehicleType(
             @PathVariable String vehicleTypeId) {
         return ResponseEntity.ok(ApiResponse.ok(
@@ -90,6 +92,7 @@ public class VehicleController {
 
     @Operation(summary = "List my vehicles")
     @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<List<VehicleResponse>>> getMyVehicles(Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Vehicles retrieved successfully",
@@ -98,6 +101,7 @@ public class VehicleController {
 
     @Operation(summary = "Register a vehicle")
     @PostMapping("/me")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<VehicleResponse>> createMyVehicle(
             Authentication auth,
             @Valid @RequestBody CreateVehicleRequest request) {
@@ -108,6 +112,7 @@ public class VehicleController {
 
     @Operation(summary = "Get my vehicle by id")
     @GetMapping("/me/{vehicleId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<VehicleResponse>> getMyVehicle(
             Authentication auth,
             @PathVariable String vehicleId) {
@@ -118,6 +123,7 @@ public class VehicleController {
 
     @Operation(summary = "Update my vehicle")
     @PutMapping("/me/{vehicleId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicle(
             Authentication auth,
             @PathVariable String vehicleId,
@@ -129,6 +135,7 @@ public class VehicleController {
 
     @Operation(summary = "Delete my vehicle")
     @DeleteMapping("/me/{vehicleId}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Void>> deleteMyVehicle(
             Authentication auth,
             @PathVariable String vehicleId) {
