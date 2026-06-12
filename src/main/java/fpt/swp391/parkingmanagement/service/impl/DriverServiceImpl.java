@@ -6,6 +6,7 @@ import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.*;
 import fpt.swp391.parkingmanagement.service.DriverService;
+import fpt.swp391.parkingmanagement.service.PricingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,7 @@ public class DriverServiceImpl implements DriverService {
     private final ParkingSessionRepository parkingSessionRepository;
     private final PaymentRepository paymentRepository;
     private final PricingPolicyRepository pricingPolicyRepository;
+    private final PricingService pricingService;
 
     @Override
     public DriverProfileResponse getDriverProfile(String email) {
@@ -230,41 +232,24 @@ public class DriverServiceImpl implements DriverService {
         BigDecimal estimatedFee = BigDecimal.ZERO;
         BigDecimal currentAccumulated = BigDecimal.ZERO;
         String vehicleTypeId = null, vehicleTypeName = null;
-        BigDecimal basePrice = null, hourlyRate = null, peakHourMultiplier = null, maxDailyFee = null, overnightFee = null;
+        List<PricingTierResponse> pricingTiers = List.of();
+        String currentFeeExplanation = "";
+        PricingPolicy policy = null;
 
         if (vehicle != null && vehicle.getVehicleType() != null) {
             String vtId = vehicle.getVehicleType().getVehicleTypeId();
             vehicleTypeId = vtId;
             vehicleTypeName = vehicle.getVehicleType().getTypeName();
 
-            PricingPolicy policy = pricingPolicyRepository.findActiveForVehicleType(vtId).orElse(null);
+            policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                basePrice = policy.getBasePrice();
-                hourlyRate = policy.getHourlyRate();
-                peakHourMultiplier = policy.getPeakHourMultiplier();
-                maxDailyFee = policy.getMaxDailyFee();
-                overnightFee = policy.getOvernightFee();
-
-                BigDecimal multiplier = peakHourMultiplier != null ? peakHourMultiplier : BigDecimal.ONE;
-                int hourOfDay = now.getHour();
-                boolean isPeak = (hourOfDay >= 7 && hourOfDay < 9) || (hourOfDay >= 17 && hourOfDay < 19);
-                BigDecimal effectiveHourly = hourlyRate != null ? hourlyRate.multiply(isPeak ? multiplier : BigDecimal.ONE) : BigDecimal.ZERO;
+                pricingTiers = pricingService.toTierList(policy);
 
                 int estimatedHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
-                estimatedFee = (basePrice != null ? basePrice : BigDecimal.ZERO)
-                        .add(effectiveHourly.multiply(BigDecimal.valueOf(estimatedHours)));
+                currentAccumulated = pricingService.calculateFeeByPolicy(policy, estimatedHours);
+                estimatedFee = currentAccumulated;
 
-                if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0
-                        && estimatedFee.compareTo(policy.getMaxDailyFee()) > 0) {
-                    estimatedFee = policy.getMaxDailyFee();
-                }
-
-                currentAccumulated = (basePrice != null ? basePrice : BigDecimal.ZERO)
-                        .add(effectiveHourly.multiply(BigDecimal.valueOf(parkingMinutes / 60.0)));
-                if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0
-                        && currentAccumulated.compareTo(policy.getMaxDailyFee()) > 0) {
-                    currentAccumulated = policy.getMaxDailyFee();
-                }
+                currentFeeExplanation = buildCurrentFeeExplanation(policy, estimatedHours, pricingTiers);
             }
         }
 
@@ -286,18 +271,21 @@ public class DriverServiceImpl implements DriverService {
                 .checkinTime(session.getCheckinTime())
                 .currentTime(now)
                 .parkingMinutes(parkingMinutes)
+                .parkingHours((int) Math.ceil(parkingMinutes / 60.0))
                 .estimatedHours(Math.max(1, (int) Math.ceil(parkingMinutes / 60.0)))
                 .sessionStatus(session.getSessionStatus())
                 .paymentStatus(session.getPaymentStatus())
                 .vehicleTypeId(vehicleTypeId)
                 .vehicleTypeName(vehicleTypeName)
-                .basePrice(basePrice)
-                .hourlyRate(hourlyRate)
-                .peakHourMultiplier(peakHourMultiplier)
-                .maxDailyFee(maxDailyFee)
-                .overnightFee(overnightFee)
-                .estimatedFee(estimatedFee)
+                .pricingTiers(pricingTiers)
                 .currentAccumulatedFee(currentAccumulated)
+                .currentFeeExplanation(currentFeeExplanation)
+                .basePrice(policy != null ? policy.getBasePrice() : null)
+                .hourlyRate(policy != null ? policy.getHourlyRate() : null)
+                .peakHourMultiplier(policy != null ? policy.getPeakHourMultiplier() : null)
+                .maxDailyFee(policy != null ? policy.getMaxDailyFee() : null)
+                .overnightFee(policy != null ? policy.getOvernightFee() : null)
+                .estimatedFee(estimatedFee)
                 .build();
     }
 
@@ -385,5 +373,16 @@ public class DriverServiceImpl implements DriverService {
                 .totalFee(session.getTotalFee() != null ? session.getTotalFee().doubleValue() : null)
                 .entryType(null)
                 .build();
+    }
+
+    private String buildCurrentFeeExplanation(PricingPolicy policy, int hours, List<PricingTierResponse> tiers) {
+        if (policy == null || tiers.isEmpty()) return "";
+        for (PricingTierResponse tier : tiers) {
+            if (hours <= tier.getMaxHours()) {
+                return hours + "h (" + tier.getTierLabel() + ") = " + tier.getPrice() + " VND";
+            }
+        }
+        PricingTierResponse last = tiers.get(tiers.size() - 1);
+        return hours + "h (" + last.getTierLabel() + ") = " + last.getPrice() + " VND";
     }
 }
