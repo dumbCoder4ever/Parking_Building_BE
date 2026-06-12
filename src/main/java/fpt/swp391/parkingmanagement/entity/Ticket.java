@@ -24,9 +24,6 @@ public class Ticket {
     @Column(name = "ticket_code")
     private String ticketCode;
 
-    @Column(name = "qr_code")
-    private String qrCode;
-
     private Boolean isUsed = false;
 
     private Boolean isLost = false;

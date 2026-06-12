@@ -22,5 +22,4 @@ public class PaymentResponseDTO {
     private String transactionCode;
     private LocalDateTime paymentTime;
     private String message;
-    private String qrCode; // For QR code based payments
 }

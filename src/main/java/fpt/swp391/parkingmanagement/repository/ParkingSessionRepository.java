@@ -34,6 +34,9 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT COALESCE(SUM(TIMESTAMPDIFF(MINUTE, ps.checkinTime, ps.checkoutTime)), 0) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'COMPLETED'")
     Long sumDurationMinutesByUserId(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN ps.reservation r WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC")
+    @Query("SELECT ps FROM ParkingSession ps JOIN ps.reservation r WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLastByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId);
+
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus = 'ACTIVE' ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findActiveByUserId(@Param("userId") String userId);
 }

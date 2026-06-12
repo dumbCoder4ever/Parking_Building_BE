@@ -20,6 +20,8 @@ public interface DriverService {
 
     List<DriverSessionHistoryResponse> getMyParkingHistory(String email, int limit);
 
+    DriverCurrentSessionResponse getMyCurrentSession(String email);
+
     List<PaymentResponse> getMyPaymentHistory(String email, int limit);
 
     DriverStatsResponse getDriverStats(String email);

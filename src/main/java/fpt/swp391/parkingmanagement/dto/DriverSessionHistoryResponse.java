@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class DriverSessionHistoryResponse {
 
-    private Long sessionId;
+    private String sessionId;
     private String reservationCode;
     private String buildingName;
     private String floorName;
