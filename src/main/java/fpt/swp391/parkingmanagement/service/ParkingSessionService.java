@@ -13,12 +13,15 @@ import fpt.swp391.parkingmanagement.dto.CheckinRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
+import fpt.swp391.parkingmanagement.entity.Building;
+import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.Ticket;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.entity.Zone;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
@@ -49,8 +52,10 @@ public class ParkingSessionService {
 
         var reservation = ticket.getReservation();
         if (reservation == null) throw new RuntimeException("Reservation not found for ticket");
+        if (!"APPROVED".equalsIgnoreCase(reservation.getReservationStatus())) {
+            throw new RuntimeException("Reservation has not been approved yet");
+        }
 
-        // simple validations
         if (req.getPlateNumber() != null && reservation.getVehicle() != null) {
             if (!req.getPlateNumber().equalsIgnoreCase(reservation.getVehicle().getPlateNumber())) {
                 throw new RuntimeException("Plate number does not match reservation");
@@ -59,7 +64,8 @@ public class ParkingSessionService {
 
         LocalDateTime now = LocalDateTime.now();
         if (reservation.getReservationEnd() != null) {
-            int grace = reservation.getGracePeriodMinutes() != null ? reservation.getGracePeriodMinutes() : 60;
+            Integer gracePeriodMinutes = reservation.getGracePeriodMinutes();
+            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 60;
             if (now.isAfter(reservation.getReservationEnd().plusMinutes(grace))) {
                 throw new RuntimeException("Reservation expired");
             }
@@ -84,20 +90,17 @@ public class ParkingSessionService {
 
         ParkingSession saved = parkingSessionRepository.save(session);
 
-        // mark ticket used
         ticket.setIsUsed(true);
         ticket.setStatus("USED");
         ticketRepository.save(ticket);
 
-        // occupy slot
         slot.setSlotStatus("OCCUPIED");
         parkingSlotRepository.save(slot);
 
         ParkingSessionResponse resp = new ParkingSessionResponse();
         resp.setSessionId(saved.getSessionId());
         resp.setTicketCode(ticket.getTicketCode());
-        resp.setSlotId(slot.getSlotId());
-        resp.setSlotName(slot.getSlotName());
+        applyHierarchy(resp, slot);
         resp.setVehiclePlate(saved.getVehicle() != null ? saved.getVehicle().getPlateNumber() : null);
         resp.setCheckinTime(saved.getCheckinTime());
 
@@ -117,11 +120,9 @@ public class ParkingSessionService {
         LocalDateTime now = LocalDateTime.now();
         session.setCheckoutTime(now);
 
-        // compute duration in hours (ceiling)
         long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
         int hours = (int) Math.ceil(minutes / 60.0);
 
-        // find pricing policy for vehicle type
         BigDecimal total = BigDecimal.ZERO;
         if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
@@ -131,7 +132,6 @@ public class ParkingSessionService {
                     .findFirst()
                     .orElse(null);
 
-            // fallback: try to use any active policy as default when specific one is missing
             if (policy == null) {
                 log.warn("No pricing policy found for vehicleTypeId={}; attempting to use any active policy as fallback", vtId);
                 policy = pricingPolicyRepository.findAll().stream()
@@ -141,13 +141,11 @@ public class ParkingSessionService {
             }
 
             if (policy == null) {
-                // no policy available at all — log and keep total as zero instead of throwing
                 log.warn("No active pricing policy available; charging total=0 for sessionId={}", session.getSessionId());
             } else {
                 if (policy.getBasePrice() != null) total = total.add(policy.getBasePrice());
                 if (policy.getHourlyRate() != null) total = total.add(policy.getHourlyRate().multiply(BigDecimal.valueOf(hours)));
 
-                // apply peak hour multiplier (simple heuristic)
                 BigDecimal peakMultiplier = policy.getPeakHourMultiplier() != null ? policy.getPeakHourMultiplier() : BigDecimal.ONE;
                 int hourOfDay = now.getHour();
                 boolean isPeak = (hourOfDay >= 7 && hourOfDay < 9) || (hourOfDay >= 17 && hourOfDay < 19);
@@ -155,29 +153,51 @@ public class ParkingSessionService {
                     total = total.multiply(peakMultiplier);
                 }
 
-                // cap by maxDailyFee if present and >0
                 if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0) {
                     if (total.compareTo(policy.getMaxDailyFee()) > 0) total = policy.getMaxDailyFee();
                 }
             }
         }
 
+        String paymentMethod = req.getPaymentMethod() != null ? req.getPaymentMethod() : "CASH";
+        boolean electronicPayment = "VNPAY".equals(paymentMethod)
+                || "PAYOS".equals(paymentMethod)
+                || "MOMO".equals(paymentMethod);
+
         session.setTotalFee(total);
         session.setParkingDuration(hours);
-        session.setPaymentStatus("PAID");
         session.setSessionStatus("COMPLETED");
+        if (session.getReservation() != null) {
+            session.getReservation().setReservationStatus("COMPLETED");
+        }
+
+        Payment savedPayment;
+        if (electronicPayment) {
+            if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
+                throw new RuntimeException(
+                        "Payment has not been confirmed yet. Initiate and complete payment before checkout.");
+            }
+            savedPayment = paymentRepository
+                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
+                            session.getSessionId(), "SUCCESS")
+                    .orElseThrow(() -> new RuntimeException(
+                            "Successful payment record not found for this session"));
+        } else {
+            session.setPaymentStatus("PAID");
+            savedPayment = null;
+        }
 
         ParkingSession saved = parkingSessionRepository.save(session);
 
-        // create payment
-        Payment payment = new Payment();
-        payment.setSession(saved);
-        payment.setPaymentMethod(req.getPaymentMethod() != null ? req.getPaymentMethod() : "CASH");
-        payment.setAmount(total);
-        payment.setPaymentStatus("SUCCESS");
-        Payment savedPayment = paymentRepository.save(payment);
+        if (!electronicPayment) {
+            Payment payment = new Payment();
+            payment.setSession(saved);
+            payment.setPaymentMethod(paymentMethod);
+            payment.setAmount(total);
+            payment.setPaymentStatus("SUCCESS");
+            savedPayment = paymentRepository.save(payment);
+        }
 
-        // free slot
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
             slot.setSlotStatus("AVAILABLE");
@@ -186,10 +206,59 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
+        if (slot != null) {
+            applyHierarchy(resp, slot);
+        }
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
         resp.setPaymentId(savedPayment.getPaymentId());
 
         return resp;
+    }
+
+    private void applyHierarchy(ParkingSessionResponse resp, ParkingSlot slot) {
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+
+        Zone zone = slot.getZone();
+        if (zone != null) {
+            resp.setZoneId(zone.getZoneId());
+            resp.setZoneName(zone.getZoneName());
+
+            Floor floor = zone.getFloor();
+            if (floor != null) {
+                resp.setFloorId(floor.getFloorId());
+                resp.setFloorName(floor.getFloorName());
+
+                Building building = floor.getBuilding();
+                if (building != null) {
+                    resp.setBuildingId(building.getBuildingId());
+                    resp.setBuildingName(building.getBuildingName());
+                }
+            }
+        }
+    }
+
+    private void applyHierarchy(CheckoutResponse resp, ParkingSlot slot) {
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+
+        Zone zone = slot.getZone();
+        if (zone != null) {
+            resp.setZoneId(zone.getZoneId());
+            resp.setZoneName(zone.getZoneName());
+
+            Floor floor = zone.getFloor();
+            if (floor != null) {
+                resp.setFloorId(floor.getFloorId());
+                resp.setFloorName(floor.getFloorName());
+
+                Building building = floor.getBuilding();
+                if (building != null) {
+                    resp.setBuildingId(building.getBuildingId());
+                    resp.setBuildingName(building.getBuildingName());
+                }
+            }
+        }
     }
 }

@@ -450,7 +450,8 @@
             'CASH',
             'BANKING',
             'MOMO',
-            'VNPAY'
+            'VNPAY',
+            'PAYOS'
         ) NOT NULL,
 
                               amount DECIMAL(10,2) NOT NULL,

@@ -34,4 +34,4 @@ ON DUPLICATE KEY UPDATE
 -- 1) save this file as insert_test_users.sql
 -- 2) run:
 --    mysql -u <db_user> -p parking_db < insert_test_users.sql
--- After running, test login via POST /api/auth/login with JSON { "gmail": "admin@example.com", "password": "123" }
+-- After running, test login via POST /api/auth/login with JSON { "email": "admin@example.com", "password": "123" }

@@ -15,7 +15,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"username\": \"driver-test\",\n  \"password\": \"123456\",\n  \"fullName\": \"Driver Test\",\n  \"phoneNumber\": \"0909000000\",\n  \"email\": \"driver.test@gmail.com\"\n}"
+          "raw": "{\n  \"username\": \"driver-test\",\n  \"password\": \"123456\",\n  \"fullName\": \"Driver Test\",\n  \"phoneNumber\": \"0909000000\",\n  \"email\": \"driver.test@example.com\"\n}"
         },
         "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api","auth","register"] }
       },
@@ -30,7 +30,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"gmail\": \"driver.test@gmail.com\",\n  \"password\": \"123456\"\n}"
+          "raw": "{\n  \"email\": \"driver.test@example.com\",\n  \"password\": \"123456\"\n}"
         },
         "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api","auth","login"] }
       },
