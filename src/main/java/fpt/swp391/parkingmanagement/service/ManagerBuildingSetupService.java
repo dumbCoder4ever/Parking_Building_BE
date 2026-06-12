@@ -13,6 +13,7 @@ import fpt.swp391.parkingmanagement.dto.CreateZoneRequest;
 import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
+import fpt.swp391.parkingmanagement.dto.UpdateZoneRequest;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
@@ -148,11 +149,18 @@ public class ManagerBuildingSetupService {
     @Transactional
     public ManagerSetupResponse updateFloor(String floorId, UpdateFloorRequest request) {
         Floor floor = findFloor(floorId);
+        String buildingId = floor.getBuilding().getBuildingId();
         String normalizedName = normalizeText(request.getFloorName());
+        VehicleType vehicleType = resolveVehicleTypeId(buildingId, request.getVehicleTypeId());
 
         if (floorRepository.existsByBuildingBuildingIdAndFloorNameIgnoreCaseAndFloorIdNot(
-                floor.getBuilding().getBuildingId(), normalizedName, floorId)) {
+                buildingId, normalizedName, floorId)) {
             throw new DuplicateResourceException("Floor name already exists in this building");
+        }
+
+        if (floorRepository.existsByBuildingBuildingIdAndVehicleTypeVehicleTypeIdAndFloorIdNot(
+                buildingId, vehicleType.getVehicleTypeId(), floorId)) {
+            throw new DuplicateResourceException("This building already has a floor for this vehicle type");
         }
 
         int usedZoneCapacity = zoneRepository.findByFloorFloorId(floorId).stream()
@@ -164,6 +172,7 @@ public class ManagerBuildingSetupService {
         }
 
         floor.setFloorName(normalizedName);
+        floor.setVehicleType(vehicleType);
         floor.setMaxCapacity(request.getMaxCapacity());
         return toFloorResponse(floorRepository.save(floor));
     }
@@ -197,6 +206,60 @@ public class ManagerBuildingSetupService {
     }
 
     @Transactional
+    public ManagerSetupResponse updateZone(String zoneId, UpdateZoneRequest request) {
+        Zone zone = findZone(zoneId);
+        Floor floor = zone.getFloor();
+        String normalizedName = normalizeText(request.getZoneName());
+
+        if (zoneRepository.existsByFloorFloorIdAndZoneNameIgnoreCaseAndZoneIdNot(
+                floor.getFloorId(), normalizedName, zoneId)) {
+            throw new DuplicateResourceException("Zone name already exists on this floor");
+        }
+
+        List<ParkingSlot> existingSlots =
+                parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
+        int currentSlotCount = existingSlots.size();
+        int targetSlotCount = request.getMaxCapacity();
+
+        int usedCapacityExcludingZone = zoneRepository.findByFloorFloorId(floor.getFloorId()).stream()
+                .filter(otherZone -> !otherZone.getZoneId().equals(zoneId))
+                .map(Zone::getMaxCapacity)
+                .filter(value -> value != null && value > 0)
+                .reduce(0, Integer::sum);
+        int nextTotalCapacity = usedCapacityExcludingZone + targetSlotCount;
+        if (floor.getMaxCapacity() != null && nextTotalCapacity > floor.getMaxCapacity()) {
+            throw new RuntimeException("Total zone capacity exceeds floor max capacity");
+        }
+
+        if (targetSlotCount < currentSlotCount) {
+            long nonRemovableSlots = existingSlots.stream()
+                    .filter(slot -> !"AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()))
+                    .count();
+            if (targetSlotCount < nonRemovableSlots) {
+                throw new RuntimeException(
+                        "Cannot reduce slots below the number of reserved or occupied slots");
+            }
+            removeAvailableSlots(existingSlots, currentSlotCount - targetSlotCount);
+        } else if (targetSlotCount > currentSlotCount) {
+            String slotPrefix = request.getSlotPrefix() != null && !request.getSlotPrefix().isBlank()
+                    ? normalizeText(request.getSlotPrefix())
+                    : deriveSlotPrefix(existingSlots);
+            List<ParkingSlot> newSlots = buildSlots(
+                    zone, slotPrefix, currentSlotCount + 1, targetSlotCount);
+            parkingSlotRepository.saveAll(newSlots);
+        }
+
+        zone.setZoneName(normalizedName);
+        zone.setMaxCapacity(targetSlotCount);
+        ManagerSetupResponse response = toZoneResponse(zoneRepository.save(zone));
+        int addedSlots = targetSlotCount - currentSlotCount;
+        if (addedSlots > 0) {
+            response.setCreatedSlots(addedSlots);
+        }
+        return response;
+    }
+
+    @Transactional
     public ManagerSetupResponse updateZoneStatus(String zoneId, String status) {
         Zone zone = findZone(zoneId);
         zone.setStatus(validateZoneStatus(status));
@@ -219,7 +282,11 @@ public class ManagerBuildingSetupService {
     }
 
     private VehicleType resolveVehicleType(String buildingId, CreateFloorRequest request) {
-        String vehicleTypeId = normalizeText(request.getVehicleTypeId());
+        return resolveVehicleTypeId(buildingId, request.getVehicleTypeId());
+    }
+
+    private VehicleType resolveVehicleTypeId(String buildingId, String vehicleTypeIdRaw) {
+        String vehicleTypeId = normalizeText(vehicleTypeIdRaw);
 
         if (vehicleTypeId.equals(buildingId)) {
             throw new RuntimeException(
@@ -285,8 +352,12 @@ public class ManagerBuildingSetupService {
     }
 
     private List<ParkingSlot> buildSlots(Zone zone, String slotPrefix, int count) {
-        List<ParkingSlot> slots = new ArrayList<>(count);
-        for (int i = 1; i <= count; i++) {
+        return buildSlots(zone, slotPrefix, 1, count);
+    }
+
+    private List<ParkingSlot> buildSlots(Zone zone, String slotPrefix, int startIndex, int endIndex) {
+        List<ParkingSlot> slots = new ArrayList<>(endIndex - startIndex + 1);
+        for (int i = startIndex; i <= endIndex; i++) {
             String slotName = slotPrefix + "-" + i;
             if (parkingSlotRepository.existsByZoneZoneIdAndSlotNameIgnoreCase(zone.getZoneId(), slotName)) {
                 throw new DuplicateResourceException("Slot name duplicated in zone: " + slotName);
@@ -298,6 +369,40 @@ public class ManagerBuildingSetupService {
             slots.add(slot);
         }
         return slots;
+    }
+
+    private void removeAvailableSlots(List<ParkingSlot> slots, int slotsToRemove) {
+        List<ParkingSlot> removableSlots = new ArrayList<>(slots);
+        removableSlots.sort((left, right) -> right.getSlotName().compareToIgnoreCase(left.getSlotName()));
+
+        List<ParkingSlot> toDelete = new ArrayList<>(slotsToRemove);
+        for (ParkingSlot slot : removableSlots) {
+            if (toDelete.size() >= slotsToRemove) {
+                break;
+            }
+            if ("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus())) {
+                toDelete.add(slot);
+            }
+        }
+
+        if (toDelete.size() < slotsToRemove) {
+            throw new RuntimeException("Not enough available slots to remove");
+        }
+
+        parkingSlotRepository.deleteAll(toDelete);
+    }
+
+    private String deriveSlotPrefix(List<ParkingSlot> slots) {
+        if (slots.isEmpty()) {
+            throw new RuntimeException("slotPrefix is required when adding slots to a zone with no existing slots");
+        }
+
+        String slotName = slots.get(0).getSlotName();
+        int lastDash = slotName.lastIndexOf('-');
+        if (lastDash > 0) {
+            return slotName.substring(0, lastDash);
+        }
+        return slotName;
     }
 
     private String validateBuildingOrFloorStatus(String status) {

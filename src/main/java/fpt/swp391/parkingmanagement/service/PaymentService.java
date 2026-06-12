@@ -11,9 +11,14 @@ import fpt.swp391.parkingmanagement.enums.SessionStatus;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -31,6 +36,12 @@ public class PaymentService {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private VnPayService vnPayService;
+
+    @Autowired
+    private PayOSService payOSService;
 
     /**
      * STEP 1: STAFF initiates checkout for DRIVER
@@ -71,10 +82,36 @@ public class PaymentService {
 
         Payment savedPayment = paymentRepository.save(payment);
 
-        // Generate QR code for applicable methods
+        // Lấy IP của request hiện tại
+        String clientIp = "127.0.0.1";
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                HttpServletRequest httpReq = attrs.getRequest();
+                String forwarded = httpReq.getHeader("X-FORWARDED-FOR");
+                clientIp = (forwarded != null) ? forwarded : httpReq.getRemoteAddr();
+            }
+        } catch (Exception ignored) {}
+
+        String paymentUrl = null;
         String qrCode = null;
-        if ("VNPAY".equals(paymentRequest.getPaymentMethod()) ||
-                "MOMO".equals(paymentRequest.getPaymentMethod())) {
+        if ("VNPAY".equals(paymentRequest.getPaymentMethod())) {
+            paymentUrl = vnPayService.createPaymentUrl(
+                    savedPayment.getPaymentId(),
+                    paymentRequest.getAmount(),
+                    clientIp,
+                    paymentRequest.getBankCode(),
+                    paymentRequest.getLanguage()
+            );
+        } else if ("PAYOS".equals(paymentRequest.getPaymentMethod())) {
+            CreatePaymentLinkResponse payosResponse = payOSService.createPaymentLink(
+                    savedPayment.getPaymentId(),
+                    paymentRequest.getAmount()
+            );
+            savedPayment.setTransactionCode(String.valueOf(payosResponse.getOrderCode()));
+            paymentRepository.save(savedPayment);
+            paymentUrl = payosResponse.getCheckoutUrl();
+        } else if ("MOMO".equals(paymentRequest.getPaymentMethod())) {
             qrCode = generateQRCode(savedPayment.getPaymentId(), paymentRequest.getAmount());
         }
 
@@ -83,10 +120,11 @@ public class PaymentService {
                 .sessionId(session.getSessionId())
                 .paymentMethod(paymentRequest.getPaymentMethod())
                 .amount(paymentRequest.getAmount())
-                .paymentStatus("UNPAID")
+                .paymentStatus("PENDING")
                 .transactionCode(savedPayment.getTransactionCode())
                 .paymentTime(LocalDateTime.now())
                 .qrCode(qrCode)
+                .paymentUrl(paymentUrl)
                 .message("Payment initiated. Driver can now proceed with payment.")
                 .build();
 
@@ -221,6 +259,17 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
+        return toPaymentResponse(payment);
+    }
+
+    public PaymentResponseDTO getPaymentByOrderCode(long orderCode) {
+        Payment payment = paymentRepository.findByTransactionCode(String.valueOf(orderCode))
+                .orElseThrow(() -> new RuntimeException("Payment not found for orderCode: " + orderCode));
+
+        return toPaymentResponse(payment);
+    }
+
+    private PaymentResponseDTO toPaymentResponse(Payment payment) {
         return PaymentResponseDTO.builder()
                 .paymentId(payment.getPaymentId())
                 .sessionId(payment.getSession().getSessionId())

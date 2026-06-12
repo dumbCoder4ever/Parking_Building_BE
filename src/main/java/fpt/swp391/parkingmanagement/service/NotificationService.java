@@ -41,15 +41,10 @@ public class NotificationService {
     }
 
     public void sendPaymentInitiationToDriver(User driver, PaymentResponseDTO paymentResponse) {
-        // Implement: Email, SMS, WebSocket, or push notification
-        System.out.println("NOTIFICATION TO DRIVER: " + driver.getUsername());
-        System.out.println("Transaction Code: " + paymentResponse.getTransactionCode());
-        System.out.println("Amount: " + paymentResponse.getAmount());
-        System.out.println("Payment Method: " + paymentResponse.getPaymentMethod());
+        sendToUser(driver.getUsername(), "PAYMENT_INITIATED", paymentResponse);
     }
 
     public void sendPaymentConfirmationToDriver(User driver, PaymentConfirmationDTO confirmation) {
-        System.out.println("PAYMENT CONFIRMATION TO DRIVER: " + driver.getUsername());
-        System.out.println("Status: " + confirmation.getConfirmationStatus());
+        sendToUser(driver.getUsername(), "PAYMENT_CONFIRMED", confirmation);
     }
 }
