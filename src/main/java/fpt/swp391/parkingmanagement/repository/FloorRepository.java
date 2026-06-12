@@ -31,6 +31,9 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
     boolean existsByBuildingBuildingIdAndVehicleTypeVehicleTypeId(
             String buildingId, String vehicleTypeId);
 
+    boolean existsByBuildingBuildingIdAndVehicleTypeVehicleTypeIdAndFloorIdNot(
+            String buildingId, String vehicleTypeId, String floorId);
+
     boolean existsByVehicleTypeVehicleTypeId(String vehicleTypeId);
 
     long countByBuildingBuildingId(String buildingId);

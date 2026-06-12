@@ -164,22 +164,44 @@ public class ParkingSessionService {
             }
         }
 
+        String paymentMethod = req.getPaymentMethod() != null ? req.getPaymentMethod() : "CASH";
+        boolean electronicPayment = "VNPAY".equals(paymentMethod)
+                || "PAYOS".equals(paymentMethod)
+                || "MOMO".equals(paymentMethod);
+
         session.setTotalFee(total);
         session.setParkingDuration(hours);
-        session.setPaymentStatus("PAID");
         session.setSessionStatus("COMPLETED");
         if (session.getReservation() != null) {
             session.getReservation().setReservationStatus("COMPLETED");
         }
 
+        Payment savedPayment;
+        if (electronicPayment) {
+            if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
+                throw new RuntimeException(
+                        "Payment has not been confirmed yet. Initiate and complete payment before checkout.");
+            }
+            savedPayment = paymentRepository
+                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
+                            session.getSessionId(), "SUCCESS")
+                    .orElseThrow(() -> new RuntimeException(
+                            "Successful payment record not found for this session"));
+        } else {
+            session.setPaymentStatus("PAID");
+            savedPayment = null;
+        }
+
         ParkingSession saved = parkingSessionRepository.save(session);
 
-        Payment payment = new Payment();
-        payment.setSession(saved);
-        payment.setPaymentMethod(req.getPaymentMethod() != null ? req.getPaymentMethod() : "CASH");
-        payment.setAmount(total);
-        payment.setPaymentStatus("SUCCESS");
-        Payment savedPayment = paymentRepository.save(payment);
+        if (!electronicPayment) {
+            Payment payment = new Payment();
+            payment.setSession(saved);
+            payment.setPaymentMethod(paymentMethod);
+            payment.setAmount(total);
+            payment.setPaymentStatus("SUCCESS");
+            savedPayment = paymentRepository.save(payment);
+        }
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
