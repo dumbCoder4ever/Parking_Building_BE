@@ -182,6 +182,22 @@ public class ReservationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ReservationResponse> getAllReservationsForStaff(String staffEmail) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> getReservationsByStatusForStaff(String staffEmail, String status) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<ReservationResponse> getReservationsByStatus(String staffEmail, String buildingId, String status) {
         checkStaffBuildingAssignment(staffEmail, buildingId);
         return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
@@ -204,6 +220,27 @@ public class ReservationService {
                 .findByBuildingBuildingIdAndReservationCodeFetchingDetails(buildingId, reservationCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
         return toReservationResponse(reservation);
+    }
+
+    @Transactional(readOnly = true)
+    public ReservationResponse getReservationByCodeForStaff(String staffEmail, String reservationCode) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        Reservation reservation = reservationRepository
+                .findByReservationCodeFetchingDetails(reservationCode)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+        if (reservation.getSlot() != null && reservation.getSlot().getZone() != null
+                && reservation.getSlot().getZone().getFloor() != null
+                && !buildingId.equals(reservation.getSlot().getZone().getFloor().getBuilding().getBuildingId())) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED, "Reservation does not belong to your building");
+        }
+        return toReservationResponse(reservation);
+    }
+
+    @Transactional
+    public ReservationResponse updateReservationStatusForStaff(String staffEmail, String reservationCode,
+            String status, String note) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return updateReservationStatus(staffEmail, buildingId, reservationCode, status, note);
     }
 
     @Transactional
@@ -248,7 +285,6 @@ public class ReservationService {
         Ticket ticket = new Ticket();
         ticket.setReservation(reservation);
         ticket.setTicketCode("T-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
-        ticket.setQrCode(java.util.Base64.getEncoder().encodeToString(ticket.getTicketCode().getBytes()));
         ticket = ticketRepository.save(ticket);
 
         ReservationResponse response = toReservationResponse(reservation, ticket);
@@ -548,7 +584,6 @@ public class ReservationService {
 
         if (ticket != null) {
             resp.setTicketCode(ticket.getTicketCode());
-            resp.setQrCode(ticket.getQrCode());
         }
         return resp;
     }
@@ -681,5 +716,18 @@ public class ReservationService {
         return userRepository.findByEmail(email)
                 .map(User::getUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
+    private String getBuildingIdByStaffEmail(String email) {
+        String userId = getUserIdByEmail(email);
+        List<String> buildingIds = buildingStaffRepository.findBuildingIdsByUserId(userId);
+        if (buildingIds.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED, "Staff is not assigned to any building");
+        }
+        if (buildingIds.size() > 1) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
+                    "Staff is assigned to multiple buildings. Please specify a building.");
+        }
+        return buildingIds.get(0);
     }
 }

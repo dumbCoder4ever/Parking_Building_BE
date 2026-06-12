@@ -4,244 +4,174 @@ import fpt.swp391.parkingmanagement.dto.PricingPolicyRequest;
 import fpt.swp391.parkingmanagement.dto.PricingPolicyResponse;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
+import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 @RequiredArgsConstructor
 @Transactional
 public class PricingPolicyService {
-    // Valid pricing types
+
     private static final List<String> VALID_PRICING_TYPES = List.of("HOURLY", "DAILY", "OVERNIGHT");
 
-    @Autowired
-    private PricingPolicyRepository pricingPolicyRepository;
+    private final PricingPolicyRepository pricingPolicyRepository;
+    private final VehicleTypeRepository vehicleTypeRepository;
 
-    @Autowired
-    private Validator validator;
-
-    @Autowired
-    private VehicleTypeRepository vehicleTypeRepository;
-
-    // Tạo policy mới
-    public PricingPolicyResponse createPricingPolicy(PricingPolicyRequest pricingPolicyRequest) {
-        // exist event
-        Optional<PricingPolicy> existingPolicy = pricingPolicyRepository.findByPolicyName(pricingPolicyRequest.getPolicyName());
-        if (existingPolicy.isPresent()) {
-            throw new IllegalArgumentException("Pricing policy with name '" + pricingPolicyRequest.getPolicyName() + "' already exists");
+    public PricingPolicyResponse createPricingPolicy(PricingPolicyRequest request) {
+        if (pricingPolicyRepository.findByPolicyName(request.getPolicyName()).isPresent()) {
+            throw new DuplicateResourceException("Pricing policy with name '" + request.getPolicyName() + "' already exists");
         }
 
-        PricingPolicy pricingPolicy = convertToEntity(pricingPolicyRequest);
-
-        Set<ConstraintViolation<PricingPolicy>> violations = validator.validate(pricingPolicy);
-        if (!violations.isEmpty()) {
-            throw new IllegalArgumentException(
-                    violations.stream()
-                            .map(v -> v.getMessage())
-                            .collect(Collectors.joining(", "))
-            );
-        }
-
-        PricingPolicy savedEvent = pricingPolicyRepository.save(pricingPolicy);
-        return convertToResponseDTO(savedEvent);
+        PricingPolicy policy = toEntity(request);
+        PricingPolicy saved = pricingPolicyRepository.save(policy);
+        return toResponseDTO(saved);
     }
 
-    // Cập nhật pricing policy
-    public PricingPolicyResponse updatePricingPolicy(String id, PricingPolicyRequest pricingPolicyRequest) {
-        Optional<PricingPolicy> existingPolicy = pricingPolicyRepository.findById(id);
-        if (existingPolicy.isEmpty()) {
-            throw new IllegalArgumentException("Pricing policy not found with id: " + id);
+    public PricingPolicyResponse updatePricingPolicy(String id, PricingPolicyRequest request) {
+        PricingPolicy policy = pricingPolicyRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Pricing policy not found with id: " + id));
+
+        if (!policy.getPolicyName().equals(request.getPolicyName())
+                && pricingPolicyRepository.findByPolicyName(request.getPolicyName()).isPresent()) {
+            throw new DuplicateResourceException("Pricing policy with name '" + request.getPolicyName() + "' already exists");
         }
 
-        Set<ConstraintViolation<Optional<PricingPolicy>>> violations = validator.validate(existingPolicy);
-        if (!violations.isEmpty()) {
-            throw new IllegalArgumentException(
-                    violations.stream()
-                            .map(v -> v.getMessage())
-                            .collect(Collectors.joining(", "))
-            );
-        }
-
-        PricingPolicy pricingPolicy = existingPolicy.get();
-        updatePricingPolicyFields(pricingPolicy, pricingPolicyRequest);
-
-        PricingPolicy updatedEvent = pricingPolicyRepository.save(pricingPolicy);
-        return convertToResponseDTO(updatedEvent);
+        updateFields(policy, request);
+        return toResponseDTO(pricingPolicyRepository.save(policy));
     }
 
-    // Xóa pricing policy
     public void deletePricingPolicy(String id) {
-        Optional<PricingPolicy> policy = pricingPolicyRepository.findById(id);
-        if (policy.isEmpty()) {
-            throw new IllegalArgumentException("Event not found with id: " + id);
-        }
-        Set<ConstraintViolation<Optional<PricingPolicy>>> violations = validator.validate(policy);
-        if (!violations.isEmpty()) {
-            throw new IllegalArgumentException(
-                    violations.stream()
-                            .map(v -> v.getMessage())
-                            .collect(Collectors.joining(", "))
-            );
+        if (!pricingPolicyRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Pricing policy not found with id: " + id);
         }
         pricingPolicyRepository.deleteById(id);
     }
 
-    // Lấy tất cả pricing policies
+    @Transactional(readOnly = true)
     public List<PricingPolicyResponse> getAllPricingPolicies() {
-        List<PricingPolicy> policies = pricingPolicyRepository.findAll();
-        return policies.stream()
-                .map(this::convertToResponseDTO)
-                .collect(Collectors.toList());
+        return pricingPolicyRepository.findAll().stream()
+                .map(this::toResponseDTO)
+                .toList();
     }
 
-    // Lấy active pricing policies từ vehicle type ID
-    public List<PricingPolicyResponse> findActiveStatusByVehicleTypeId(String vehicleTypeId) {
-        List<PricingPolicy> policies = pricingPolicyRepository.findAllActiveForVehicleType(vehicleTypeId);
-        return policies.stream()
-                .map(this::convertToResponseDTO)
-                .collect(Collectors.toList());
+    @Transactional(readOnly = true)
+    public List<PricingPolicyResponse> findActiveByVehicleTypeId(String vehicleTypeId) {
+        return pricingPolicyRepository.findAllActiveForVehicleType(vehicleTypeId).stream()
+                .map(this::toResponseDTO)
+                .toList();
     }
 
-    // Lấy pricing policy theo ID
+    @Transactional(readOnly = true)
+    public List<PricingPolicyResponse> getActiveSummary() {
+        return pricingPolicyRepository.findAll().stream()
+                .filter(p -> "ACTIVE".equalsIgnoreCase(p.getStatus()))
+                .map(this::toResponseDTO)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public PricingPolicyResponse getPricingPolicyById(String id) {
         PricingPolicy policy = pricingPolicyRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found with id : " + id));
-        Set<ConstraintViolation<PricingPolicy>> violations = validator.validate(policy);
-        if (!violations.isEmpty()) {
-            throw new IllegalArgumentException(
-                    violations.stream()
-                            .map(v -> v.getMessage())
-                            .collect(Collectors.joining(", "))
-            );
+                .orElseThrow(() -> new ResourceNotFoundException("Pricing policy not found with id: " + id));
+        return toResponseDTO(policy);
+    }
+
+    @Scheduled(fixedRate = 60000)
+    public void updateExpiredPolicies() {
+        try {
+            int updated = pricingPolicyRepository.updateExpiredPolicies();
+            if (updated > 0) {
+                log.info("Deactivated {} expired pricing policies", updated);
+            }
+        } catch (Exception e) {
+            log.error("Error deactivating expired pricing policies", e);
         }
-        return this.convertToResponseDTO(policy);
     }
 
-    // Chuyển đổi Entity sang ResponseDTO
-    private PricingPolicyResponse convertToResponseDTO(PricingPolicy pricingPolicy) {
-        PricingPolicyResponse responseDTO = new PricingPolicyResponse();
-
-        responseDTO.setPolicyId(pricingPolicy.getPolicyId());
-        responseDTO.setPolicyName(pricingPolicy.getPolicyName());
-        responseDTO.setPricingType(pricingPolicy.getPricingType());
-        responseDTO.setStatus(pricingPolicy.getStatus());
-        responseDTO.setBasePrice(pricingPolicy.getBasePrice());
-        responseDTO.setCreatedAt(pricingPolicy.getCreatedAt());
-        responseDTO.setEffectiveFrom(pricingPolicy.getEffectiveFrom());
-        responseDTO.setEffectiveTo(pricingPolicy.getEffectiveTo());
-        responseDTO.setHourlyRate(pricingPolicy.getHourlyRate());
-        responseDTO.setLostTicketFee(pricingPolicy.getLostTicketFee());
-        responseDTO.setMaxDailyFee(pricingPolicy.getMaxDailyFee());
-        responseDTO.setOvernightFee(pricingPolicy.getOvernightFee());
-        responseDTO.setPeakHourMultiplier(pricingPolicy.getPeakHourMultiplier());
-        responseDTO.setVehicleTypeId(pricingPolicy.getVehicleType().getVehicleTypeId());
-        //vehicle
-        responseDTO.setTypeName(pricingPolicy.getVehicleType().getTypeName());
-        return responseDTO;
-    }
-
-    //Chuyển đổi RequestDTO sang Entity
-    private PricingPolicy convertToEntity(PricingPolicyRequest requestDTO) {
+    private PricingPolicy toEntity(PricingPolicyRequest request) {
         PricingPolicy policy = new PricingPolicy();
-        policy.setPolicyName(requestDTO.getPolicyName());
-        String pricingType = validateAndGetPricingType(requestDTO.getPricingType());
-        policy.setPricingType(pricingType);
-        //policy.setStatus(requestDTO.getStatus());
-        policy.setBasePrice(requestDTO.getBasePrice());
-        policy.setEffectiveFrom(requestDTO.getEffectiveFrom());
-        policy.setEffectiveTo(requestDTO.getEffectiveTo());
-        policy.setHourlyRate(requestDTO.getHourlyRate());
-        policy.setLostTicketFee(requestDTO.getLostTicketFee());
-        policy.setMaxDailyFee(requestDTO.getMaxDailyFee());
-        policy.setOvernightFee(requestDTO.getOvernightFee());
-        policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
-        VehicleType vehicleType = validateAndGetVehicleType(requestDTO.getVehicleTypeId());
-        //vehicleType = pricingPolicyRepository.findVehicleTypeByVehicleTypeId(requestDTO.getVehicleTypeId());
-        policy.setVehicleType(vehicleType);
+        policy.setPolicyName(request.getPolicyName());
+        policy.setPricingType(validatePricingType(request.getPricingType()));
+        policy.setBasePrice(request.getBasePrice());
+        policy.setHourlyRate(request.getHourlyRate());
+        policy.setOvernightFee(request.getOvernightFee());
+        policy.setLostTicketFee(request.getLostTicketFee());
+        policy.setPeakHourMultiplier(request.getPeakHourMultiplier());
+        policy.setMaxDailyFee(request.getMaxDailyFee());
+        policy.setEffectiveFrom(request.getEffectiveFrom());
+        policy.setEffectiveTo(request.getEffectiveTo());
+        policy.setVehicleType(resolveVehicleType(request.getVehicleTypeId()));
         return policy;
     }
 
-    //Update field
-    private void updatePricingPolicyFields(PricingPolicy policy, PricingPolicyRequest requestDTO) {
-        policy.setPolicyName(requestDTO.getPolicyName());
-        String pricingType = validateAndGetPricingType(requestDTO.getPricingType());
-        policy.setPricingType(pricingType);
-        //policy.setStatus(requestDTO.getStatus());
-        policy.setBasePrice(requestDTO.getBasePrice());
-        policy.setEffectiveFrom(requestDTO.getEffectiveFrom());
-        policy.setEffectiveTo(requestDTO.getEffectiveTo());
-        policy.setHourlyRate(requestDTO.getHourlyRate());
-        policy.setLostTicketFee(requestDTO.getLostTicketFee());
-        policy.setMaxDailyFee(requestDTO.getMaxDailyFee());
-        policy.setOvernightFee(requestDTO.getOvernightFee());
-        policy.setPeakHourMultiplier(requestDTO.getPeakHourMultiplier());
-        //policy.setVehicleType(requestDTO.getVehicleType());
-        VehicleType vehicleType = validateAndGetVehicleType(requestDTO.getVehicleTypeId());
-        policy.setVehicleType(vehicleType);
-    }
-
-    //Auto status INACTIVE after passes effective_to
-    @Scheduled(fixedRate = 60000)
-    public void updateExpiredPricingPolicies() {
-        try {
-            int updatedCount = pricingPolicyRepository.updateExpiredPolicies();
-
-            if (updatedCount > 0) {
-                log.info("Successfully deactivated {} expired pricing policies", updatedCount);
-
-                // Log details of expired policies
-                List<PricingPolicy> expiredPolicies = pricingPolicyRepository.findExpiredActivePolicies();
-                expiredPolicies.forEach(policy ->
-                        log.debug("Deactivated pricing policy '{}' (ID: {}). Effective until: {}",
-                                policy.getPolicyName(), policy.getPolicyId(), policy.getEffectiveTo())
-                );
-            }
-        } catch (Exception e) {
-            log.error("Error updating expired pricing policies", e);
+    private void updateFields(PricingPolicy policy, PricingPolicyRequest request) {
+        policy.setPolicyName(request.getPolicyName());
+        policy.setPricingType(validatePricingType(request.getPricingType()));
+        policy.setBasePrice(request.getBasePrice());
+        policy.setHourlyRate(request.getHourlyRate());
+        policy.setOvernightFee(request.getOvernightFee());
+        policy.setLostTicketFee(request.getLostTicketFee());
+        policy.setPeakHourMultiplier(request.getPeakHourMultiplier());
+        policy.setMaxDailyFee(request.getMaxDailyFee());
+        policy.setEffectiveFrom(request.getEffectiveFrom());
+        policy.setEffectiveTo(request.getEffectiveTo());
+        policy.setVehicleType(resolveVehicleType(request.getVehicleTypeId()));
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            policy.setStatus(request.getStatus().trim().toUpperCase());
         }
     }
 
-    private VehicleType validateAndGetVehicleType(String vehicleTypeId) {
-        if (vehicleTypeId == null || vehicleTypeId.isBlank()) {
-            throw new IllegalArgumentException("Vehicle Type ID cannot be null or empty");
-        }
-
-        return vehicleTypeRepository.findById(vehicleTypeId)
-                .orElseThrow(() -> {
-                    log.warn("Vehicle type not found with ID: {}", vehicleTypeId);
-                    return new IllegalArgumentException("Vehicle type not found with ID: " + vehicleTypeId);
-                });
+    private PricingPolicyResponse toResponseDTO(PricingPolicy policy) {
+        PricingPolicyResponse dto = new PricingPolicyResponse();
+        dto.setPolicyId(policy.getPolicyId());
+        dto.setPolicyName(policy.getPolicyName());
+        dto.setPricingType(policy.getPricingType());
+        dto.setBasePrice(policy.getBasePrice());
+        dto.setHourlyRate(policy.getHourlyRate());
+        dto.setOvernightFee(policy.getOvernightFee());
+        dto.setLostTicketFee(policy.getLostTicketFee());
+        dto.setPeakHourMultiplier(policy.getPeakHourMultiplier());
+        dto.setMaxDailyFee(policy.getMaxDailyFee());
+        dto.setEffectiveFrom(policy.getEffectiveFrom());
+        dto.setEffectiveTo(policy.getEffectiveTo());
+        dto.setStatus(policy.getStatus());
+        dto.setCreatedAt(policy.getCreatedAt());
+        dto.setVehicleTypeId(policy.getVehicleType().getVehicleTypeId());
+        dto.setTypeName(policy.getVehicleType().getTypeName());
+        return dto;
     }
 
-    private String validateAndGetPricingType(String pricingType) {
+    private String validatePricingType(String pricingType) {
         if (pricingType == null || pricingType.isBlank()) {
-            throw new IllegalArgumentException("Pricing type cannot be null or empty");
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Pricing type cannot be null or empty");
         }
-
-        String upperPricingType = pricingType.trim().toUpperCase();
-
-        if (!VALID_PRICING_TYPES.contains(upperPricingType)) {
-            log.warn("Invalid pricing type: {}. Valid types are: {}", pricingType, VALID_PRICING_TYPES);
-            throw new IllegalArgumentException(
-                    "Invalid pricing type: '" + pricingType + "'. Valid types are: " +
-                            String.join(", ", VALID_PRICING_TYPES)
-            );
+        String normalized = pricingType.trim().toUpperCase();
+        if (!VALID_PRICING_TYPES.contains(normalized)) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST,
+                    "Invalid pricing type: '" + pricingType + "'. Valid types are: " + String.join(", ", VALID_PRICING_TYPES));
         }
-        return upperPricingType;
+        return normalized;
+    }
+
+    private VehicleType resolveVehicleType(String vehicleTypeId) {
+        if (vehicleTypeId == null || vehicleTypeId.isBlank()) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Vehicle type ID cannot be null or empty");
+        }
+        return vehicleTypeRepository.findById(vehicleTypeId)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                        "Vehicle type not found with id: " + vehicleTypeId));
     }
 }

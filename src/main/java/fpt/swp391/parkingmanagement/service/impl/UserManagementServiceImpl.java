@@ -1,21 +1,18 @@
-package fpt.swp391.parkingmanagement.service;
-
-import java.util.List;
-import java.util.stream.Collectors;
-
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+package fpt.swp391.parkingmanagement.service.impl;
 
 import fpt.swp391.parkingmanagement.dto.UpdateUserStatusRequest;
 import fpt.swp391.parkingmanagement.dto.UserRequest;
 import fpt.swp391.parkingmanagement.dto.UserResponse;
 import fpt.swp391.parkingmanagement.dto.UserUpdateRequest;
 import fpt.swp391.parkingmanagement.entity.User;
-import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
-import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import fpt.swp391.parkingmanagement.service.UserManagementService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -27,78 +24,80 @@ public class UserManagementServiceImpl implements UserManagementService {
 
     @Override
     public UserResponse createUser(UserRequest request) {
-        // Check for duplicates
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new DuplicateResourceException("Username already exists: " + request.getUsername());
+            throw new RuntimeException("Username already exists");
         }
         if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
-            throw new DuplicateResourceException("Email already exists: " + request.getEmail());
+            throw new RuntimeException("Email already exists");
         }
         if (request.getPhone() != null && userRepository.existsByPhoneNumber(request.getPhone())) {
-            throw new DuplicateResourceException("Phone number already exists: " + request.getPhone());
+            throw new RuntimeException("Phone number already exists");
         }
 
         User user = new User();
         user.setUsername(request.getUsername());
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setFullName(request.getFullName());
         user.setEmail(request.getEmail());
         user.setPhoneNumber(request.getPhone());
-        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
         user.setStatus(request.getStatus() != null ? request.getStatus() : "ACTIVE");
 
-        return convertToResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        return toResponse(saved);
     }
 
     @Override
     public UserResponse changeUserRole(String userId, UserUpdateRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
         user.setRole(request.role());
-        return convertToResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        return toResponse(saved);
     }
 
     @Override
     public void deleteUser(String userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
         userRepository.delete(user);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public UserResponse getUserById(String userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-        return convertToResponse(user);
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+        return toResponse(user);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserResponse> getAllUsers() {
         return userRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::convertToResponse)
-                .collect(Collectors.toList());
+                .map(this::toResponse)
+                .toList();
     }
 
     @Override
     public void changeUserStatus(String userId, UpdateUserStatusRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
         user.setStatus(request.getStatus());
         userRepository.save(user);
     }
 
-    private UserResponse convertToResponse(User user) {
-        UserResponse response = new UserResponse();
-        response.setUserId(user.getUserId());
-        response.setUsername(user.getUsername());
-        response.setFullName(user.getFullName());
-        response.setEmail(user.getEmail());
-        response.setPhoneNumber(user.getPhoneNumber());
-        response.setRole(user.getRole());
-        response.setStatus(user.getStatus());
-        response.setCreatedAt(user.getCreatedAt());
-        response.setUpdatedAt(user.getUpdatedAt());
-        return response;
+    private UserResponse toResponse(User user) {
+        return UserResponse.builder()
+                .userId(user.getUserId())
+                .username(user.getUsername())
+                .fullName(user.getFullName())
+                .email(user.getEmail())
+                .phoneNumber(user.getPhoneNumber())
+                .role(user.getRole())
+                .status(user.getStatus())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
+                .build();
     }
 }

@@ -22,6 +22,5 @@ public class PaymentResponseDTO {
     private String transactionCode;
     private LocalDateTime paymentTime;
     private String message;
-    private String qrCode;
-    private String paymentUrl; // URL redirect sang cổng thanh toán (VNPay, PayOS, ...)
+    private String paymentUrl;
 }

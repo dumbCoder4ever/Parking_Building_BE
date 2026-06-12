@@ -41,5 +41,4 @@ public class ReservationResponse {
 
     // Ticket info
     private String ticketCode;
-    private String qrCode;
 }
