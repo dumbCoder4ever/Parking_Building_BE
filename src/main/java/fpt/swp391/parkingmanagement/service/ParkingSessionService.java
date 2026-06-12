@@ -22,6 +22,10 @@ import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.Ticket;
 import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.entity.Zone;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
+import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
+import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
@@ -42,28 +46,40 @@ public class ParkingSessionService {
     private final UserRepository userRepository;
     private final PricingPolicyRepository pricingPolicyRepository;
     private final PaymentRepository paymentRepository;
+    private final BuildingStaffRepository buildingStaffRepository;
+
+    private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
+        String userId = userRepository.findByEmail(staffEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff not found"))
+                .getUserId();
+        if (!buildingStaffRepository.existsByBuildingBuildingIdAndUserUserId(buildingId, userId)) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
+                    "You are not assigned to this building");
+        }
+    }
 
     @Transactional
     public ParkingSessionResponse checkin(String staffEmail, CheckinRequest req) {
+        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
-        if (Boolean.TRUE.equals(ticket.getIsUsed())) throw new RuntimeException("Ticket already used");
+        if (Boolean.TRUE.equals(ticket.getIsUsed())) throw new BaseAPIException(ErrorCode.TICKET_ALREADY_USED);
 
         // Check if ticket has expired
         if (ticket.getExpiredAt() != null && LocalDateTime.now().isAfter(ticket.getExpiredAt())) {
-            throw new RuntimeException("Ticket has expired");
+            throw new BaseAPIException(ErrorCode.TICKET_EXPIRED);
         }
 
         var reservation = ticket.getReservation();
-        if (reservation == null) throw new RuntimeException("Reservation not found for ticket");
+        if (reservation == null) throw new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND);
         if (!"APPROVED".equalsIgnoreCase(reservation.getReservationStatus())) {
-            throw new RuntimeException("Reservation has not been approved yet");
+            throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED);
         }
 
         if (req.getPlateNumber() != null && reservation.getVehicle() != null) {
             if (!req.getPlateNumber().equalsIgnoreCase(reservation.getVehicle().getPlateNumber())) {
-                throw new RuntimeException("Plate number does not match reservation");
+                throw new BaseAPIException(ErrorCode.PLATE_NUMBER_MISMATCH);
             }
         }
 
@@ -72,14 +88,14 @@ public class ParkingSessionService {
             Integer gracePeriodMinutes = reservation.getGracePeriodMinutes();
             int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 15;
             if (now.isAfter(reservation.getReservationEnd().plusMinutes(grace))) {
-                throw new RuntimeException("Reservation expired");
+                throw new BaseAPIException(ErrorCode.RESERVATION_EXPIRED);
             }
         }
 
         ParkingSlot slot = reservation.getSlot();
-        if (slot == null) throw new RuntimeException("Reserved slot not found");
+        if (slot == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND);
         if (!"RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
-            throw new RuntimeException("Slot is not in RESERVED status");
+            throw new BaseAPIException(ErrorCode.SLOT_NOT_RESERVED);
         }
 
         ParkingSession session = new ParkingSession();
@@ -114,17 +130,21 @@ public class ParkingSessionService {
 
     @Transactional
     public CheckoutResponse checkout(String staffEmail, CheckoutRequest req) {
+        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
-                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
         Optional<ParkingSession> optSession = parkingSessionRepository
                 .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE");
 
-        ParkingSession session = optSession.orElseThrow(() -> new RuntimeException("Active parking session not found for this ticket"));
+        ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
         LocalDateTime now = LocalDateTime.now();
         session.setCheckoutTime(now);
 
+        if (session.getCheckinTime() == null) {
+            throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
+        }
         long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
         int hours = (int) Math.ceil(minutes / 60.0);
 

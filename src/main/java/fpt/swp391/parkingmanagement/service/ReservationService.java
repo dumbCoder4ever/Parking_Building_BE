@@ -23,6 +23,8 @@ import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.entity.Zone;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
@@ -33,12 +35,11 @@ import fpt.swp391.parkingmanagement.repository.UserRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
-import lombok.RequiredArgsConstructor;
+import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Service
-@RequiredArgsConstructor
 public class ReservationService {
 
     private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
@@ -58,11 +59,35 @@ public class ReservationService {
     private final ZoneRepository zoneRepository;
     private final UserRepository userRepository;
     private final VehicleService vehicleService;
-    private NotificationService notificationService;
+    private final NotificationService notificationService;
+    private final BuildingStaffRepository buildingStaffRepository;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public void setNotificationService(NotificationService notificationService) {
+    public ReservationService(
+            ParkingSlotRepository parkingSlotRepository,
+            BuildingRepository buildingRepository,
+            VehicleRepository vehicleRepository,
+            ReservationRepository reservationRepository,
+            TicketRepository ticketRepository,
+            VehicleTypeRepository vehicleTypeRepository,
+            FloorRepository floorRepository,
+            ZoneRepository zoneRepository,
+            UserRepository userRepository,
+            VehicleService vehicleService,
+            NotificationService notificationService,
+            BuildingStaffRepository buildingStaffRepository) {
+        this.parkingSlotRepository = parkingSlotRepository;
+        this.buildingRepository = buildingRepository;
+        this.vehicleRepository = vehicleRepository;
+        this.reservationRepository = reservationRepository;
+        this.ticketRepository = ticketRepository;
+        this.vehicleTypeRepository = vehicleTypeRepository;
+        this.floorRepository = floorRepository;
+        this.zoneRepository = zoneRepository;
+        this.userRepository = userRepository;
+        this.vehicleService = vehicleService;
         this.notificationService = notificationService;
+        this.buildingStaffRepository = buildingStaffRepository;
     }
 
     @Transactional(readOnly = true)
@@ -149,29 +174,34 @@ public class ReservationService {
     // ============ STAFF APIs ============
 
     @Transactional(readOnly = true)
-    public List<ReservationResponse> getAllReservations() {
-        return reservationRepository.findAllByOrderByCreatedAtDesc().stream()
+    public List<ReservationResponse> getAllReservations(String staffEmail, String buildingId) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        return reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId).stream()
                 .map(this::toReservationResponse)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public List<ReservationResponse> getReservationsByStatus(String status) {
-        return reservationRepository.findByReservationStatusOrderByCreatedAtDesc(status).stream()
+    public List<ReservationResponse> getReservationsByStatus(String staffEmail, String buildingId, String status) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
                 .map(this::toReservationResponse)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public ReservationResponse getReservationById(String reservationId) {
-        Reservation reservation = reservationRepository.findByReservationId(reservationId)
+    public ReservationResponse getReservationById(String staffEmail, String buildingId, String reservationId) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        Reservation reservation = reservationRepository.findByBuildingBuildingIdAndReservationId(buildingId, reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationId));
         return toReservationResponse(reservation);
     }
 
     @Transactional(readOnly = true)
-    public ReservationResponse getReservationByCode(String reservationCode) {
-        Reservation reservation = reservationRepository.findByReservationCodeFetchingDetails(reservationCode)
+    public ReservationResponse getReservationByCode(String staffEmail, String buildingId, String reservationCode) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        Reservation reservation = reservationRepository
+                .findByBuildingBuildingIdAndReservationCodeFetchingDetails(buildingId, reservationCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
         return toReservationResponse(reservation);
     }
@@ -229,17 +259,20 @@ public class ReservationService {
     }
 
     private void sendReservationNotification(Reservation reservation, String event, String message) {
-        if (notificationService != null && reservation.getUser() != null) {
+        if (reservation.getUser() != null) {
             User driver = reservation.getUser();
             ReservationResponse payload = toReservationResponse(reservation);
             notificationService.sendToUser(driver.getUsername(), event, payload);
-            System.out.println("NOTIFICATION TO " + driver.getUsername() + ": " + message);
+            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
         }
     }
 
     @Transactional
-    public ReservationResponse updateReservationStatus(String reservationCode, String status, String note) {
-        Reservation reservation = reservationRepository.findByReservationCode(normalizeText(reservationCode))
+    public ReservationResponse updateReservationStatus(
+            String staffEmail, String buildingId, String reservationCode, String status, String note) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        Reservation reservation = reservationRepository
+                .findByBuildingBuildingIdAndReservationCodeFetchingDetails(buildingId, normalizeText(reservationCode))
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
 
         String oldStatus = reservation.getReservationStatus();
@@ -282,7 +315,7 @@ public class ReservationService {
     }
 
     private void sendStatusChangeNotification(Reservation reservation, String oldStatus, String newStatus) {
-        if (notificationService != null && reservation.getUser() != null) {
+        if (reservation.getUser() != null) {
             User driver = reservation.getUser();
             String message;
             switch (newStatus) {
@@ -306,7 +339,7 @@ public class ReservationService {
             }
             ReservationResponse payload = toReservationResponse(reservation);
             notificationService.sendToUser(driver.getUsername(), "RESERVATION_STATUS_CHANGED", payload);
-            System.out.println("NOTIFICATION TO " + driver.getUsername() + ": " + message);
+            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
         }
     }
 
@@ -354,7 +387,7 @@ public class ReservationService {
     }
 
     private void sendAutoExpireNotification(Reservation reservation, String newStatus) {
-        if (notificationService != null && reservation.getUser() != null) {
+        if (reservation.getUser() != null) {
             User driver = reservation.getUser();
             String message;
             if ("EXPIRED".equals(newStatus)) {
@@ -364,7 +397,7 @@ public class ReservationService {
             }
             ReservationResponse payload = toReservationResponse(reservation);
             notificationService.sendToUser(driver.getUsername(), "RESERVATION_" + newStatus, payload);
-            System.out.println("NOTIFICATION TO " + driver.getUsername() + ": " + message);
+            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
         }
     }
 
@@ -502,6 +535,9 @@ public class ReservationService {
         if (vehicle != null) {
             resp.setVehicleId(vehicle.getVehicleId());
             resp.setVehiclePlate(vehicle.getPlateNumber());
+            resp.setVehicleColor(vehicle.getVehicleColor());
+            resp.setVehicleBrand(vehicle.getBrand());
+            resp.setVehicleModel(vehicle.getModel());
         }
 
         ParkingSlot slot = reservation.getSlot();
@@ -632,5 +668,18 @@ public class ReservationService {
 
     private String normalizeText(String value) {
         return StringUtils.hasText(value) ? value.trim() : "";
+    }
+
+    private void checkStaffBuildingAssignment(String email, String buildingId) {
+        if (!buildingStaffRepository.existsByBuildingBuildingIdAndUserUserId(buildingId, getUserIdByEmail(email))) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
+                    "You are not assigned to this building");
+        }
+    }
+
+    private String getUserIdByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .map(User::getUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 }
