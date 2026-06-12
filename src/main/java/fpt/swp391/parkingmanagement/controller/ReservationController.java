@@ -36,10 +36,10 @@ import lombok.RequiredArgsConstructor;
  * Bước 3: Nhập thông tin xe (biển số, màu, hãng, model, loại xe)
  * Bước 4: Chọn thời gian gửi (start -> end)
  * Bước 5: Tạo Reservation -> Slot: AVAILABLE -> RESERVED
- * Bước 6: Sinh Ticket (ticket_code, qr_code)
+ * Bước 6: Sinh Ticket (ticket_code)
  *
  * FLOW 2 — STAFF XÁC NHẬN XE VÀO BÃI:
- * Bước 1: User đến bãi xe (đưa ticket, QR, biển số)
+ * Bước 1: User đến bãi xe (đưa ticket, biển số)
  * Bước 2: Staff kiểm tra (ticket, biển số, loại xe, màu xe)
  * Bước 3: Nếu hợp lệ -> tạo Parking Session, Slot: RESERVED -> OCCUPIED
  * Bước 4: Nếu không hợp lệ -> Staff từ chối check-in
@@ -98,57 +98,41 @@ public class ReservationController {
 
     @GetMapping("/staff/reservations")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getAllReservations(
-            @RequestParam String buildingId,
-            Authentication auth) {
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getAllReservations(Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "All reservations retrieved successfully",
-                reservationService.getAllReservations(auth.getName(), buildingId)));
+                reservationService.getAllReservationsForStaff(auth.getName())));
     }
 
     @GetMapping("/staff/reservations/by-status")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<ReservationResponse>>> getReservationsByStatus(
-            @RequestParam String buildingId,
             @RequestParam String status,
             Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Reservations retrieved successfully",
-                reservationService.getReservationsByStatus(auth.getName(), buildingId, status)));
-    }
-
-    @GetMapping("/staff/reservations/{reservationId}")
-    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<ReservationResponse>> getReservationById(
-            @PathVariable String reservationId,
-            @RequestParam String buildingId,
-            Authentication auth) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Reservation retrieved successfully",
-                reservationService.getReservationById(auth.getName(), buildingId, reservationId)));
+                reservationService.getReservationsByStatusForStaff(auth.getName(), status)));
     }
 
     @GetMapping("/staff/reservations/code/{reservationCode}")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<ReservationResponse>> getReservationByCode(
             @PathVariable String reservationCode,
-            @RequestParam String buildingId,
             Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Reservation found",
-                reservationService.getReservationByCode(auth.getName(), buildingId, reservationCode)));
+                reservationService.getReservationByCodeForStaff(auth.getName(), reservationCode)));
     }
 
     @PatchMapping("/staff/reservations/{reservationCode}/status")
     @PreAuthorize("hasAnyRole('STAFF','ADMIN')")
     public ResponseEntity<ApiResponse<ReservationResponse>> updateReservationStatus(
             @PathVariable String reservationCode,
-            @RequestParam String buildingId,
             @Valid @RequestBody UpdateReservationStatusRequest request,
             Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Reservation status updated successfully",
-                reservationService.updateReservationStatus(
-                        auth.getName(), buildingId, reservationCode, request.getStatus(), request.getNote())));
+                reservationService.updateReservationStatusForStaff(
+                        auth.getName(), reservationCode, request.getStatus(), request.getNote())));
     }
 }

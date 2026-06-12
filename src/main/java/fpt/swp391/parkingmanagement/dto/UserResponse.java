@@ -2,9 +2,13 @@ package fpt.swp391.parkingmanagement.dto;
 
 import java.time.LocalDateTime;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 
 @Data
+@Builder
+@AllArgsConstructor
 public class UserResponse {
     private String userId;
     private String username;

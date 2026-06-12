@@ -19,4 +19,16 @@ public class CheckoutResponse {
     private LocalDateTime checkoutTime;
     private BigDecimal totalFee;
     private String paymentId;
+
+    private String vehicleTypeId;
+    private String vehicleTypeName;
+    private BigDecimal basePrice;
+    private BigDecimal hourlyRate;
+    private BigDecimal peakHourMultiplier;
+    private BigDecimal maxDailyFee;
+    private BigDecimal overnightFee;
+    private BigDecimal lostTicketFee;
+    private BigDecimal overnightCharge;
+    private boolean lostTicketCharge;
+    private int parkingHours;
 }

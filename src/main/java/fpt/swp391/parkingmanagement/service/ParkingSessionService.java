@@ -3,7 +3,6 @@ package fpt.swp391.parkingmanagement.service;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -21,6 +20,7 @@ import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.Ticket;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.Zone;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
@@ -58,9 +58,19 @@ public class ParkingSessionService {
         }
     }
 
+    private String resolveBuildingId(ParkingSlot slot) {
+        if (slot == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND);
+        Zone zone = slot.getZone();
+        if (zone == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND, "Slot has no zone");
+        Floor floor = zone.getFloor();
+        if (floor == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND, "Zone has no floor");
+        Building building = floor.getBuilding();
+        if (building == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND, "Floor has no building");
+        return building.getBuildingId();
+    }
+
     @Transactional
     public ParkingSessionResponse checkin(String staffEmail, CheckinRequest req) {
-        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
@@ -92,20 +102,46 @@ public class ParkingSessionService {
             }
         }
 
+        Vehicle vehicle = reservation.getVehicle();
         ParkingSlot slot = reservation.getSlot();
         if (slot == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND);
         if (!"RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
             throw new BaseAPIException(ErrorCode.SLOT_NOT_RESERVED);
         }
 
+        String buildingId = resolveBuildingId(slot);
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+
+        PricingPolicy policy = null;
+        if (vehicle != null && vehicle.getVehicleType() != null) {
+            String vtId = vehicle.getVehicleType().getVehicleTypeId();
+            policy = pricingPolicyRepository.findActiveForVehicleType(vtId).orElse(null);
+        }
+
+        BigDecimal estimatedFee = BigDecimal.ZERO;
+        if (policy != null) {
+            BigDecimal base = policy.getBasePrice() != null ? policy.getBasePrice() : BigDecimal.ZERO;
+            BigDecimal hourly = policy.getHourlyRate() != null ? policy.getHourlyRate() : BigDecimal.ZERO;
+            BigDecimal multiplier = policy.getPeakHourMultiplier() != null ? policy.getPeakHourMultiplier() : BigDecimal.ONE;
+            int currentHour = now.getHour();
+            boolean isPeak = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
+            BigDecimal hourlyTotal = hourly.multiply(multiplier);
+            estimatedFee = base.add(hourlyTotal);
+            if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0
+                    && estimatedFee.compareTo(policy.getMaxDailyFee()) > 0) {
+                estimatedFee = policy.getMaxDailyFee();
+            }
+        }
+
         ParkingSession session = new ParkingSession();
         session.setTicket(ticket);
         session.setReservation(reservation);
-        session.setVehicle(reservation.getVehicle());
+        session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
         session.setSessionStatus("ACTIVE");
         session.setPaymentStatus("UNPAID");
+        session.setEstimatedFee(estimatedFee);
         User staff = userRepository.findByEmail(staffEmail).orElse(null);
         session.setCreatedBy(staff);
 
@@ -122,15 +158,26 @@ public class ParkingSessionService {
         resp.setSessionId(saved.getSessionId());
         resp.setTicketCode(ticket.getTicketCode());
         applyHierarchy(resp, slot);
-        resp.setVehiclePlate(saved.getVehicle() != null ? saved.getVehicle().getPlateNumber() : null);
+        resp.setVehiclePlate(vehicle != null ? vehicle.getPlateNumber() : null);
         resp.setCheckinTime(saved.getCheckinTime());
+        resp.setEstimatedFee(estimatedFee);
+        if (policy != null) {
+            resp.setBasePrice(policy.getBasePrice());
+            resp.setHourlyRate(policy.getHourlyRate());
+            resp.setPeakHourMultiplier(policy.getPeakHourMultiplier());
+            resp.setMaxDailyFee(policy.getMaxDailyFee());
+            resp.setOvernightFee(policy.getOvernightFee());
+            if (vehicle != null && vehicle.getVehicleType() != null) {
+                resp.setVehicleTypeId(vehicle.getVehicleType().getVehicleTypeId());
+                resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
+            }
+        }
 
         return resp;
     }
 
     @Transactional
     public CheckoutResponse checkout(String staffEmail, CheckoutRequest req) {
-        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
@@ -138,6 +185,9 @@ public class ParkingSessionService {
                 .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE");
 
         ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
+
+        String buildingId = resolveBuildingId(session.getSlot());
+        checkStaffBuildingAssignment(staffEmail, buildingId);
 
         LocalDateTime now = LocalDateTime.now();
         session.setCheckoutTime(now);
@@ -149,37 +199,23 @@ public class ParkingSessionService {
         int hours = (int) Math.ceil(minutes / 60.0);
 
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal overnightCharge = BigDecimal.ZERO;
+        boolean overnightApplied = false;
+        PricingPolicy policy = null;
         if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
-            List<PricingPolicy> policies = pricingPolicyRepository.findByVehicleTypeVehicleTypeId(vtId);
-            PricingPolicy policy = policies.stream()
-                    .filter(p -> "ACTIVE".equalsIgnoreCase(p.getStatus()))
-                    .findFirst()
-                    .orElse(null);
+            policy = pricingPolicyRepository.findActiveForVehicleType(vtId).orElse(null);
 
             if (policy == null) {
-                log.warn("No pricing policy found for vehicleTypeId={}; attempting to use any active policy as fallback", vtId);
-                policy = pricingPolicyRepository.findAll().stream()
-                        .filter(p -> "ACTIVE".equalsIgnoreCase(p.getStatus()))
-                        .findFirst()
-                        .orElse(null);
-            }
-
-            if (policy == null) {
-                log.warn("No active pricing policy available; charging total=0 for sessionId={}", session.getSessionId());
+                log.warn("No active pricing policy for vehicleTypeId={}", vtId);
             } else {
-                if (policy.getBasePrice() != null) total = total.add(policy.getBasePrice());
-                if (policy.getHourlyRate() != null) total = total.add(policy.getHourlyRate().multiply(BigDecimal.valueOf(hours)));
+                BigDecimal fee = computeParkingFee(policy, hours, now);
+                total = total.add(fee);
 
-                BigDecimal peakMultiplier = policy.getPeakHourMultiplier() != null ? policy.getPeakHourMultiplier() : BigDecimal.ONE;
-                int hourOfDay = now.getHour();
-                boolean isPeak = (hourOfDay >= 7 && hourOfDay < 9) || (hourOfDay >= 17 && hourOfDay < 19);
-                if (isPeak && peakMultiplier.compareTo(BigDecimal.ONE) > 0) {
-                    total = total.multiply(peakMultiplier);
-                }
-
-                if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0) {
-                    if (total.compareTo(policy.getMaxDailyFee()) > 0) total = policy.getMaxDailyFee();
+                overnightApplied = isOvernightParking(session.getCheckinTime(), now);
+                if (overnightApplied && policy.getOvernightFee() != null) {
+                    overnightCharge = policy.getOvernightFee();
+                    total = total.add(overnightCharge);
                 }
             }
         }
@@ -214,7 +250,23 @@ public class ParkingSessionService {
         }
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
-        resp.setPaymentId(savedPayment.getPaymentId());
+        resp.setParkingHours(hours);
+        resp.setOvernightCharge(overnightCharge);
+        if (policy != null) {
+            resp.setBasePrice(policy.getBasePrice());
+            resp.setHourlyRate(policy.getHourlyRate());
+            resp.setPeakHourMultiplier(policy.getPeakHourMultiplier());
+            resp.setMaxDailyFee(policy.getMaxDailyFee());
+            resp.setOvernightFee(policy.getOvernightFee());
+            resp.setLostTicketFee(policy.getLostTicketFee());
+            if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
+                resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
+                resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
+            }
+        }
+        if (savedPayment != null) {
+            resp.setPaymentId(savedPayment.getPaymentId());
+        }
 
         return resp;
     }
@@ -263,5 +315,37 @@ public class ParkingSessionService {
                 }
             }
         }
+    }
+
+    private BigDecimal computeParkingFee(PricingPolicy policy, int hours, LocalDateTime checkoutTime) {
+        BigDecimal total = BigDecimal.ZERO;
+
+        if (policy.getBasePrice() != null) {
+            total = total.add(policy.getBasePrice());
+        }
+        if (policy.getHourlyRate() != null) {
+            total = total.add(policy.getHourlyRate().multiply(BigDecimal.valueOf(hours)));
+        }
+
+        BigDecimal peakMultiplier = policy.getPeakHourMultiplier();
+        if (peakMultiplier != null && peakMultiplier.compareTo(BigDecimal.ONE) > 0) {
+            int hourOfDay = checkoutTime.getHour();
+            boolean isPeak = (hourOfDay >= 7 && hourOfDay < 9) || (hourOfDay >= 17 && hourOfDay < 19);
+            if (isPeak) {
+                total = total.multiply(peakMultiplier);
+            }
+        }
+
+        BigDecimal maxDaily = policy.getMaxDailyFee();
+        if (maxDaily != null && maxDaily.compareTo(BigDecimal.ZERO) > 0 && total.compareTo(maxDaily) > 0) {
+            total = maxDaily;
+        }
+
+        return total;
+    }
+
+    private boolean isOvernightParking(LocalDateTime checkin, LocalDateTime checkout) {
+        if (checkin == null || checkout == null) return false;
+        return checkin.toLocalDate().isBefore(checkout.toLocalDate());
     }
 }

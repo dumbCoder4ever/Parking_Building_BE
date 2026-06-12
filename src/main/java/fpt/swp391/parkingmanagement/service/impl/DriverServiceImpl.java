@@ -10,8 +10,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,6 +28,7 @@ public class DriverServiceImpl implements DriverService {
     private final ReservationRepository reservationRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final PaymentRepository paymentRepository;
+    private final PricingPolicyRepository pricingPolicyRepository;
 
     @Override
     public DriverProfileResponse getDriverProfile(String email) {
@@ -184,6 +189,119 @@ public class DriverServiceImpl implements DriverService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public DriverCurrentSessionResponse getMyCurrentSession(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
+
+        Optional<ParkingSession> optSession = parkingSessionRepository.findActiveByUserId(user.getUserId());
+        if (optSession.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.SESSION_NOT_FOUND, "No active parking session found");
+        }
+
+        ParkingSession session = optSession.get();
+        LocalDateTime now = LocalDateTime.now();
+        long minutes = session.getCheckinTime() != null
+                ? Duration.between(session.getCheckinTime(), now).toMinutes()
+                : 0;
+        int parkingMinutes = (int) Math.max(0, minutes);
+
+        Reservation reservation = session.getReservation();
+        Vehicle vehicle = reservation != null ? reservation.getVehicle() : null;
+
+        String buildingId = null, buildingName = null, floorId = null, floorName = null, zoneId = null, zoneName = null, slotId = null, slotName = null;
+        if (session.getSlot() != null) {
+            slotId = session.getSlot().getSlotId();
+            slotName = session.getSlot().getSlotName();
+            if (session.getSlot().getZone() != null) {
+                zoneId = session.getSlot().getZone().getZoneId();
+                zoneName = session.getSlot().getZone().getZoneName();
+                if (session.getSlot().getZone().getFloor() != null) {
+                    floorId = session.getSlot().getZone().getFloor().getFloorId();
+                    floorName = session.getSlot().getZone().getFloor().getFloorName();
+                    if (session.getSlot().getZone().getFloor().getBuilding() != null) {
+                        buildingId = session.getSlot().getZone().getFloor().getBuilding().getBuildingId();
+                        buildingName = session.getSlot().getZone().getFloor().getBuilding().getBuildingName();
+                    }
+                }
+            }
+        }
+
+        BigDecimal estimatedFee = BigDecimal.ZERO;
+        BigDecimal currentAccumulated = BigDecimal.ZERO;
+        String vehicleTypeId = null, vehicleTypeName = null;
+        BigDecimal basePrice = null, hourlyRate = null, peakHourMultiplier = null, maxDailyFee = null, overnightFee = null;
+
+        if (vehicle != null && vehicle.getVehicleType() != null) {
+            String vtId = vehicle.getVehicleType().getVehicleTypeId();
+            vehicleTypeId = vtId;
+            vehicleTypeName = vehicle.getVehicleType().getTypeName();
+
+            PricingPolicy policy = pricingPolicyRepository.findActiveForVehicleType(vtId).orElse(null);
+            if (policy != null) {
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
+                peakHourMultiplier = policy.getPeakHourMultiplier();
+                maxDailyFee = policy.getMaxDailyFee();
+                overnightFee = policy.getOvernightFee();
+
+                BigDecimal multiplier = peakHourMultiplier != null ? peakHourMultiplier : BigDecimal.ONE;
+                int hourOfDay = now.getHour();
+                boolean isPeak = (hourOfDay >= 7 && hourOfDay < 9) || (hourOfDay >= 17 && hourOfDay < 19);
+                BigDecimal effectiveHourly = hourlyRate != null ? hourlyRate.multiply(isPeak ? multiplier : BigDecimal.ONE) : BigDecimal.ZERO;
+
+                int estimatedHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
+                estimatedFee = (basePrice != null ? basePrice : BigDecimal.ZERO)
+                        .add(effectiveHourly.multiply(BigDecimal.valueOf(estimatedHours)));
+
+                if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0
+                        && estimatedFee.compareTo(policy.getMaxDailyFee()) > 0) {
+                    estimatedFee = policy.getMaxDailyFee();
+                }
+
+                currentAccumulated = (basePrice != null ? basePrice : BigDecimal.ZERO)
+                        .add(effectiveHourly.multiply(BigDecimal.valueOf(parkingMinutes / 60.0)));
+                if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0
+                        && currentAccumulated.compareTo(policy.getMaxDailyFee()) > 0) {
+                    currentAccumulated = policy.getMaxDailyFee();
+                }
+            }
+        }
+
+        return DriverCurrentSessionResponse.builder()
+                .sessionId(session.getSessionId())
+                .ticketCode(session.getTicket() != null ? session.getTicket().getTicketCode() : null)
+                .buildingId(buildingId)
+                .buildingName(buildingName)
+                .floorId(floorId)
+                .floorName(floorName)
+                .zoneId(zoneId)
+                .zoneName(zoneName)
+                .slotId(slotId)
+                .slotName(slotName)
+                .vehiclePlate(vehicle != null ? vehicle.getPlateNumber() : null)
+                .vehicleColor(vehicle != null ? vehicle.getVehicleColor() : null)
+                .vehicleBrand(vehicle != null ? vehicle.getBrand() : null)
+                .vehicleModel(vehicle != null ? vehicle.getModel() : null)
+                .checkinTime(session.getCheckinTime())
+                .currentTime(now)
+                .parkingMinutes(parkingMinutes)
+                .estimatedHours(Math.max(1, (int) Math.ceil(parkingMinutes / 60.0)))
+                .sessionStatus(session.getSessionStatus())
+                .paymentStatus(session.getPaymentStatus())
+                .vehicleTypeId(vehicleTypeId)
+                .vehicleTypeName(vehicleTypeName)
+                .basePrice(basePrice)
+                .hourlyRate(hourlyRate)
+                .peakHourMultiplier(peakHourMultiplier)
+                .maxDailyFee(maxDailyFee)
+                .overnightFee(overnightFee)
+                .estimatedFee(estimatedFee)
+                .currentAccumulatedFee(currentAccumulated)
+                .build();
+    }
+
+    @Override
     public List<PaymentResponse> getMyPaymentHistory(String email, int limit) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
@@ -252,7 +370,7 @@ public class DriverServiceImpl implements DriverService {
         }
 
         return DriverSessionHistoryResponse.builder()
-                .sessionId(session.getSessionId() != null ? Long.parseLong(session.getSessionId().replaceAll("[^0-9]", "")) : null)
+                .sessionId(session.getSessionId())
                 .reservationCode(reservation != null ? reservation.getReservationCode() : null)
                 .buildingName(buildingName)
                 .floorName(floorName)

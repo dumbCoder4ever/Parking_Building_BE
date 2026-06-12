@@ -96,6 +96,13 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok("Parking history retrieved successfully", history));
     }
 
+    @GetMapping("/users/me/sessions/current")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<DriverCurrentSessionResponse>> getMyCurrentSession(Authentication auth) {
+        DriverCurrentSessionResponse session = driverService.getMyCurrentSession(auth.getName());
+        return ResponseEntity.ok(ApiResponse.ok("Current parking session retrieved successfully", session));
+    }
+
     @GetMapping("/users/me/payments")
     @PreAuthorize("hasRole('DRIVER')")
     public ResponseEntity<ApiResponse<List<PaymentResponse>>> getMyPaymentHistory(

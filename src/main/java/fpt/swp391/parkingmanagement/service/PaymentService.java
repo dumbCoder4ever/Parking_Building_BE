@@ -65,13 +65,6 @@ public class PaymentService {
 
         Payment savedPayment = paymentRepository.save(payment);
 
-        // Generate QR code for applicable methods
-        String qrCode = null;
-        if ("VNPAY".equals(paymentRequest.getPaymentMethod()) ||
-                "MOMO".equals(paymentRequest.getPaymentMethod())) {
-            qrCode = generateQRCode(savedPayment.getPaymentId(), paymentRequest.getAmount());
-        }
-
         PaymentResponseDTO response = PaymentResponseDTO.builder()
                 .paymentId(savedPayment.getPaymentId())
                 .sessionId(session.getSessionId())
@@ -80,7 +73,6 @@ public class PaymentService {
                 .paymentStatus("UNPAID")
                 .transactionCode(savedPayment.getTransactionCode())
                 .paymentTime(LocalDateTime.now())
-                .qrCode(qrCode)
                 .message("Payment initiated. Driver can now proceed with payment.")
                 .build();
 
@@ -205,10 +197,6 @@ public class PaymentService {
 
     private String generateTransactionCode() {
         return "TXN-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 10000);
-    }
-
-    private String generateQRCode(String paymentId, BigDecimal amount) {
-        return "QR_" + paymentId + "_" + amount;
     }
 
     public PaymentResponseDTO getPaymentDetails(String paymentId) {

@@ -29,5 +29,5 @@ public class PricingPolicyRequest {
     private BigDecimal maxDailyFee;
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
-    //private String status;
+    private String status;
 }
