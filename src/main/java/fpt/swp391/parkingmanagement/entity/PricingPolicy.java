@@ -38,6 +38,34 @@ public class PricingPolicy {
 
     private BigDecimal overnightFee;
 
+    // Tiered pricing — limits (in hours), 0 means unused
+    @Column(name = "tier1_hours")
+    private Integer tier1Hours;
+
+    @Column(name = "tier1_price")
+    private BigDecimal tier1Price;
+
+    @Column(name = "tier2_hours")
+    private Integer tier2Hours;
+
+    @Column(name = "tier2_price")
+    private BigDecimal tier2Price;
+
+    @Column(name = "tier3_hours")
+    private Integer tier3Hours;
+
+    @Column(name = "tier3_price")
+    private BigDecimal tier3Price;
+
+    @Column(name = "tier4_hours")
+    private Integer tier4Hours;
+
+    @Column(name = "tier4_price")
+    private BigDecimal tier4Price;
+
+    @Column(name = "per_day_price")
+    private BigDecimal perDayPrice;
+
     private BigDecimal lostTicketFee;
 
     private BigDecimal peakHourMultiplier;

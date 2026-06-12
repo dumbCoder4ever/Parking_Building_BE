@@ -36,6 +36,8 @@ import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
 import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
+import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
+import fpt.swp391.parkingmanagement.service.PricingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +63,7 @@ public class ReservationService {
     private final VehicleService vehicleService;
     private final NotificationService notificationService;
     private final BuildingStaffRepository buildingStaffRepository;
+    private final PricingService pricingService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -75,7 +78,8 @@ public class ReservationService {
             UserRepository userRepository,
             VehicleService vehicleService,
             NotificationService notificationService,
-            BuildingStaffRepository buildingStaffRepository) {
+            BuildingStaffRepository buildingStaffRepository,
+            PricingService pricingService) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -88,6 +92,7 @@ public class ReservationService {
         this.vehicleService = vehicleService;
         this.notificationService = notificationService;
         this.buildingStaffRepository = buildingStaffRepository;
+        this.pricingService = pricingService;
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +150,7 @@ public class ReservationService {
                         .totalSlots(slotDtos.size())
                         .availableSlots(availableSlots)
                         .slots(slotDtos)
+                        .pricingTiers(pricingService.getTiers(floorVehicleType.getVehicleTypeId()))
                         .build());
             }
         }
@@ -529,6 +535,7 @@ public class ReservationService {
         dto.setAvailableCount("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()) ? 1 : 0);
         dto.setVehicleTypeId(floorVehicleType.getVehicleTypeId());
         dto.setVehicleTypeName(floorVehicleType.getTypeName());
+        dto.setPricingTiers(pricingService.getTiers(floorVehicleType.getVehicleTypeId()));
 
         // Set reserved user info nếu slot đang RESERVED
         if ("RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
@@ -548,7 +555,16 @@ public class ReservationService {
 
     private ReservationResponse toReservationResponse(Reservation reservation) {
         Ticket ticket = ticketRepository.findByReservationReservationId(reservation.getReservationId()).orElse(null);
-        return toReservationResponse(reservation, ticket);
+        ReservationResponse resp = toReservationResponse(reservation, ticket);
+
+        // Also attach pricing if vehicle exists (this overload may be called without vehicle being fully loaded)
+        if (reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null) {
+            String vtId = reservation.getVehicle().getVehicleType().getVehicleTypeId();
+            resp.setVehicleTypeName(reservation.getVehicle().getVehicleType().getTypeName());
+            resp.setPricingTiers(pricingService.getTiers(vtId));
+        }
+
+        return resp;
     }
 
     private ReservationResponse toReservationResponse(Reservation reservation, Ticket ticket) {
@@ -574,6 +590,13 @@ public class ReservationService {
             resp.setVehicleColor(vehicle.getVehicleColor());
             resp.setVehicleBrand(vehicle.getBrand());
             resp.setVehicleModel(vehicle.getModel());
+
+            // Pricing tiers by vehicle type
+            if (vehicle.getVehicleType() != null) {
+                String vtId = vehicle.getVehicleType().getVehicleTypeId();
+                resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
+                resp.setPricingTiers(pricingService.getTiers(vtId));
+            }
         }
 
         ParkingSlot slot = reservation.getSlot();
