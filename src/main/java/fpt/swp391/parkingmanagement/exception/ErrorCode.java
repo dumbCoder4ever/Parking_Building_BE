@@ -18,7 +18,12 @@ public enum ErrorCode {
     SLOT_NOT_FOUND("Slot not found"),
     SESSION_NOT_FOUND("Active parking session not found for this ticket"),
     PLATE_NUMBER_MISMATCH("Plate number does not match reservation"),
-    CHECKIN_TIME_MISSING("Check-in time is missing for this session");
+    CHECKIN_TIME_MISSING("Check-in time is missing for this session"),
+    BAD_REQUEST("Bad request"),
+    SLOT_OCCUPIED("Slot is already occupied"),
+    PAYMENT_NOT_COMPLETED("Payment not completed"),
+    PAYMENT_NOT_FOUND("Payment not found"),
+    BUILDING_NOT_FOUND("Building not found");
 
     private final String message;
 
