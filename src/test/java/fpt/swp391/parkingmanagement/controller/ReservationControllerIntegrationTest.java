@@ -93,6 +93,8 @@ public class ReservationControllerIntegrationTest {
     private VehicleType motorbikeType;
     private ParkingSlot testSlot;
     private User testUser;
+    private User staffUser;
+    private Building testBuilding;
 
     @BeforeEach
     void setup() {
@@ -124,14 +126,23 @@ public class ReservationControllerIntegrationTest {
         motorbikeType.setVehicleTypeId(java.util.UUID.randomUUID().toString());
         vehicleTypeRepository.save(motorbikeType);
 
-        Building b = new Building();
-        b.setBuildingName("Main");
-        b.setBuildingId(java.util.UUID.randomUUID().toString());
-        buildingRepository.save(b);
+        testBuilding = new Building();
+        testBuilding.setBuildingName("Main");
+        testBuilding.setBuildingId(java.util.UUID.randomUUID().toString());
+        buildingRepository.save(testBuilding);
+
+        staffUser = new User();
+        staffUser.setUsername("staff-" + suffix);
+        staffUser.setEmail("staff-" + suffix + "@gmail.com");
+        staffUser.setUserId(java.util.UUID.randomUUID().toString());
+        staffUser.setRole("ROLE_STAFF");
+        staffUser.setStatus("ACTIVE");
+        staffUser.setPasswordHash("test-password-hash");
+        userRepository.save(staffUser);
 
         Floor f = new Floor();
         f.setFloorId(java.util.UUID.randomUUID().toString());
-        f.setBuilding(b);
+        f.setBuilding(testBuilding);
         f.setFloorLevel(1);
         f.setFloorName("Floor 1");
         f.setVehicleType(motorbikeType);
@@ -155,8 +166,8 @@ public class ReservationControllerIntegrationTest {
     @Test
     void availabilityEndpoint_returnsCounts() throws Exception {
         var mvcResult = mockMvc.perform(get("/api/slots/availability")
-                        .header("Authorization", "Bearer " + token)
-                        .accept(MediaType.APPLICATION_JSON))
+                .header("Authorization", "Bearer " + token)
+                .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -180,9 +191,9 @@ public class ReservationControllerIntegrationTest {
         String json = objectMapper.writeValueAsString(req);
 
         var mvcResult = mockMvc.perform(post("/api/reservations")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json))
                 .andExpect(status().isOk())
                 .andReturn();
 
