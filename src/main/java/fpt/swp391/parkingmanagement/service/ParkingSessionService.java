@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -218,28 +219,30 @@ public class ParkingSessionService {
         Payment savedPayment = null;
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
-<<<<<<< Updated upstream
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Payment has not been confirmed yet. Initiate and complete payment before checkout.");
+                        "Payment has not been completed yet. Initiate and complete payment before checkout.");
             }
             savedPayment = paymentRepository
                     .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
                             session.getSessionId(), "SUCCESS")
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
                             "Successful payment record not found for this session"));
-=======
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED, "Payment has not been completed yet");
             }
             savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED));
->>>>>>> Stashed changes
+
+            savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
+                            "Staff must confirm payment before checkout."));
+
         } else {
             session.setPaymentStatus("PAID");
             Payment payment = new Payment();
             payment.setSession(session);
             payment.setPaymentMethod(paymentMethod);
             payment.setAmount(total);
-            payment.setPaymentStatus("SUCCESS");
+            payment.setPaymentStatus("PAID");
             savedPayment = paymentRepository.save(payment);
         }
 
@@ -374,20 +377,22 @@ public class ParkingSessionService {
 
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
-<<<<<<< Updated upstream
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Payment has not been confirmed yet. Driver must complete payment before exit.");
+                        "Payment has not been completed yet. Driver must complete payment before exit.");
             }
             paymentRepository
                     .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
                             session.getSessionId(), "SUCCESS")
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
-=======
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED);
             }
             findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED));
->>>>>>> Stashed changes
+
+            findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
+                            "Staff must confirm payment before allowing exit."));
+
             session.setPaymentStatus("PAID");
         } else {
             session.setPaymentStatus("PAID");
@@ -395,7 +400,7 @@ public class ParkingSessionService {
             payment.setSession(session);
             payment.setPaymentMethod(method);
             payment.setAmount(total);
-            payment.setPaymentStatus("SUCCESS");
+            payment.setPaymentStatus("PAID");
             payment.setPaymentTime(now);
             paymentRepository.save(payment);
         }
@@ -426,8 +431,6 @@ public class ParkingSessionService {
 
         return resp;
     }
-<<<<<<< Updated upstream
-=======
 
     private void applyHierarchy(ParkingSessionResponse resp, ParkingSlot slot) {
         if (slot == null) return;
@@ -501,5 +504,17 @@ public class ParkingSessionService {
                 .stream()
                 .findFirst();
     }
->>>>>>> Stashed changes
+
+
+    private Optional<Payment> findLatestSessionPayment(String sessionId, List<String> statuses) {
+        List<String> normalizedStatuses = statuses.stream()
+                .map(String::toUpperCase)
+                .toList();
+        return paymentRepository
+                .findBySessionSessionIdAndPaymentStatusInOrderByCreatedAtDesc(
+                        sessionId, normalizedStatuses, PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
 }

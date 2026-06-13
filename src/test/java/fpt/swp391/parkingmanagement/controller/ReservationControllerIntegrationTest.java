@@ -166,8 +166,8 @@ public class ReservationControllerIntegrationTest {
     @Test
     void availabilityEndpoint_returnsCounts() throws Exception {
         var mvcResult = mockMvc.perform(get("/api/slots/availability")
-                        .header("Authorization", "Bearer " + token)
-                        .accept(MediaType.APPLICATION_JSON))
+                .header("Authorization", "Bearer " + token)
+                .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -191,9 +191,9 @@ public class ReservationControllerIntegrationTest {
         String json = objectMapper.writeValueAsString(req);
 
         var mvcResult = mockMvc.perform(post("/api/reservations")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -250,7 +250,12 @@ public class ReservationControllerIntegrationTest {
         String reservationCode = response.getReservationCode();
 
         // Approve reservation trước
-        reservationService.updateReservationStatusForStaff(staffUser.getEmail(), reservationCode, "APPROVED", "Staff approved");
+        reservationService.updateReservationStatus(
+                testUser.getEmail(),
+                testSlot.getZone().getFloor().getBuilding().getBuildingId(),
+                reservationCode,
+                "APPROVED",
+                "Staff approved");
 
         Reservation reservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
         assertThat(reservation.getReservationStatus()).isEqualTo("APPROVED");
@@ -305,7 +310,12 @@ public class ReservationControllerIntegrationTest {
 
         var response = reservationService.createReservation(testUser.getEmail(), req);
 
-        reservationService.updateReservationStatusForStaff(staffUser.getEmail(), response.getReservationCode(), "CANCELLED", "Manual cancellation");
+        reservationService.updateReservationStatus(
+                testUser.getEmail(),
+                testSlot.getZone().getFloor().getBuilding().getBuildingId(),
+                response.getReservationCode(),
+                "CANCELLED",
+                "Manual cancellation");
 
         int expiredCount = reservationService.autoExpireReservations();
 
