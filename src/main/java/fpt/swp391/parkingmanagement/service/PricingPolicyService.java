@@ -25,8 +25,6 @@ import java.util.List;
 @Transactional
 public class PricingPolicyService {
 
-    private static final List<String> VALID_PRICING_TYPES = List.of("HOURLY", "DAILY", "OVERNIGHT", "TIERED");
-
     private final PricingPolicyRepository pricingPolicyRepository;
     private final VehicleTypeRepository vehicleTypeRepository;
 
@@ -104,49 +102,26 @@ public class PricingPolicyService {
     private PricingPolicy toEntity(PricingPolicyRequest request) {
         PricingPolicy policy = new PricingPolicy();
         policy.setPolicyName(request.getPolicyName());
-        policy.setPricingType(validatePricingType(request.getPricingType()));
         policy.setBasePrice(request.getBasePrice());
         policy.setHourlyRate(request.getHourlyRate());
-        policy.setOvernightFee(request.getOvernightFee());
-        policy.setLostTicketFee(request.getLostTicketFee());
-        policy.setPeakHourMultiplier(request.getPeakHourMultiplier());
-        policy.setMaxDailyFee(request.getMaxDailyFee());
+        policy.setMaxHours(request.getMaxHours() != null ? request.getMaxHours() : 24);
         policy.setEffectiveFrom(request.getEffectiveFrom());
         policy.setEffectiveTo(request.getEffectiveTo());
         policy.setVehicleType(resolveVehicleType(request.getVehicleTypeId()));
-        policy.setTier1Hours(request.getTier1Hours());
-        policy.setTier1Price(request.getTier1Price());
-        policy.setTier2Hours(request.getTier2Hours());
-        policy.setTier2Price(request.getTier2Price());
-        policy.setTier3Hours(request.getTier3Hours());
-        policy.setTier3Price(request.getTier3Price());
-        policy.setTier4Hours(request.getTier4Hours());
-        policy.setTier4Price(request.getTier4Price());
-        policy.setPerDayPrice(request.getPerDayPrice());
+        if (request.getStatus() != null) {
+            policy.setStatus(request.getStatus());
+        }
         return policy;
     }
 
     private void updateFields(PricingPolicy policy, PricingPolicyRequest request) {
         policy.setPolicyName(request.getPolicyName());
-        policy.setPricingType(validatePricingType(request.getPricingType()));
         policy.setBasePrice(request.getBasePrice());
         policy.setHourlyRate(request.getHourlyRate());
-        policy.setOvernightFee(request.getOvernightFee());
-        policy.setLostTicketFee(request.getLostTicketFee());
-        policy.setPeakHourMultiplier(request.getPeakHourMultiplier());
-        policy.setMaxDailyFee(request.getMaxDailyFee());
+        policy.setMaxHours(request.getMaxHours() != null ? request.getMaxHours() : 24);
         policy.setEffectiveFrom(request.getEffectiveFrom());
         policy.setEffectiveTo(request.getEffectiveTo());
         policy.setVehicleType(resolveVehicleType(request.getVehicleTypeId()));
-        policy.setTier1Hours(request.getTier1Hours());
-        policy.setTier1Price(request.getTier1Price());
-        policy.setTier2Hours(request.getTier2Hours());
-        policy.setTier2Price(request.getTier2Price());
-        policy.setTier3Hours(request.getTier3Hours());
-        policy.setTier3Price(request.getTier3Price());
-        policy.setTier4Hours(request.getTier4Hours());
-        policy.setTier4Price(request.getTier4Price());
-        policy.setPerDayPrice(request.getPerDayPrice());
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             policy.setStatus(request.getStatus().trim().toUpperCase());
         }
@@ -156,41 +131,16 @@ public class PricingPolicyService {
         PricingPolicyResponse dto = new PricingPolicyResponse();
         dto.setPolicyId(policy.getPolicyId());
         dto.setPolicyName(policy.getPolicyName());
-        dto.setPricingType(policy.getPricingType());
         dto.setBasePrice(policy.getBasePrice());
         dto.setHourlyRate(policy.getHourlyRate());
-        dto.setOvernightFee(policy.getOvernightFee());
-        dto.setLostTicketFee(policy.getLostTicketFee());
-        dto.setPeakHourMultiplier(policy.getPeakHourMultiplier());
-        dto.setMaxDailyFee(policy.getMaxDailyFee());
+        dto.setMaxHours(policy.getMaxHours());
         dto.setEffectiveFrom(policy.getEffectiveFrom());
         dto.setEffectiveTo(policy.getEffectiveTo());
         dto.setStatus(policy.getStatus());
         dto.setCreatedAt(policy.getCreatedAt());
         dto.setVehicleTypeId(policy.getVehicleType().getVehicleTypeId());
         dto.setTypeName(policy.getVehicleType().getTypeName());
-        dto.setTier1Hours(policy.getTier1Hours());
-        dto.setTier1Price(policy.getTier1Price());
-        dto.setTier2Hours(policy.getTier2Hours());
-        dto.setTier2Price(policy.getTier2Price());
-        dto.setTier3Hours(policy.getTier3Hours());
-        dto.setTier3Price(policy.getTier3Price());
-        dto.setTier4Hours(policy.getTier4Hours());
-        dto.setTier4Price(policy.getTier4Price());
-        dto.setPerDayPrice(policy.getPerDayPrice());
         return dto;
-    }
-
-    private String validatePricingType(String pricingType) {
-        if (pricingType == null || pricingType.isBlank()) {
-            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Pricing type cannot be null or empty");
-        }
-        String normalized = pricingType.trim().toUpperCase();
-        if (!VALID_PRICING_TYPES.contains(normalized)) {
-            throw new BaseAPIException(ErrorCode.INVALID_REQUEST,
-                    "Invalid pricing type: '" + pricingType + "'. Valid types are: " + String.join(", ", VALID_PRICING_TYPES));
-        }
-        return normalized;
     }
 
     private VehicleType resolveVehicleType(String vehicleTypeId) {

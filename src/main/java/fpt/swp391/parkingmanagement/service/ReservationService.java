@@ -150,7 +150,6 @@ public class ReservationService {
                         .totalSlots(slotDtos.size())
                         .availableSlots(availableSlots)
                         .slots(slotDtos)
-                        .pricingTiers(pricingService.getTiers(floorVehicleType.getVehicleTypeId()))
                         .build());
             }
         }
@@ -454,6 +453,11 @@ public class ReservationService {
         if (!req.getReservationEnd().isAfter(req.getReservationStart())) {
             throw new RuntimeException("Reservation end must be after reservation start");
         }
+        
+        long hours = java.time.Duration.between(req.getReservationStart(), req.getReservationEnd()).toHours();
+        if (hours > 24) {
+            throw new RuntimeException("Reservation duration cannot exceed 24 hours");
+        }
     }
 
     private void validateNoTimeConflictByVehicleType(String userId, String vehicleTypeName, LocalDateTime start, LocalDateTime end) {
@@ -531,7 +535,13 @@ public class ReservationService {
         dto.setAvailableCount("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()) ? 1 : 0);
         dto.setVehicleTypeId(floorVehicleType.getVehicleTypeId());
         dto.setVehicleTypeName(floorVehicleType.getTypeName());
-        dto.setPricingTiers(pricingService.getTiers(floorVehicleType.getVehicleTypeId()));
+        
+        var policy = pricingService.getActivePolicy(floorVehicleType.getVehicleTypeId());
+        if (policy != null) {
+            dto.setBasePrice(policy.getBasePrice());
+            dto.setHourlyRate(policy.getHourlyRate());
+            dto.setMaxHours(policy.getMaxHours());
+        }
 
         // Set reserved user info nếu slot đang RESERVED
         if ("RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
@@ -553,11 +563,16 @@ public class ReservationService {
         Ticket ticket = ticketRepository.findByReservationReservationId(reservation.getReservationId()).orElse(null);
         ReservationResponse resp = toReservationResponse(reservation, ticket);
 
-        // Also attach pricing if vehicle exists (this overload may be called without vehicle being fully loaded)
+        // Attach pricing if vehicle exists
         if (reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null) {
             String vtId = reservation.getVehicle().getVehicleType().getVehicleTypeId();
             resp.setVehicleTypeName(reservation.getVehicle().getVehicleType().getTypeName());
-            resp.setPricingTiers(pricingService.getTiers(vtId));
+            var policy = pricingService.getActivePolicy(vtId);
+            if (policy != null) {
+                resp.setBasePrice(policy.getBasePrice());
+                resp.setHourlyRate(policy.getHourlyRate());
+                resp.setMaxHours(policy.getMaxHours());
+            }
         }
 
         return resp;
@@ -587,11 +602,16 @@ public class ReservationService {
             resp.setVehicleBrand(vehicle.getBrand());
             resp.setVehicleModel(vehicle.getModel());
 
-            // Pricing tiers by vehicle type
+            // Pricing by vehicle type
             if (vehicle.getVehicleType() != null) {
                 String vtId = vehicle.getVehicleType().getVehicleTypeId();
                 resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
-                resp.setPricingTiers(pricingService.getTiers(vtId));
+                var policy = pricingService.getActivePolicy(vtId);
+                if (policy != null) {
+                    resp.setBasePrice(policy.getBasePrice());
+                    resp.setHourlyRate(policy.getHourlyRate());
+                    resp.setMaxHours(policy.getMaxHours());
+                }
             }
         }
 
