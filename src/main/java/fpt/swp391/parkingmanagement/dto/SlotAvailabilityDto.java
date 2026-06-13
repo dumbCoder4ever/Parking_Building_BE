@@ -1,6 +1,6 @@
 package fpt.swp391.parkingmanagement.dto;
 
-import java.util.List;
+import java.math.BigDecimal;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -31,13 +31,16 @@ public class SlotAvailabilityDto {
     private String vehicleTypeId;
     private String vehicleTypeName;
     private long availableCount;
-    private List<SlotAvailabilityDto> slots;
+    
+    private java.util.List<SlotAvailabilityDto> slots;
 
     // Reserved slot info (when slot is RESERVED)
     private String reservedByUserId;
     private String reservedByUsername;
     private String reservedByVehicleId;
 
-    // Pricing tiers for this vehicle type
-    private List<PricingTierResponse> pricingTiers;
+    // Pricing for this vehicle type
+    private BigDecimal basePrice;
+    private BigDecimal hourlyRate;
+    private Integer maxHours;
 }

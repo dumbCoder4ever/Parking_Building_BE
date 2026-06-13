@@ -15,7 +15,6 @@ import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
-import fpt.swp391.parkingmanagement.dto.PricingTierResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
@@ -36,7 +35,6 @@ import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
-import fpt.swp391.parkingmanagement.service.PricingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -59,8 +57,7 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Staff not found"))
                 .getUserId();
         if (!buildingStaffRepository.existsByBuildingBuildingIdAndUserUserId(buildingId, userId)) {
-            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
-                    "You are not assigned to this building");
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED, "You are not assigned to this building");
         }
     }
 
@@ -80,9 +77,10 @@ public class ParkingSessionService {
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
 
-        if (Boolean.TRUE.equals(ticket.getIsUsed())) throw new BaseAPIException(ErrorCode.TICKET_ALREADY_USED);
+        if (Boolean.TRUE.equals(ticket.getIsUsed())) {
+            throw new BaseAPIException(ErrorCode.TICKET_ALREADY_USED);
+        }
 
-        // Check if ticket has expired
         if (ticket.getExpiredAt() != null && LocalDateTime.now().isAfter(ticket.getExpiredAt())) {
             throw new BaseAPIException(ErrorCode.TICKET_EXPIRED);
         }
@@ -119,23 +117,17 @@ public class ParkingSessionService {
         checkStaffBuildingAssignment(staffEmail, buildingId);
 
         PricingPolicy policy = null;
+        BigDecimal basePrice = null;
+        BigDecimal hourlyRate = null;
+        BigDecimal estimatedFee = BigDecimal.ZERO;
+
         if (vehicle != null && vehicle.getVehicleType() != null) {
             String vtId = vehicle.getVehicleType().getVehicleTypeId();
-            policy = pricingPolicyRepository.findActiveForVehicleType(vtId).orElse(null);
-        }
-
-        BigDecimal estimatedFee = BigDecimal.ZERO;
-        if (policy != null) {
-            BigDecimal base = policy.getBasePrice() != null ? policy.getBasePrice() : BigDecimal.ZERO;
-            BigDecimal hourly = policy.getHourlyRate() != null ? policy.getHourlyRate() : BigDecimal.ZERO;
-            BigDecimal multiplier = policy.getPeakHourMultiplier() != null ? policy.getPeakHourMultiplier() : BigDecimal.ONE;
-            int currentHour = now.getHour();
-            boolean isPeak = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
-            BigDecimal hourlyTotal = hourly.multiply(multiplier);
-            estimatedFee = base.add(hourlyTotal);
-            if (policy.getMaxDailyFee() != null && policy.getMaxDailyFee().compareTo(BigDecimal.ZERO) > 0
-                    && estimatedFee.compareTo(policy.getMaxDailyFee()) > 0) {
-                estimatedFee = policy.getMaxDailyFee();
+            policy = pricingService.getActivePolicy(vtId);
+            if (policy != null) {
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
+                estimatedFee = pricingService.calculateByPolicy(policy, 1);
             }
         }
 
@@ -163,21 +155,16 @@ public class ParkingSessionService {
         ParkingSessionResponse resp = new ParkingSessionResponse();
         resp.setSessionId(saved.getSessionId());
         resp.setTicketCode(ticket.getTicketCode());
-        applyHierarchy(resp, slot);
         resp.setVehiclePlate(vehicle != null ? vehicle.getPlateNumber() : null);
         resp.setCheckinTime(saved.getCheckinTime());
         resp.setEstimatedFee(estimatedFee);
-        if (policy != null) {
-            resp.setBasePrice(policy.getBasePrice());
-            resp.setHourlyRate(policy.getHourlyRate());
-            resp.setPeakHourMultiplier(policy.getPeakHourMultiplier());
-            resp.setMaxDailyFee(policy.getMaxDailyFee());
-            resp.setOvernightFee(policy.getOvernightFee());
-            if (vehicle != null && vehicle.getVehicleType() != null) {
-                resp.setVehicleTypeId(vehicle.getVehicleType().getVehicleTypeId());
-                resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
-            }
+        resp.setBasePrice(basePrice);
+        resp.setHourlyRate(hourlyRate);
+        if (policy != null && vehicle != null && vehicle.getVehicleType() != null) {
+            resp.setVehicleTypeId(vehicle.getVehicleType().getVehicleTypeId());
+            resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
         }
+        applyHierarchy(resp, slot);
 
         return resp;
     }
@@ -206,21 +193,21 @@ public class ParkingSessionService {
 
         BigDecimal total = BigDecimal.ZERO;
         PricingPolicy policy = null;
+        BigDecimal basePrice = null;
+        BigDecimal hourlyRate = null;
+
         if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
             policy = pricingService.getActivePolicy(vtId);
-
-            if (policy == null) {
-                log.warn("No active pricing policy for vehicleTypeId={}", vtId);
-            } else {
-                total = pricingService.calculateFeeByPolicy(policy, hours);
+            if (policy != null) {
+                total = pricingService.calculateByPolicy(policy, hours);
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
             }
         }
 
         String paymentMethod = req.getPaymentMethod() != null ? req.getPaymentMethod() : "CASH";
-        boolean electronicPayment = "VNPAY".equals(paymentMethod)
-                || "PAYOS".equals(paymentMethod)
-                || "MOMO".equals(paymentMethod);
+        boolean electronicPayment = "VNPAY".equals(paymentMethod) || "PAYOS".equals(paymentMethod) || "MOMO".equals(paymentMethod);
 
         session.setTotalFee(total);
         session.setParkingDuration(hours);
@@ -229,30 +216,37 @@ public class ParkingSessionService {
             session.getReservation().setReservationStatus("COMPLETED");
         }
 
-        Payment savedPayment;
+        Payment savedPayment = null;
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been completed yet. Initiate and complete payment before checkout.");
             }
+            savedPayment = paymentRepository
+                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
+                            session.getSessionId(), "SUCCESS")
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
+                            "Successful payment record not found for this session"));
+                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED, "Payment has not been completed yet");
+            }
+            savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED));
+
             savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
                             "Staff must confirm payment before checkout."));
+
         } else {
             session.setPaymentStatus("PAID");
-            savedPayment = null;
-        }
-
-        ParkingSession saved = parkingSessionRepository.save(session);
-
-        if (!electronicPayment) {
             Payment payment = new Payment();
-            payment.setSession(saved);
+            payment.setSession(session);
             payment.setPaymentMethod(paymentMethod);
             payment.setAmount(total);
             payment.setPaymentStatus("PAID");
             savedPayment = paymentRepository.save(payment);
         }
+
+        ParkingSession saved = parkingSessionRepository.save(session);
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
@@ -262,97 +256,27 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
-        if (slot != null) {
-            applyHierarchy(resp, slot);
-        }
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
         resp.setParkingHours(hours);
         resp.setParkingMinutes((int) minutes);
-        resp.setOvernightCharge(BigDecimal.ZERO);
-        if (policy != null) {
-            resp.setBasePrice(policy.getBasePrice());
-            resp.setHourlyRate(policy.getHourlyRate());
-            resp.setPeakHourMultiplier(policy.getPeakHourMultiplier());
-            resp.setMaxDailyFee(policy.getMaxDailyFee());
-            resp.setOvernightFee(policy.getOvernightFee());
-            resp.setLostTicketFee(policy.getLostTicketFee());
-            resp.setPricingTiers(pricingService.toTierList(policy));
-            resp.setFeeExplanation(buildFeeExplanation(policy, hours));
-            if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
-                resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
-                resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
-            }
-        }
+        resp.setBasePrice(basePrice);
+        resp.setHourlyRate(hourlyRate);
         if (savedPayment != null) {
             resp.setPaymentId(savedPayment.getPaymentId());
+        }
+        if (policy != null && session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
+            resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
+            resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
+        }
+        if (slot != null) {
+            applyHierarchy(resp, slot);
         }
 
         return resp;
     }
 
-    private void applyHierarchy(ParkingSessionResponse resp, ParkingSlot slot) {
-        resp.setSlotId(slot.getSlotId());
-        resp.setSlotName(slot.getSlotName());
-
-        Zone zone = slot.getZone();
-        if (zone != null) {
-            resp.setZoneId(zone.getZoneId());
-            resp.setZoneName(zone.getZoneName());
-
-            Floor floor = zone.getFloor();
-            if (floor != null) {
-                resp.setFloorId(floor.getFloorId());
-                resp.setFloorName(floor.getFloorName());
-
-                Building building = floor.getBuilding();
-                if (building != null) {
-                    resp.setBuildingId(building.getBuildingId());
-                    resp.setBuildingName(building.getBuildingName());
-                }
-            }
-        }
-    }
-
-    private void applyHierarchy(CheckoutResponse resp, ParkingSlot slot) {
-        resp.setSlotId(slot.getSlotId());
-        resp.setSlotName(slot.getSlotName());
-
-        Zone zone = slot.getZone();
-        if (zone != null) {
-            resp.setZoneId(zone.getZoneId());
-            resp.setZoneName(zone.getZoneName());
-
-            Floor floor = zone.getFloor();
-            if (floor != null) {
-                resp.setFloorId(floor.getFloorId());
-                resp.setFloorName(floor.getFloorName());
-
-                Building building = floor.getBuilding();
-                if (building != null) {
-                    resp.setBuildingId(building.getBuildingId());
-                    resp.setBuildingName(building.getBuildingName());
-                }
-            }
-        }
-    }
-
-    private String buildFeeExplanation(PricingPolicy policy, int hours) {
-        if (policy == null || hours <= 0) return "";
-        StringBuilder sb = new StringBuilder();
-        sb.append(hours).append("h parking: ");
-        List<PricingTierResponse> tiers = pricingService.toTierList(policy);
-        for (int i = 0; i < tiers.size(); i++) {
-            PricingTierResponse tier = tiers.get(i);
-            if (hours <= tier.getMaxHours() || i == tiers.size() - 1) {
-                sb.append(tier.getTierLabel()).append(" = ").append(tier.getPrice()).append(" VND");
-                break;
-            }
-        }
-        return sb.toString();
-    }
-
-    public EstimateResponse estimateFee(String ticketCode, boolean lostTicket) {
+    public EstimateResponse estimateFee(String ticketCode) {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
@@ -367,23 +291,17 @@ public class ParkingSessionService {
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
-        List<PricingTierResponse> tiers = List.of();
-        String feeExplanation = "";
+        BigDecimal basePrice = null;
+        BigDecimal hourlyRate = null;
 
         if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
             policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                total = pricingService.calculateFeeByPolicy(policy, hours);
-                tiers = pricingService.toTierList(policy);
-                feeExplanation = buildFeeExplanation(policy, hours);
+                total = pricingService.calculateByPolicy(policy, hours);
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
             }
-        }
-
-        if (lostTicket) {
-            BigDecimal lostFee = policy != null && policy.getLostTicketFee() != null
-                    ? policy.getLostTicketFee() : BigDecimal.ZERO;
-            total = total.add(lostFee);
         }
 
         EstimateResponse resp = EstimateResponse.builder()
@@ -394,17 +312,9 @@ public class ParkingSessionService {
                 .parkingHours(hours)
                 .parkingMinutes((int) (minutes % 60))
                 .totalFee(total)
-                .basePrice(policy != null ? policy.getBasePrice() : null)
-                .hourlyRate(policy != null ? policy.getHourlyRate() : null)
-                .peakHourMultiplier(policy != null ? policy.getPeakHourMultiplier() : null)
-                .maxDailyFee(policy != null ? policy.getMaxDailyFee() : null)
-                .overnightFee(policy != null ? policy.getOvernightFee() : null)
-                .lostTicketFee(policy != null ? policy.getLostTicketFee() : null)
-                .pricingTiers(tiers)
-                .feeExplanation(feeExplanation)
+                .basePrice(basePrice)
+                .hourlyRate(hourlyRate)
                 .build();
-
-        applyHierarchyForEstimate(resp, session.getSlot());
 
         if (session.getVehicle() != null) {
             resp.setVehiclePlate(session.getVehicle().getPlateNumber());
@@ -414,30 +324,12 @@ public class ParkingSessionService {
             }
         }
 
+        applyHierarchyForEstimate(resp, session.getSlot());
         return resp;
     }
 
-    private void applyHierarchyForEstimate(EstimateResponse resp, ParkingSlot slot) {
-        if (slot == null) return;
-        Zone zone = slot.getZone();
-        if (zone == null) return;
-        Floor floor = zone.getFloor();
-        if (floor == null) return;
-        Building building = floor.getBuilding();
-        if (building == null) return;
-        resp.setSlotId(slot.getSlotId());
-        resp.setSlotName(slot.getSlotName());
-        resp.setZoneId(zone.getZoneId());
-        resp.setZoneName(zone.getZoneName());
-        resp.setFloorId(floor.getFloorId());
-        resp.setFloorName(floor.getFloorName());
-        resp.setBuildingId(building.getBuildingId());
-        resp.setBuildingName(building.getBuildingName());
-    }
-
     @Transactional
-    public CheckoutResponse confirmExitAndCheckout(String staffEmail, String sessionId,
-                                                   String paymentMethod, boolean lostTicket) {
+    public CheckoutResponse confirmExitAndCheckout(String staffEmail, String sessionId, String paymentMethod) {
         ParkingSession session = parkingSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
@@ -459,24 +351,21 @@ public class ParkingSessionService {
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
+        BigDecimal basePrice = null;
+        BigDecimal hourlyRate = null;
+
         if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
             policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                total = pricingService.calculateFeeByPolicy(policy, hours);
+                total = pricingService.calculateByPolicy(policy, hours);
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
             }
         }
 
-        if (lostTicket) {
-            BigDecimal lostFee = policy != null && policy.getLostTicketFee() != null
-                    ? policy.getLostTicketFee() : BigDecimal.ZERO;
-            total = total.add(lostFee);
-        }
-
         String method = paymentMethod != null ? paymentMethod : "CASH";
-        boolean electronicPayment = "VNPAY".equals(method)
-                || "PAYOS".equals(method)
-                || "MOMO".equals(method);
+        boolean electronicPayment = "VNPAY".equals(method) || "PAYOS".equals(method) || "MOMO".equals(method);
 
         session.setTotalFee(total);
         session.setParkingDuration(hours);
@@ -491,9 +380,19 @@ public class ParkingSessionService {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been completed yet. Driver must complete payment before exit.");
             }
+            paymentRepository
+                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
+                            session.getSessionId(), "SUCCESS")
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
+                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED);
+            }
+            findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED));
+
             findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
                             "Staff must confirm payment before allowing exit."));
+
             session.setPaymentStatus("PAID");
         } else {
             session.setPaymentStatus("PAID");
@@ -516,32 +415,96 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
-        if (slot != null) {
-            applyHierarchy(resp, slot);
-        }
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
         resp.setParkingHours(hours);
         resp.setParkingMinutes((int) minutes);
-        resp.setOvernightCharge(BigDecimal.ZERO);
-        resp.setLostTicketCharge(lostTicket);
-        if (policy != null) {
-            resp.setBasePrice(policy.getBasePrice());
-            resp.setHourlyRate(policy.getHourlyRate());
-            resp.setPeakHourMultiplier(policy.getPeakHourMultiplier());
-            resp.setMaxDailyFee(policy.getMaxDailyFee());
-            resp.setOvernightFee(policy.getOvernightFee());
-            resp.setLostTicketFee(policy.getLostTicketFee());
-            resp.setPricingTiers(pricingService.toTierList(policy));
-            resp.setFeeExplanation(buildFeeExplanation(policy, hours));
-            if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
-                resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
-                resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
-            }
+        resp.setBasePrice(basePrice);
+        resp.setHourlyRate(hourlyRate);
+        if (policy != null && session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
+            resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
+            resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
+        }
+        if (slot != null) {
+            applyHierarchy(resp, slot);
         }
 
         return resp;
     }
+
+    private void applyHierarchy(ParkingSessionResponse resp, ParkingSlot slot) {
+        if (slot == null) return;
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+        Zone zone = slot.getZone();
+        if (zone != null) {
+            resp.setZoneId(zone.getZoneId());
+            resp.setZoneName(zone.getZoneName());
+            Floor floor = zone.getFloor();
+            if (floor != null) {
+                resp.setFloorId(floor.getFloorId());
+                resp.setFloorName(floor.getFloorName());
+                Building building = floor.getBuilding();
+                if (building != null) {
+                    resp.setBuildingId(building.getBuildingId());
+                    resp.setBuildingName(building.getBuildingName());
+                }
+            }
+        }
+    }
+
+    private void applyHierarchy(CheckoutResponse resp, ParkingSlot slot) {
+        if (slot == null) return;
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+        Zone zone = slot.getZone();
+        if (zone != null) {
+            resp.setZoneId(zone.getZoneId());
+            resp.setZoneName(zone.getZoneName());
+            Floor floor = zone.getFloor();
+            if (floor != null) {
+                resp.setFloorId(floor.getFloorId());
+                resp.setFloorName(floor.getFloorName());
+                Building building = floor.getBuilding();
+                if (building != null) {
+                    resp.setBuildingId(building.getBuildingId());
+                    resp.setBuildingName(building.getBuildingName());
+                }
+            }
+        }
+    }
+
+    private void applyHierarchyForEstimate(EstimateResponse resp, ParkingSlot slot) {
+        if (slot == null) return;
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+        Zone zone = slot.getZone();
+        if (zone != null) {
+            resp.setZoneId(zone.getZoneId());
+            resp.setZoneName(zone.getZoneName());
+            Floor floor = zone.getFloor();
+            if (floor != null) {
+                resp.setFloorId(floor.getFloorId());
+                resp.setFloorName(floor.getFloorName());
+                Building building = floor.getBuilding();
+                if (building != null) {
+                    resp.setBuildingId(building.getBuildingId());
+                    resp.setBuildingName(building.getBuildingName());
+                }
+            }
+        }
+    }
+
+    private Optional<Payment> findLatestSessionPayment(String sessionId, java.util.List<String> statuses) {
+        java.util.List<String> normalizedStatuses = statuses.stream()
+                .map(String::toUpperCase)
+                .toList();
+        return paymentRepository
+                .findBySessionSessionIdAndPaymentStatusInOrderByCreatedAtDesc(sessionId, normalizedStatuses, PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
 
     private Optional<Payment> findLatestSessionPayment(String sessionId, List<String> statuses) {
         List<String> normalizedStatuses = statuses.stream()
@@ -553,4 +516,5 @@ public class ParkingSessionService {
                 .stream()
                 .findFirst();
     }
+
 }

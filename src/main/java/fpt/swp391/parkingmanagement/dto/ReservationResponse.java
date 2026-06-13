@@ -2,7 +2,6 @@ package fpt.swp391.parkingmanagement.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 import lombok.Data;
 
@@ -45,6 +44,8 @@ public class ReservationResponse {
     private String ticketCode;
 
     // Pricing info
-    private List<PricingTierResponse> pricingTiers;
+    private BigDecimal basePrice;
+    private BigDecimal hourlyRate;
+    private Integer maxHours;
     private String vehicleTypeName;
 }
