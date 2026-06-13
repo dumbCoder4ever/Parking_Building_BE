@@ -18,14 +18,11 @@ public class ParkingSessionResponse {
     private String slotId;
     private String slotName;
     private String vehiclePlate;
-    private LocalDateTime checkinTime;
-
-    private BigDecimal estimatedFee;
     private String vehicleTypeId;
     private String vehicleTypeName;
+    private LocalDateTime checkinTime;
+    
+    private BigDecimal estimatedFee;
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
-    private BigDecimal overnightFee;
-    private BigDecimal peakHourMultiplier;
-    private BigDecimal maxDailyFee;
 }

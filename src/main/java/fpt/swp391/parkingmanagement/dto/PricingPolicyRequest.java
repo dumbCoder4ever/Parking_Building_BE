@@ -14,31 +14,20 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class PricingPolicyRequest {
 
-    @NotBlank(message = "Correct Vehicle type ID is required")
+    @NotBlank(message = "Vehicle type ID is required")
     private String vehicleTypeId;
 
     @NotBlank(message = "Policy name is required")
     private String policyName;
 
-    private String pricingType;
+    @NotNull(message = "Base price is required")
     private BigDecimal basePrice;
+
+    @NotNull(message = "Hourly rate is required")
     private BigDecimal hourlyRate;
-    private BigDecimal overnightFee;
-    private BigDecimal lostTicketFee;
-    private BigDecimal peakHourMultiplier;
-    private BigDecimal maxDailyFee;
+
+    private Integer maxHours;
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
     private String status;
-
-    // Tiered pricing
-    private Integer tier1Hours;
-    private BigDecimal tier1Price;
-    private Integer tier2Hours;
-    private BigDecimal tier2Price;
-    private Integer tier3Hours;
-    private BigDecimal tier3Price;
-    private Integer tier4Hours;
-    private BigDecimal tier4Price;
-    private BigDecimal perDayPrice;
 }

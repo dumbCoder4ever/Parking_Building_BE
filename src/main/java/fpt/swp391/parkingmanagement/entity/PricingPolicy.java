@@ -32,48 +32,19 @@ public class PricingPolicy {
     @Column(name = "pricing_type", length = 40)
     private String pricingType;
 
+    @Column(name = "base_price")
     private BigDecimal basePrice;
 
+    @Column(name = "hourly_rate")
     private BigDecimal hourlyRate;
 
-    private BigDecimal overnightFee;
+    @Column(name = "max_hours")
+    private Integer maxHours;
 
-    // Tiered pricing — limits (in hours), 0 means unused
-    @Column(name = "tier1_hours")
-    private Integer tier1Hours;
-
-    @Column(name = "tier1_price")
-    private BigDecimal tier1Price;
-
-    @Column(name = "tier2_hours")
-    private Integer tier2Hours;
-
-    @Column(name = "tier2_price")
-    private BigDecimal tier2Price;
-
-    @Column(name = "tier3_hours")
-    private Integer tier3Hours;
-
-    @Column(name = "tier3_price")
-    private BigDecimal tier3Price;
-
-    @Column(name = "tier4_hours")
-    private Integer tier4Hours;
-
-    @Column(name = "tier4_price")
-    private BigDecimal tier4Price;
-
-    @Column(name = "per_day_price")
-    private BigDecimal perDayPrice;
-
-    private BigDecimal lostTicketFee;
-
-    private BigDecimal peakHourMultiplier;
-
-    private BigDecimal maxDailyFee;
-
+    @Column(name = "effective_from")
     private LocalDateTime effectiveFrom;
 
+    @Column(name = "effective_to")
     private LocalDateTime effectiveTo;
 
     @Column(nullable = false, length = 20)
@@ -86,6 +57,7 @@ public class PricingPolicy {
     public void prePersist() {
         if (policyId == null) policyId = UUID.randomUUID().toString();
         if (status == null) status = "ACTIVE";
+        if (maxHours == null) maxHours = 24;
         createdAt = LocalDateTime.now();
     }
 }
