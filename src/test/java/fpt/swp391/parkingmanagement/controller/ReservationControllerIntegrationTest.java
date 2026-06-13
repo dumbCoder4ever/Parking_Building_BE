@@ -93,6 +93,8 @@ public class ReservationControllerIntegrationTest {
     private VehicleType motorbikeType;
     private ParkingSlot testSlot;
     private User testUser;
+    private User staffUser;
+    private Building testBuilding;
 
     @BeforeEach
     void setup() {
@@ -124,14 +126,23 @@ public class ReservationControllerIntegrationTest {
         motorbikeType.setVehicleTypeId(java.util.UUID.randomUUID().toString());
         vehicleTypeRepository.save(motorbikeType);
 
-        Building b = new Building();
-        b.setBuildingName("Main");
-        b.setBuildingId(java.util.UUID.randomUUID().toString());
-        buildingRepository.save(b);
+        testBuilding = new Building();
+        testBuilding.setBuildingName("Main");
+        testBuilding.setBuildingId(java.util.UUID.randomUUID().toString());
+        buildingRepository.save(testBuilding);
+
+        staffUser = new User();
+        staffUser.setUsername("staff-" + suffix);
+        staffUser.setEmail("staff-" + suffix + "@gmail.com");
+        staffUser.setUserId(java.util.UUID.randomUUID().toString());
+        staffUser.setRole("ROLE_STAFF");
+        staffUser.setStatus("ACTIVE");
+        staffUser.setPasswordHash("test-password-hash");
+        userRepository.save(staffUser);
 
         Floor f = new Floor();
         f.setFloorId(java.util.UUID.randomUUID().toString());
-        f.setBuilding(b);
+        f.setBuilding(testBuilding);
         f.setFloorLevel(1);
         f.setFloorName("Floor 1");
         f.setVehicleType(motorbikeType);
@@ -239,7 +250,7 @@ public class ReservationControllerIntegrationTest {
         String reservationCode = response.getReservationCode();
 
         // Approve reservation trước
-        reservationService.updateReservationStatus(reservationCode, "APPROVED", "Staff approved");
+        reservationService.updateReservationStatusForStaff(staffUser.getEmail(), reservationCode, "APPROVED", "Staff approved");
 
         Reservation reservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
         assertThat(reservation.getReservationStatus()).isEqualTo("APPROVED");
@@ -294,7 +305,7 @@ public class ReservationControllerIntegrationTest {
 
         var response = reservationService.createReservation(testUser.getEmail(), req);
 
-        reservationService.updateReservationStatus(response.getReservationCode(), "CANCELLED", "Manual cancellation");
+        reservationService.updateReservationStatusForStaff(staffUser.getEmail(), response.getReservationCode(), "CANCELLED", "Manual cancellation");
 
         int expiredCount = reservationService.autoExpireReservations();
 

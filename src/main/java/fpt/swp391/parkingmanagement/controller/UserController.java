@@ -98,9 +98,9 @@ public class UserController {
 
     @GetMapping("/users/me/sessions/current")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<DriverCurrentSessionResponse>> getMyCurrentSession(Authentication auth) {
-        DriverCurrentSessionResponse session = driverService.getMyCurrentSession(auth.getName());
-        return ResponseEntity.ok(ApiResponse.ok("Current parking session retrieved successfully", session));
+    public ResponseEntity<ApiResponse<DriverCurrentSessionsResponse>> getMyCurrentSessions(Authentication auth) {
+        DriverCurrentSessionsResponse sessions = driverService.getMyCurrentSessions(auth.getName());
+        return ResponseEntity.ok(ApiResponse.ok("Current parking sessions retrieved successfully", sessions));
     }
 
     @GetMapping("/users/me/payments")
