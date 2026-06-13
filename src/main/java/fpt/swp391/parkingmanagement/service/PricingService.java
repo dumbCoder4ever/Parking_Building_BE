@@ -132,4 +132,21 @@ public class PricingService {
 
         return tiers;
     }
+
+    public String buildFeeExplanation(PricingPolicy policy, int totalHours) {
+        if (policy == null || totalHours <= 0) return "";
+        List<PricingTierResponse> tiers = toTierList(policy);
+        if (tiers.isEmpty()) return "";
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append(totalHours).append("h parking: ");
+        for (int i = 0; i < tiers.size(); i++) {
+            PricingTierResponse tier = tiers.get(i);
+            if (totalHours <= tier.getMaxHours() || i == tiers.size() - 1) {
+                sb.append(tier.getTierLabel()).append(" = ").append(tier.getPrice()).append(" VND");
+                break;
+            }
+        }
+        return sb.toString();
+    }
 }

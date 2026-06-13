@@ -1,14 +1,21 @@
 package fpt.swp391.parkingmanagement.dto;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class VehicleTypeOptionResponse {
 
     private String vehicleTypeId;
+
     private String typeName;
-    private String sizeCategory;
+
     private String description;
+
+    private String sizeCategory;
 }

@@ -11,6 +11,8 @@ public interface VehicleTypeRepository extends JpaRepository<VehicleType, String
 
     Optional<VehicleType> findByTypeNameIgnoreCase(String typeName);
 
+    Optional<VehicleType> findByVehicleTypeId(String vehicleTypeId);
+
     boolean existsByTypeNameIgnoreCase(String typeName);
 
     boolean existsByTypeNameIgnoreCaseAndVehicleTypeIdNot(String typeName, String vehicleTypeId);

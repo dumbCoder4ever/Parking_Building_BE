@@ -28,4 +28,7 @@ public interface BuildingStaffRepository extends JpaRepository<BuildingStaff, St
 
     @Query("SELECT bs.building.buildingId FROM BuildingStaff bs WHERE bs.user.userId = :userId")
     List<String> findBuildingIdsByUserId(@Param("userId") String userId);
+
+    @EntityGraph(attributePaths = {"building"})
+    List<BuildingStaff> findByUserUserId(String userId);
 }
