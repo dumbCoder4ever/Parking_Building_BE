@@ -55,7 +55,6 @@ public class ParkingSessionController {
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN','DRIVER')")
     public ResponseEntity<ApiResponse<EstimateResponse>> estimateFee(
             @RequestParam String ticketCode,
-            @RequestParam(defaultValue = "false") boolean lostTicket,
             Authentication auth) {
         EstimateResponse resp = parkingSessionService.estimateFee(ticketCode);
         return ResponseEntity.ok(ApiResponse.ok("Fee estimated successfully", resp));
@@ -68,7 +67,6 @@ public class ParkingSessionController {
     public ResponseEntity<ApiResponse<CheckoutResponse>> confirmExit(
             @PathVariable String sessionId,
             @RequestParam(required = false) String paymentMethod,
-            @RequestParam(defaultValue = "false") boolean lostTicket,
             Authentication auth) {
         CheckoutResponse resp = parkingSessionService.confirmExitAndCheckout(
                 auth.getName(), sessionId, paymentMethod);
