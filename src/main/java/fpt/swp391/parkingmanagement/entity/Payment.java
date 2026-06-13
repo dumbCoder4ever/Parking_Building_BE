@@ -25,12 +25,6 @@ public class Payment {
     @EqualsAndHashCode.Exclude
     private ParkingSession session;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    @ToString.Exclude
-    @EqualsAndHashCode.Exclude
-    private User user;
-
     @Column(name = "payment_method", length = 40)
     private String paymentMethod;
 
