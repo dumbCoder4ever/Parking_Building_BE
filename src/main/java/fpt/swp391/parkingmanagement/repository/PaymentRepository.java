@@ -26,8 +26,9 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
     @Query("""
             SELECT p FROM Payment p
             WHERE (:status IS NULL
+                OR (:status = 'UNPAID' AND UPPER(p.paymentStatus) NOT IN ('PAID', 'CONFIRMED', 'SUCCESS'))
                 OR (:status = 'PAID' AND UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS'))
-                OR (:status = 'UNPAID' AND UPPER(p.paymentStatus) NOT IN ('PAID', 'CONFIRMED', 'SUCCESS')))
+                OR (:status = 'AWAITING_CONFIRM' AND UPPER(p.paymentStatus) IN ('PAID', 'SUCCESS')))
             ORDER BY p.createdAt DESC
             """)
     List<Payment> findAllByPaidStatus(@Param("status") String status, Pageable pageable);

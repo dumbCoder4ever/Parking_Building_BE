@@ -58,7 +58,7 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.ok("Payment failure recorded", response));
     }
 
-    @Operation(summary = "Staff lists all payments with PAID/UNPAID status for confirmation")
+    @Operation(summary = "Staff lists payments (filter: PAID, UNPAID, or AWAITING_CONFIRM)")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping
     public ResponseEntity<ApiResponse<List<StaffPaymentListItemResponse>>> getAllPayments(
