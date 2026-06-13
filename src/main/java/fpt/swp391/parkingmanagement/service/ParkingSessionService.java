@@ -233,11 +233,11 @@ public class ParkingSessionService {
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Payment has not been confirmed yet. Initiate and complete payment before checkout.");
+                        "Payment has not been completed yet. Initiate and complete payment before checkout.");
             }
             savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
-                            "Confirmed payment record not found for this session"));
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
+                            "Staff must confirm payment before checkout."));
         } else {
             session.setPaymentStatus("PAID");
             savedPayment = null;
@@ -489,10 +489,11 @@ public class ParkingSessionService {
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Payment has not been confirmed yet. Driver must complete payment before exit.");
+                        "Payment has not been completed yet. Driver must complete payment before exit.");
             }
-            findLatestSessionPayment(session.getSessionId(), List.of("PAID", "CONFIRMED", "SUCCESS"))
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
+            findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
+                            "Staff must confirm payment before allowing exit."));
             session.setPaymentStatus("PAID");
         } else {
             session.setPaymentStatus("PAID");
