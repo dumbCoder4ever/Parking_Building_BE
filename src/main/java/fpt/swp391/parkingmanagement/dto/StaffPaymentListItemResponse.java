@@ -29,6 +29,7 @@ public class StaffPaymentListItemResponse {
     private BigDecimal amount;
     private String paymentStatus;
     private String paidStatus;
+    private boolean awaitingStaffConfirm;
     private String transactionCode;
     private LocalDateTime paymentTime;
     private LocalDateTime createdAt;
@@ -45,6 +46,10 @@ public class StaffPaymentListItemResponse {
             ticketCode = session.getTicket().getTicketCode();
         }
 
+        String rawStatus = payment.getPaymentStatus();
+        boolean awaitingStaffConfirm = rawStatus != null
+                && ("PAID".equalsIgnoreCase(rawStatus) || "SUCCESS".equalsIgnoreCase(rawStatus));
+
         return StaffPaymentListItemResponse.builder()
                 .paymentId(payment.getPaymentId())
                 .sessionId(session != null ? session.getSessionId() : null)
@@ -55,8 +60,9 @@ public class StaffPaymentListItemResponse {
                 .reservationCode(reservation != null ? reservation.getReservationCode() : null)
                 .paymentMethod(payment.getPaymentMethod())
                 .amount(payment.getAmount())
-                .paymentStatus(payment.getPaymentStatus())
-                .paidStatus(PaymentResponse.resolvePaidStatus(payment.getPaymentStatus()))
+                .paymentStatus(rawStatus)
+                .paidStatus(PaymentResponse.resolvePaidStatus(rawStatus))
+                .awaitingStaffConfirm(awaitingStaffConfirm)
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .createdAt(payment.getCreatedAt())
