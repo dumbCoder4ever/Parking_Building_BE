@@ -227,15 +227,6 @@ public class ParkingSessionService {
                             session.getSessionId(), "SUCCESS")
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
                             "Successful payment record not found for this session"));
-                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED, "Payment has not been completed yet");
-            }
-            savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED));
-
-            savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
-                            "Staff must confirm payment before checkout."));
-
         } else {
             session.setPaymentStatus("PAID");
             Payment payment = new Payment();
@@ -384,16 +375,6 @@ public class ParkingSessionService {
                     .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
                             session.getSessionId(), "SUCCESS")
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
-                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED);
-            }
-            findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED));
-
-            findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_CONFIRMED,
-                            "Staff must confirm payment before allowing exit."));
-
-            session.setPaymentStatus("PAID");
         } else {
             session.setPaymentStatus("PAID");
             Payment payment = new Payment();
@@ -494,17 +475,6 @@ public class ParkingSessionService {
             }
         }
     }
-
-    private Optional<Payment> findLatestSessionPayment(String sessionId, java.util.List<String> statuses) {
-        java.util.List<String> normalizedStatuses = statuses.stream()
-                .map(String::toUpperCase)
-                .toList();
-        return paymentRepository
-                .findBySessionSessionIdAndPaymentStatusInOrderByCreatedAtDesc(sessionId, normalizedStatuses, PageRequest.of(0, 1))
-                .stream()
-                .findFirst();
-    }
-
 
     private Optional<Payment> findLatestSessionPayment(String sessionId, List<String> statuses) {
         List<String> normalizedStatuses = statuses.stream()

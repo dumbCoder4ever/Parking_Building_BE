@@ -10,6 +10,4 @@ public class CheckoutRequest {
     private String ticketCode;
 
     private String paymentMethod;
-
-    private boolean lostTicket;
 }
