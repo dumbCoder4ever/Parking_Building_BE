@@ -23,6 +23,7 @@ public enum ErrorCode {
     SLOT_OCCUPIED("Slot is already occupied"),
     PAYMENT_NOT_COMPLETED("Payment not completed"),
     PAYMENT_NOT_FOUND("Payment not found"),
+    PAYMENT_NOT_CONFIRMED("Payment has not been confirmed yet"),
     BUILDING_NOT_FOUND("Building not found");
 
     private final String message;

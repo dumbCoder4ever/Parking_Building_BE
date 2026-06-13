@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import fpt.swp391.parkingmanagement.dto.CheckinRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
+import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
 import fpt.swp391.parkingmanagement.dto.PricingTierResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
@@ -230,13 +231,13 @@ public class ParkingSessionService {
         Payment savedPayment;
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
-                throw new RuntimeException(
+                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been confirmed yet. Initiate and complete payment before checkout.");
             }
             savedPayment = paymentRepository
                     .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
                             session.getSessionId(), "SUCCESS")
-                    .orElseThrow(() -> new RuntimeException(
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
                             "Successful payment record not found for this session"));
         } else {
             session.setPaymentStatus("PAID");
@@ -350,5 +351,197 @@ public class ParkingSessionService {
             }
         }
         return sb.toString();
+    }
+
+    public EstimateResponse estimateFee(String ticketCode, boolean lostTicket) {
+        Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
+
+        Optional<ParkingSession> optSession = parkingSessionRepository
+                .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE");
+
+        ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
+
+        LocalDateTime now = LocalDateTime.now();
+        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        int hours = (int) Math.ceil(minutes / 60.0);
+
+        PricingPolicy policy = null;
+        BigDecimal total = BigDecimal.ZERO;
+        List<PricingTierResponse> tiers = List.of();
+        String feeExplanation = "";
+
+        if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
+            String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
+            policy = pricingService.getActivePolicy(vtId);
+            if (policy != null) {
+                total = pricingService.calculateFeeByPolicy(policy, hours);
+                tiers = pricingService.toTierList(policy);
+                feeExplanation = buildFeeExplanation(policy, hours);
+            }
+        }
+
+        if (lostTicket) {
+            BigDecimal lostFee = policy != null && policy.getLostTicketFee() != null
+                    ? policy.getLostTicketFee() : BigDecimal.ZERO;
+            total = total.add(lostFee);
+        }
+
+        EstimateResponse resp = EstimateResponse.builder()
+                .sessionId(session.getSessionId())
+                .ticketCode(ticket.getTicketCode())
+                .checkinTime(session.getCheckinTime())
+                .estimatedCheckoutTime(now)
+                .parkingHours(hours)
+                .parkingMinutes((int) (minutes % 60))
+                .totalFee(total)
+                .basePrice(policy != null ? policy.getBasePrice() : null)
+                .hourlyRate(policy != null ? policy.getHourlyRate() : null)
+                .peakHourMultiplier(policy != null ? policy.getPeakHourMultiplier() : null)
+                .maxDailyFee(policy != null ? policy.getMaxDailyFee() : null)
+                .overnightFee(policy != null ? policy.getOvernightFee() : null)
+                .lostTicketFee(policy != null ? policy.getLostTicketFee() : null)
+                .pricingTiers(tiers)
+                .feeExplanation(feeExplanation)
+                .build();
+
+        applyHierarchyForEstimate(resp, session.getSlot());
+
+        if (session.getVehicle() != null) {
+            resp.setVehiclePlate(session.getVehicle().getPlateNumber());
+            if (session.getVehicle().getVehicleType() != null) {
+                resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
+                resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
+            }
+        }
+
+        return resp;
+    }
+
+    private void applyHierarchyForEstimate(EstimateResponse resp, ParkingSlot slot) {
+        if (slot == null) return;
+        Zone zone = slot.getZone();
+        if (zone == null) return;
+        Floor floor = zone.getFloor();
+        if (floor == null) return;
+        Building building = floor.getBuilding();
+        if (building == null) return;
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+        resp.setZoneId(zone.getZoneId());
+        resp.setZoneName(zone.getZoneName());
+        resp.setFloorId(floor.getFloorId());
+        resp.setFloorName(floor.getFloorName());
+        resp.setBuildingId(building.getBuildingId());
+        resp.setBuildingName(building.getBuildingName());
+    }
+
+    @Transactional
+    public CheckoutResponse confirmExitAndCheckout(String staffEmail, String sessionId,
+                                                   String paymentMethod, boolean lostTicket) {
+        ParkingSession session = parkingSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
+
+        String buildingId = resolveBuildingId(session.getSlot());
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+
+        if (!"ACTIVE".equalsIgnoreCase(session.getSessionStatus())) {
+            throw new BaseAPIException(ErrorCode.SESSION_NOT_FOUND, "Session is not active");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        session.setCheckoutTime(now);
+
+        if (session.getCheckinTime() == null) {
+            throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
+        }
+        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        int hours = (int) Math.ceil(minutes / 60.0);
+
+        PricingPolicy policy = null;
+        BigDecimal total = BigDecimal.ZERO;
+        if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
+            String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
+            policy = pricingService.getActivePolicy(vtId);
+            if (policy != null) {
+                total = pricingService.calculateFeeByPolicy(policy, hours);
+            }
+        }
+
+        if (lostTicket) {
+            BigDecimal lostFee = policy != null && policy.getLostTicketFee() != null
+                    ? policy.getLostTicketFee() : BigDecimal.ZERO;
+            total = total.add(lostFee);
+        }
+
+        String method = paymentMethod != null ? paymentMethod : "CASH";
+        boolean electronicPayment = "VNPAY".equals(method)
+                || "PAYOS".equals(method)
+                || "MOMO".equals(method);
+
+        session.setTotalFee(total);
+        session.setParkingDuration(hours);
+        session.setSessionStatus("PENDING_PAYMENT");
+
+        if (session.getReservation() != null) {
+            session.getReservation().setReservationStatus("PENDING_PAYMENT");
+        }
+
+        if (electronicPayment) {
+            if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
+                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
+                        "Payment has not been confirmed yet. Driver must complete payment before exit.");
+            }
+            paymentRepository
+                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
+                            session.getSessionId(), "SUCCESS")
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
+            session.setPaymentStatus("PAID");
+        } else {
+            session.setPaymentStatus("PAID");
+            Payment payment = new Payment();
+            payment.setSession(session);
+            payment.setPaymentMethod(method);
+            payment.setAmount(total);
+            payment.setPaymentStatus("SUCCESS");
+            payment.setPaymentTime(now);
+            paymentRepository.save(payment);
+        }
+
+        ParkingSession saved = parkingSessionRepository.save(session);
+
+        ParkingSlot slot = saved.getSlot();
+        if (slot != null) {
+            slot.setSlotStatus("PENDING_EXIT");
+            parkingSlotRepository.save(slot);
+        }
+
+        CheckoutResponse resp = new CheckoutResponse();
+        resp.setSessionId(saved.getSessionId());
+        if (slot != null) {
+            applyHierarchy(resp, slot);
+        }
+        resp.setCheckoutTime(saved.getCheckoutTime());
+        resp.setTotalFee(saved.getTotalFee());
+        resp.setParkingHours(hours);
+        resp.setParkingMinutes((int) minutes);
+        resp.setOvernightCharge(BigDecimal.ZERO);
+        resp.setLostTicketCharge(lostTicket);
+        if (policy != null) {
+            resp.setBasePrice(policy.getBasePrice());
+            resp.setHourlyRate(policy.getHourlyRate());
+            resp.setPeakHourMultiplier(policy.getPeakHourMultiplier());
+            resp.setMaxDailyFee(policy.getMaxDailyFee());
+            resp.setOvernightFee(policy.getOvernightFee());
+            resp.setLostTicketFee(policy.getLostTicketFee());
+            resp.setPricingTiers(pricingService.toTierList(policy));
+            resp.setFeeExplanation(buildFeeExplanation(policy, hours));
+            if (session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
+                resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
+                resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
+            }
+        }
+
+        return resp;
     }
 }
