@@ -266,14 +266,9 @@ public class ReservationService {
             throw new RuntimeException("Selected slot already has an active reservation");
         }
 
-        validateNoTimeConflict(user.getUserId(), req.getReservationStart(), req.getReservationEnd());
-
-        // 1 user chỉ được 1 slot active trong 1 ngày
-        List<Reservation> sameDayReservations = reservationRepository.findByUserIdAndStatusesAndDate(
-                user.getUserId(), ACTIVE_RESERVATION_STATUSES, req.getReservationStart());
-        if (!sameDayReservations.isEmpty()) {
-            throw new RuntimeException("You already have an active reservation on this day. One user can only reserve one slot per day.");
-        }
+        // 1 user có thể đặt 1 CAR và 1 BIKE cùng ngày, miễn không trùng giờ cùng loại xe
+        String vehicleTypeName = vehicle.getVehicleType().getTypeName();
+        validateNoTimeConflictByVehicleType(user.getUserId(), vehicleTypeName, req.getReservationStart(), req.getReservationEnd());
 
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
@@ -461,11 +456,12 @@ public class ReservationService {
         }
     }
 
-    private void validateNoTimeConflict(String userId, LocalDateTime start, LocalDateTime end) {
-        List<Reservation> overlapping = reservationRepository.findOverlappingReservations(
-                userId, start, end, ACTIVE_RESERVATION_STATUSES);
+    private void validateNoTimeConflictByVehicleType(String userId, String vehicleTypeName, LocalDateTime start, LocalDateTime end) {
+        // 1 user có thể đặt 1 CAR và 1 BIKE cùng ngày, miễn không trùng giờ cùng loại xe
+        List<Reservation> overlapping = reservationRepository.findOverlappingReservationsByVehicleType(
+                userId, vehicleTypeName, start, end, ACTIVE_RESERVATION_STATUSES);
         if (!overlapping.isEmpty()) {
-            throw new RuntimeException("You already have a reservation that overlaps with this time slot");
+            throw new RuntimeException("You already have a reservation for " + vehicleTypeName + " that overlaps with this time slot");
         }
     }
 

@@ -192,17 +192,27 @@ public class DriverServiceImpl implements DriverService {
 
     @Override
     @Transactional(readOnly = true)
-    public DriverCurrentSessionResponse getMyCurrentSession(String email) {
+    public DriverCurrentSessionsResponse getMyCurrentSessions(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
 
-        Optional<ParkingSession> optSession = parkingSessionRepository.findActiveByUserId(user.getUserId());
-        if (optSession.isEmpty()) {
+        List<ParkingSession> sessions = parkingSessionRepository.findAllActiveByUserId(user.getUserId());
+        if (sessions.isEmpty()) {
             throw new BaseAPIException(ErrorCode.SESSION_NOT_FOUND, "No active parking session found");
         }
 
-        ParkingSession session = optSession.get();
         LocalDateTime now = LocalDateTime.now();
+        List<DriverCurrentSessionResponse> sessionResponses = sessions.stream()
+                .map(session -> mapToCurrentSession(session, now))
+                .collect(Collectors.toList());
+
+        return DriverCurrentSessionsResponse.builder()
+                .totalActiveSessions(sessionResponses.size())
+                .sessions(sessionResponses)
+                .build();
+    }
+
+    private DriverCurrentSessionResponse mapToCurrentSession(ParkingSession session, LocalDateTime now) {
         long minutes = session.getCheckinTime() != null
                 ? Duration.between(session.getCheckinTime(), now).toMinutes()
                 : 0;
@@ -378,7 +388,7 @@ public class DriverServiceImpl implements DriverService {
     private String buildCurrentFeeExplanation(PricingPolicy policy, int hours, List<PricingTierResponse> tiers) {
         if (policy == null || tiers.isEmpty()) return "";
         for (PricingTierResponse tier : tiers) {
-            if (hours <= tier.getMaxHours()) {
+            if (tier.getMaxHours() != null && hours <= tier.getMaxHours()) {
                 return hours + "h (" + tier.getTierLabel() + ") = " + tier.getPrice() + " VND";
             }
         }
