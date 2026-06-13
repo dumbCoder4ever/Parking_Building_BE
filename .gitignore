@@ -35,6 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Duplicate folder ###
+Parking_Building_BE/
+
 # Security
 .env
 *.pem

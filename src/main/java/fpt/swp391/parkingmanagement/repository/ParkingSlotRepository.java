@@ -20,6 +20,9 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             + "where f.floorId = :floorId and f.vehicleType.vehicleTypeId = :vehicleTypeId and ps.slotStatus = 'AVAILABLE'")
     List<ParkingSlot> findAvailableByFloorAndVehicleType(@Param("floorId") String floorId, @Param("vehicleTypeId") String vehicleTypeId);
 
+    @Query("select ps from ParkingSlot ps join ps.zone z join z.floor f join f.building b where b.buildingId = :buildingId")
+    List<ParkingSlot> findByZoneFloorBuildingBuildingId(@Param("buildingId") String buildingId);
+
     @Query("select count(ps) from ParkingSlot ps join ps.zone z join z.floor f "
             + "where f.floorId = :floorId and f.vehicleType.vehicleTypeId = :vehicleTypeId and ps.slotStatus = 'AVAILABLE'")
     long countAvailableByFloorAndVehicleType(@Param("floorId") String floorId, @Param("vehicleTypeId") String vehicleTypeId);
