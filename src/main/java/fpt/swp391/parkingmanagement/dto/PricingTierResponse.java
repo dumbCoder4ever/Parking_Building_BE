@@ -13,7 +13,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class PricingTierResponse {
     private String tierLabel;
-    private int maxHours;
+    private Integer maxHours;
     private BigDecimal price;
 
     public static final String TIER_DAY_SUFFIX = "+/day";

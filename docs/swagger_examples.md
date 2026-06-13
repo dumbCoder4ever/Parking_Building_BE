@@ -86,6 +86,66 @@ GET /api/staff/sessions/active?buildingId=xxx
 
 ---
 
+## FLOW MỚI - Thanh toán điện tử (VNPay / PayOS / MOMO)
+
+Flow này dành cho trường hợp driver chọn thanh toán điện tử. Có thêm bước driver xác nhận đã thanh toán trước khi staff cho xe ra.
+
+### Bước 1: Staff check-in xe (như bình thường)
+```
+POST /api/sessions/checkin
+Body: {
+  "ticketCode": "TKT-xxx",
+  "plateNumber": "51A-12345",
+  "buildingId": "building-id"
+}
+```
+
+### Bước 2: Staff/Dự đoán phí (Driver xem phí trước khi thanh toán)
+```
+GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
+```
+Trả về chi tiết phí: totalFee, pricingTiers, feeExplanation, thời gian gửi.
+
+### Bước 3: Staff tạo payment link (VNPay/PayOS/MOMO)
+```
+POST /api/payments/initiate
+Body: {
+  "sessionId": "session-id",
+  "paymentMethod": "VNPAY",   // hoặc "PAYOS", "MOMO"
+  "amount": 20000,
+  "driverId": "driver-user-id"
+}
+```
+Trả về: `paymentId`, `paymentUrl` (link thanh toán cho driver).
+
+### Bước 4: Driver nhận notification
+- Driver nhận được link thanh toán qua notification
+- Driver mở link → thanh toán trên gateway (VNPay/PayOS/MOMO)
+
+### Bước 5: Gateway webhook xác nhận (server-to-server)
+- VNPay → `GET /api/payments/vnpay/ipn`
+- PayOS → `POST /api/payments/payos/webhook`
+- MOMO → Tương tự webhook
+- Hệ thống tự động cập nhật payment = SUCCESS, session.paymentStatus = PAID
+
+### Bước 6: Staff xác nhận xe ra (Confirm Exit)
+```
+PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=false
+```
+- Staff gọi API này sau khi biết payment đã thành công
+- Slot chuyển sang PENDING_EXIT (hoặc AVAILABLE), reservation = COMPLETED
+
+### Tóm tắt trạng thái
+
+| Trạng thái | Ý nghĩa |
+|---|---|
+| ACTIVE | Session đang hoạt động |
+| PENDING_PAYMENT | Staff đã tính phí, chờ driver thanh toán |
+| PENDING_EXIT | Driver đã thanh toán, chờ staff cho ra |
+| COMPLETED | Checkout hoàn tất |
+
+---
+
 # API REFERENCE
 
 ## 1) Chuẩn bị dữ liệu trước khi test
@@ -475,6 +535,114 @@ GET `/api/staff/sessions`
 
 ---
 
+## 4.5) SESSION & PAYMENT APIs
+
+### 4.5.1) Dự đoán phí (Estimate Fee)
+```
+GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
+```
+
+**Headers:** `Authorization: Bearer <staff-token>` hoặc `<driver-token>`
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Fee estimated successfully",
+  "data": {
+    "sessionId": "session123",
+    "ticketCode": "TKT-xxx",
+    "totalFee": 20000,
+    "parkingHours": 4,
+    "parkingMinutes": 15,
+    "checkinTime": "2026-06-10T10:00:00",
+    "pricingTiers": [
+      { "tierLabel": "≤ 2h", "maxHours": 2, "price": 5000 },
+      { "tierLabel": "≤ 6h", "maxHours": 6, "price": 10000 }
+    ],
+    "feeExplanation": "4h parking: ≤ 6h = 10000 VND"
+  }
+}
+```
+
+---
+
+### 4.5.2) Tạo Payment (VNPay / PayOS / MOMO)
+```
+POST /api/payments/initiate
+```
+
+**Headers:** `Authorization: Bearer <staff-token>`
+
+**Body:**
+```json
+{
+  "sessionId": "session123",
+  "paymentMethod": "VNPAY",
+  "amount": 20000,
+  "driverId": "driver-user-id",
+  "bankCode": "VNPAYQR",
+  "language": "vn"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Payment initiated successfully",
+  "data": {
+    "paymentId": "payment-uuid",
+    "sessionId": "session123",
+    "paymentMethod": "VNPAY",
+    "amount": 20000,
+    "paymentStatus": "PENDING",
+    "transactionCode": "TXN-1234-5678",
+    "paymentUrl": "https://sandbox.vnpayment.vn/...",
+    "message": "Payment initiated. Driver can now proceed with payment."
+  }
+}
+```
+
+---
+
+### 4.5.3) Staff xác nhận xe ra sau thanh toán
+```
+PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=false
+```
+
+**Headers:** `Authorization: Bearer <staff-token>`
+
+**Path Params:** `sessionId` - ID của parking session
+
+**Query Params:**
+- `paymentMethod` (optional): VNPAY, PAYOS, MOMO, CASH
+- `lostTicket` (optional, default=false): true nếu driver mất vé
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Exit confirmed, driver may proceed",
+  "data": {
+    "sessionId": "session123",
+    "totalFee": 20000,
+    "parkingHours": 4,
+    "parkingMinutes": 15,
+    "sessionStatus": "PENDING_EXIT",
+    "paymentStatus": "PAID",
+    "paymentMethod": "VNPAY"
+  }
+}
+```
+
+**Lưu ý:**
+- Với CASH: Staff gọi `POST /api/sessions/checkout` (bước 7 trong flow B)
+- Với VNPay/PayOS/MOMO: Staff gọi `PATCH /api/sessions/{sessionId}/confirm-exit` sau khi payment webhook confirmed
+- Trạng thái session sẽ là `PENDING_EXIT` → `COMPLETED` khi staff gọi API này
+
+---
+
 ## 5) MANAGER APIs
 
 ### 5.1 Assign Staff vào Building
@@ -610,12 +778,12 @@ POST `/api/users/me/vehicles`
 
 # STATUS VALUES
 
-- **Parking slot:** AVAILABLE, RESERVED, OCCUPIED, MAINTENANCE
-- **Parking registration:** PENDING, APPROVED, REJECTED, CANCELLED, COMPLETED
+- **Parking slot:** AVAILABLE, RESERVED, OCCUPIED, MAINTENANCE, PENDING_EXIT
+- **Parking registration:** PENDING, APPROVED, REJECTED, CANCELLED, COMPLETED, PENDING_PAYMENT, EXPIRED
 - **Ticket:** ACTIVE, USED, EXPIRED, LOST
-- **Parking session:** ACTIVE, COMPLETED, CANCELLED
+- **Parking session:** ACTIVE, PENDING_PAYMENT, PENDING_EXIT, COMPLETED, CANCELLED
 - **Parking session payment:** UNPAID, PAID, FAILED
-- **Payment:** SUCCESS, FAILED, PENDING
+- **Payment:** PENDING, SUCCESS, FAILED
 
 ---
 
@@ -626,6 +794,8 @@ POST `/api/users/me/vehicles`
 3. Driver đưa ticket_code cho staff khi vào/ra bãi
 4. Staff check-in/check-out sẽ tự động tính phí theo pricing policy
 5. Payment methods: CASH, VNPAY, PAYOS, MOMO
+6. Với thanh toán điện tử (VNPAY/PAYOS/MOMO): Staff dùng `PATCH /api/sessions/{sessionId}/confirm-exit` sau khi webhook xác nhận. Với CASH: dùng `POST /api/sessions/checkout`
+7. Parking slot status: AVAILABLE, RESERVED, OCCUPIED, MAINTENANCE, PENDING_EXIT
 
 ---
 
@@ -667,7 +837,7 @@ POST `/api/users/me/vehicles`
    Headers: Authorization: Bearer <token>
    ```
 
-## B. Staff check-in và check-out
+## B. Staff check-in và check-out (CASH)
 
 5. **Login staff:**
    ```
@@ -687,7 +857,7 @@ POST `/api/users/me/vehicles`
    }
    ```
 
-7. **Xác nhận xe ra (check-out - thu phí):**
+7. **Xác nhận xe ra (check-out - CASH):**
    ```
    POST /api/sessions/checkout
    Headers: Authorization: Bearer <staff-token>
@@ -698,6 +868,60 @@ POST `/api/users/me/vehicles`
    }
    ```
    → Response sẽ có `totalFee` đã tính
+
+## C. Staff check-in và check-out (VNPay / PayOS / MOMO)
+
+5. **Login staff:**
+   ```
+   POST /api/auth/login
+   Body: {"email": "staff1@example.com", "password": "123"}
+   ```
+   → Copy staff token
+
+6. **Xác nhận xe vào (check-in):**
+   ```
+   POST /api/sessions/checkin
+   Headers: Authorization: Bearer <staff-token>
+   Body: {
+     "ticketCode": "<ticketCode-từ-bước-3>",
+     "plateNumber": "51A-12345",
+     "buildingId": "building-id"
+   }
+   ```
+   → Copy `sessionId` từ response
+
+7. **Dự đoán phí (cho driver biết trước):**
+   ```
+   GET /api/sessions/estimate?ticketCode=<ticketCode>&lostTicket=false
+   Headers: Authorization: Bearer <staff-token>
+   ```
+   → Response có `totalFee`, `pricingTiers`, `feeExplanation`
+
+8. **Staff tạo payment link (VNPay/PayOS):**
+   ```
+   POST /api/payments/initiate
+   Headers: Authorization: Bearer <staff-token>
+   Body: {
+     "sessionId": "<sessionId-từ-bước-6>",
+     "paymentMethod": "VNPAY",
+     "amount": <totalFee-từ-bước-7>,
+     "driverId": "<driver-user-id>"
+   }
+   ```
+   → Response có `paymentUrl` (link thanh toán)
+   → Gửi link cho driver qua notification hoặc QR code
+
+9. **Driver thanh toán:**
+   - Driver mở `paymentUrl` → thanh toán trên gateway
+   - Gateway gọi webhook `/api/payments/vnpay/ipn` hoặc `/api/payments/payos/webhook`
+   - Hệ thống tự cập nhật payment = SUCCESS, session.paymentStatus = PAID
+
+10. **Staff xác nhận xe ra (confirm exit):**
+    ```
+    PATCH /api/sessions/<sessionId>/confirm-exit?paymentMethod=VNPAY&lostTicket=false
+    Headers: Authorization: Bearer <staff-token>
+    ```
+    → Slot chuyển PENDING_EXIT → AVAILABLE, reservation = COMPLETED
 
 ## C. Manager assign staff
 
@@ -714,3 +938,71 @@ POST `/api/users/me/vehicles`
    Headers: Authorization: Bearer <manager-token>
    Body: {"userId": "staff-user-id"}
    ```
+
+
+   {
+  "vehicleTypeId": "33333333-3333-3333-3333-333333333332",
+  "policyName": "Car Standard Pricing",
+  "pricingType": "TIERED",
+  "basePrice": 20000,
+  "hourlyRate": 10000,
+  "overnightFee": 50000,
+  "lostTicketFee": 200000,
+  "peakHourMultiplier": 1.5,
+  "maxDailyFee": 100000,
+  "effectiveFrom": "2026-06-01T00:00:00Z",
+  "effectiveTo": "2030-12-31T23:59:59Z",
+  "status": "ACTIVE",
+  "tier1Hours": 2,
+  "tier1Price": 20000,
+  "tier2Hours": 6,
+  "tier2Price": 40000,
+  "tier3Hours": 12,
+  "tier3Price": 60000,
+  "tier4Hours": 24,
+  "tier4Price": 100000,
+  "perDayPrice": 100000
+}
+
+Ý nghĩa:
+
+Thời gian gửi	Phí
+≤ 2 giờ	20.000
+> 2h - 6h	40.000
+> 6h - 12h	60.000
+> 12h - 24h	100.000
+Mỗi ngày tiếp theo	+100.000
+Mất vé	200.000
+Qua đêm	+50.000
+Giờ cao điểm	x1.5  
+
+{
+  "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+  "policyName": "Motorbike Standard Pricing",
+  "pricingType": "TIERED",
+  "basePrice": 5000,
+  "hourlyRate": 3000,
+  "overnightFee": 10000,
+  "lostTicketFee": 50000,
+  "peakHourMultiplier": 1.2,
+  "maxDailyFee": 20000,
+  "effectiveFrom": "2026-06-01T00:00:00Z",
+  "effectiveTo": "2030-12-31T23:59:59Z",
+  "status": "ACTIVE",
+  "tier1Hours": 2,
+  "tier1Price": 5000,
+  "tier2Hours": 6,
+  "tier2Price": 10000,
+  "tier3Hours": 12,
+  "tier3Price": 15000,
+  "tier4Hours": 24,
+  "tier4Price": 20000,
+  "perDayPrice": 20000
+}
+Cách tính
+Thời gian gửi	Phí
+≤ 2 giờ	5.000
+> 2h - 6h	10.000
+> 6h - 12h	15.000
+> 12h - 24h	20.000
+Mỗi ngày tiếp theo	+20.000
