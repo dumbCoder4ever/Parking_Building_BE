@@ -22,9 +22,21 @@ public class PaymentResponse {
     private BigDecimal amount;
     private LocalDateTime paymentTime;
     private String paymentStatus;
+    private String paidStatus;
     private String transactionCode;
     private String note;
     private LocalDateTime createdAt;
+
+    public static String resolvePaidStatus(String paymentStatus) {
+        if (paymentStatus == null) {
+            return "UNPAID";
+        }
+        String normalized = paymentStatus.trim().toUpperCase();
+        if ("PAID".equals(normalized) || "CONFIRMED".equals(normalized) || "SUCCESS".equals(normalized)) {
+            return "PAID";
+        }
+        return "UNPAID";
+    }
 
     public static PaymentResponse fromEntity(Payment payment) {
         String reservationCode = null;
@@ -40,6 +52,7 @@ public class PaymentResponse {
                 .amount(payment.getAmount())
                 .paymentTime(payment.getPaymentTime())
                 .paymentStatus(payment.getPaymentStatus())
+                .paidStatus(resolvePaidStatus(payment.getPaymentStatus()))
                 .transactionCode(payment.getTransactionCode())
                 .note(payment.getNote())
                 .createdAt(payment.getCreatedAt())
