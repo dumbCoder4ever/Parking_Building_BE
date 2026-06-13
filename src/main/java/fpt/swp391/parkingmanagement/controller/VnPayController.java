@@ -1,6 +1,7 @@
 package fpt.swp391.parkingmanagement.controller;
 
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
+import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import fpt.swp391.parkingmanagement.service.PaymentService;
 import fpt.swp391.parkingmanagement.service.VnPayService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -71,7 +72,7 @@ public class VnPayController {
         }
 
         // Bước 4: Kiểm tra trạng thái - chỉ xử lý khi còn PENDING (idempotent)
-        if (!"PENDING".equals(existing.getPaymentStatus())) {
+        if (existing.getPaymentStatus() != PaymentStatus.PENDING) {
             response.put("RspCode", "02");
             response.put("Message", "Order already confirmed");
             return ResponseEntity.ok(response);

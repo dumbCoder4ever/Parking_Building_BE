@@ -18,7 +18,7 @@ public class PaymentResponseDTO {
     private String sessionId;
     private String paymentMethod;
     private BigDecimal amount;
-    private String paymentStatus;
+    private PaymentStatus paymentStatus;
     private String transactionCode;
     private LocalDateTime paymentTime;
     private String message;

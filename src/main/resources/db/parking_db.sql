@@ -395,6 +395,8 @@
 
                                       session_status ENUM(
             'ACTIVE',
+            'PENDING_PAYMENT',
+            'PENDING_EXIT',
             'COMPLETED',
             'CANCELLED'
         ) DEFAULT 'ACTIVE',
@@ -457,10 +459,12 @@
                               payment_time DATETIME DEFAULT CURRENT_TIMESTAMP,
 
                               payment_status ENUM(
+            'PENDING',
+            'PAID',
+            'CONFIRMED',
             'SUCCESS',
-            'FAILED',
-            'PENDING'
-        ) DEFAULT 'SUCCESS',
+            'FAILED'
+        ) DEFAULT 'PENDING',
 
                               transaction_code VARCHAR(100),
 

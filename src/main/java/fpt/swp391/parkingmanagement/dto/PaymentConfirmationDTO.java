@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.dto;
 
+import fpt.swp391.parkingmanagement.enums.ConfirmationStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,7 +22,7 @@ public class PaymentConfirmationDTO {
     private String paymentMethod;
     private String transactionCode;
     private Boolean isConfirmed;
-    private String confirmationStatus; // CONFIRMED or FAILED
+    private ConfirmationStatus confirmationStatus; // CONFIRMED or FAILED
     private String reason; // Reason for failure if any
     private String message;
     private LocalDateTime confirmedAt;

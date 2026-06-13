@@ -8,6 +8,10 @@ import fpt.swp391.parkingmanagement.dto.StaffPaymentListItemResponse;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.enums.ConfirmationStatus;
+import fpt.swp391.parkingmanagement.enums.EnumParser;
+import fpt.swp391.parkingmanagement.enums.PaidStatusFilter;
+import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
@@ -104,7 +108,7 @@ public class PaymentService {
                 .sessionId(session.getSessionId())
                 .paymentMethod(paymentRequest.getPaymentMethod())
                 .amount(paymentRequest.getAmount())
-                .paymentStatus("PENDING")
+                .paymentStatus(PaymentStatus.PENDING)
                 .transactionCode(savedPayment.getTransactionCode())
                 .paymentTime(LocalDateTime.now())
                 .paymentUrl(paymentUrl)
@@ -143,7 +147,7 @@ public class PaymentService {
                 .sessionId(payment.getSession().getSessionId())
                 .paymentMethod(updatedPayment.getPaymentMethod())
                 .amount(updatedPayment.getAmount())
-                .paymentStatus("PAID")
+                .paymentStatus(PaymentStatus.PAID)
                 .transactionCode(updatedPayment.getTransactionCode())
                 .paymentTime(updatedPayment.getPaymentTime())
                 .message("Payment successful. Waiting for staff confirmation.")
@@ -185,12 +189,12 @@ public class PaymentService {
 
             payment.setPaymentStatus("CONFIRMED");
             session.setPaymentStatus("PAID");
-            confirmation.setConfirmationStatus("CONFIRMED");
+            confirmation.setConfirmationStatus(ConfirmationStatus.CONFIRMED);
             confirmation.setMessage("Payment confirmed successfully. You may exit.");
         } else {
             payment.setPaymentStatus("FAILED");
             session.setPaymentStatus("FAILED");
-            confirmation.setConfirmationStatus("FAILED");
+            confirmation.setConfirmationStatus(ConfirmationStatus.FAILED);
             confirmation.setReason(confirmationRequest.getReason());
             confirmation.setMessage("Payment confirmation failed: " + confirmationRequest.getReason());
         }
@@ -224,7 +228,7 @@ public class PaymentService {
                 .sessionId(payment.getSession().getSessionId())
                 .paymentMethod(updatedPayment.getPaymentMethod())
                 .amount(updatedPayment.getAmount())
-                .paymentStatus("FAILED")
+                .paymentStatus(PaymentStatus.FAILED)
                 .transactionCode(updatedPayment.getTransactionCode())
                 .message("Payment failed: " + reason)
                 .build();
@@ -242,8 +246,8 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(String paidStatus, int limit) {
-        String normalizedStatus = normalizePaidStatusFilter(paidStatus);
+    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(PaidStatusFilter paidStatus, int limit) {
+        String normalizedStatus = paidStatus != null ? paidStatus.name() : null;
         return paymentRepository.findAllByPaidStatus(normalizedStatus, PageRequest.of(0, limit))
                 .stream()
                 .map(StaffPaymentListItemResponse::fromEntity)
@@ -273,21 +277,6 @@ public class PaymentService {
                 .collect(Collectors.toList());
     }
 
-    private String normalizePaidStatusFilter(String paidStatus) {
-        if (paidStatus == null || paidStatus.isBlank()) {
-            return null;
-        }
-
-        String normalized = paidStatus.trim().toUpperCase();
-        if (!"PAID".equals(normalized)
-                && !"UNPAID".equals(normalized)
-                && !"AWAITING_CONFIRM".equals(normalized)) {
-            throw new BaseAPIException(ErrorCode.INVALID_REQUEST,
-                    "Status must be PAID, UNPAID, or AWAITING_CONFIRM");
-        }
-        return normalized;
-    }
-
     public PaymentResponseDTO getPaymentByOrderCode(long orderCode) {
         Payment payment = paymentRepository.findByTransactionCode(String.valueOf(orderCode))
                 .orElseThrow(() -> new RuntimeException("Payment not found for orderCode: " + orderCode));
@@ -301,7 +290,7 @@ public class PaymentService {
                 .sessionId(payment.getSession().getSessionId())
                 .paymentMethod(payment.getPaymentMethod())
                 .amount(payment.getAmount())
-                .paymentStatus(payment.getPaymentStatus())
+                .paymentStatus(EnumParser.parsePaymentStatus(payment.getPaymentStatus()))
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .build();
