@@ -239,7 +239,12 @@ public class ReservationControllerIntegrationTest {
         String reservationCode = response.getReservationCode();
 
         // Approve reservation trước
-        reservationService.updateReservationStatus(reservationCode, "APPROVED", "Staff approved");
+        reservationService.updateReservationStatus(
+                testUser.getEmail(),
+                testSlot.getZone().getFloor().getBuilding().getBuildingId(),
+                reservationCode,
+                "APPROVED",
+                "Staff approved");
 
         Reservation reservation = reservationRepository.findByReservationCode(reservationCode).orElseThrow();
         assertThat(reservation.getReservationStatus()).isEqualTo("APPROVED");
@@ -294,7 +299,12 @@ public class ReservationControllerIntegrationTest {
 
         var response = reservationService.createReservation(testUser.getEmail(), req);
 
-        reservationService.updateReservationStatus(response.getReservationCode(), "CANCELLED", "Manual cancellation");
+        reservationService.updateReservationStatus(
+                testUser.getEmail(),
+                testSlot.getZone().getFloor().getBuilding().getBuildingId(),
+                response.getReservationCode(),
+                "CANCELLED",
+                "Manual cancellation");
 
         int expiredCount = reservationService.autoExpireReservations();
 
