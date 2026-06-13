@@ -2,16 +2,21 @@ package fpt.swp391.parkingmanagement.service;
 
 import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
+import fpt.swp391.parkingmanagement.dto.PaymentResponse;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
+import fpt.swp391.parkingmanagement.dto.StaffPaymentListItemResponse;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -20,7 +25,9 @@ import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -120,7 +127,7 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
-        payment.setPaymentStatus("SUCCESS");
+        payment.setPaymentStatus("PAID");
         payment.setTransactionCode(transactionCode);
         payment.setPaymentTime(LocalDateTime.now());
 
@@ -169,9 +176,16 @@ public class PaymentService {
                 .build();
 
         if (confirmationRequest.getIsConfirmed()) {
-            payment.setPaymentStatus("SUCCESS");
+            String currentStatus = payment.getPaymentStatus();
+            if (currentStatus == null
+                    || (!"PAID".equalsIgnoreCase(currentStatus) && !"SUCCESS".equalsIgnoreCase(currentStatus))) {
+                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
+                        "Payment must be PAID before staff can confirm");
+            }
+
+            payment.setPaymentStatus("CONFIRMED");
             session.setPaymentStatus("PAID");
-            confirmation.setConfirmationStatus("SUCCESS");
+            confirmation.setConfirmationStatus("CONFIRMED");
             confirmation.setMessage("Payment confirmed successfully. You may exit.");
         } else {
             payment.setPaymentStatus("FAILED");
@@ -225,6 +239,50 @@ public class PaymentService {
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
         return toPaymentResponse(payment);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(String paidStatus, int limit) {
+        String normalizedStatus = normalizePaidStatusFilter(paidStatus);
+        return paymentRepository.findAllByPaidStatus(normalizedStatus, PageRequest.of(0, limit))
+                .stream()
+                .map(StaffPaymentListItemResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentResponse> getPaymentHistoryByDriverId(String driverId, String requesterEmail, int limit) {
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
+
+        User requester = userRepository.findByEmail(requesterEmail)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
+
+        boolean isStaffOrAdmin = requester.getRole() != null
+                && (requester.getRole().toUpperCase().contains("STAFF")
+                || requester.getRole().toUpperCase().contains("MANAGER")
+                || requester.getRole().toUpperCase().contains("ADMIN"));
+
+        if (!isStaffOrAdmin && !driverId.equals(requester.getUserId())) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED);
+        }
+
+        return paymentRepository.findByDriverIdOrderByPaymentTimeDesc(driverId, PageRequest.of(0, limit))
+                .stream()
+                .map(PaymentResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    private String normalizePaidStatusFilter(String paidStatus) {
+        if (paidStatus == null || paidStatus.isBlank()) {
+            return null;
+        }
+
+        String normalized = paidStatus.trim().toUpperCase();
+        if (!"PAID".equals(normalized) && !"UNPAID".equals(normalized)) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Status must be PAID or UNPAID");
+        }
+        return normalized;
     }
 
     public PaymentResponseDTO getPaymentByOrderCode(long orderCode) {
