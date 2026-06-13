@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -234,11 +235,9 @@ public class ParkingSessionService {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been confirmed yet. Initiate and complete payment before checkout.");
             }
-            savedPayment = paymentRepository
-                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
-                            session.getSessionId(), "SUCCESS")
+            savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("CONFIRMED", "SUCCESS"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
-                            "Successful payment record not found for this session"));
+                            "Confirmed payment record not found for this session"));
         } else {
             session.setPaymentStatus("PAID");
             savedPayment = null;
@@ -251,7 +250,7 @@ public class ParkingSessionService {
             payment.setSession(saved);
             payment.setPaymentMethod(paymentMethod);
             payment.setAmount(total);
-            payment.setPaymentStatus("SUCCESS");
+            payment.setPaymentStatus("PAID");
             savedPayment = paymentRepository.save(payment);
         }
 
@@ -492,9 +491,7 @@ public class ParkingSessionService {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been confirmed yet. Driver must complete payment before exit.");
             }
-            paymentRepository
-                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
-                            session.getSessionId(), "SUCCESS")
+            findLatestSessionPayment(session.getSessionId(), List.of("PAID", "CONFIRMED", "SUCCESS"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
             session.setPaymentStatus("PAID");
         } else {
@@ -503,7 +500,7 @@ public class ParkingSessionService {
             payment.setSession(session);
             payment.setPaymentMethod(method);
             payment.setAmount(total);
-            payment.setPaymentStatus("SUCCESS");
+            payment.setPaymentStatus("PAID");
             payment.setPaymentTime(now);
             paymentRepository.save(payment);
         }
@@ -543,5 +540,16 @@ public class ParkingSessionService {
         }
 
         return resp;
+    }
+
+    private Optional<Payment> findLatestSessionPayment(String sessionId, List<String> statuses) {
+        List<String> normalizedStatuses = statuses.stream()
+                .map(String::toUpperCase)
+                .toList();
+        return paymentRepository
+                .findBySessionSessionIdAndPaymentStatusInOrderByCreatedAtDesc(
+                        sessionId, normalizedStatuses, PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
     }
 }
