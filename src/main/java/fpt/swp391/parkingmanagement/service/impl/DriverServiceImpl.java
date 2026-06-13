@@ -217,11 +217,13 @@ public class DriverServiceImpl implements DriverService {
                 ? Duration.between(session.getCheckinTime(), now).toMinutes()
                 : 0;
         int parkingMinutes = (int) Math.max(0, minutes);
+        int parkingHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
 
         Reservation reservation = session.getReservation();
         Vehicle vehicle = reservation != null ? reservation.getVehicle() : null;
 
-        String buildingId = null, buildingName = null, floorId = null, floorName = null, zoneId = null, zoneName = null, slotId = null, slotName = null;
+        String buildingId = null, buildingName = null, floorId = null, floorName = null,
+               zoneId = null, zoneName = null, slotId = null, slotName = null;
         if (session.getSlot() != null) {
             slotId = session.getSlot().getSlotId();
             slotName = session.getSlot().getSlotName();
@@ -240,26 +242,19 @@ public class DriverServiceImpl implements DriverService {
         }
 
         BigDecimal estimatedFee = BigDecimal.ZERO;
-        BigDecimal currentAccumulated = BigDecimal.ZERO;
+        BigDecimal basePrice = null;
+        BigDecimal hourlyRate = null;
         String vehicleTypeId = null, vehicleTypeName = null;
-        List<PricingTierResponse> pricingTiers = List.of();
-        String currentFeeExplanation = "";
-        PricingPolicy policy = null;
 
         if (vehicle != null && vehicle.getVehicleType() != null) {
-            String vtId = vehicle.getVehicleType().getVehicleTypeId();
-            vehicleTypeId = vtId;
+            vehicleTypeId = vehicle.getVehicleType().getVehicleTypeId();
             vehicleTypeName = vehicle.getVehicleType().getTypeName();
-
-            policy = pricingService.getActivePolicy(vtId);
+            estimatedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
+            
+            var policy = pricingService.getActivePolicy(vehicleTypeId);
             if (policy != null) {
-                pricingTiers = pricingService.toTierList(policy);
-
-                int estimatedHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
-                currentAccumulated = pricingService.calculateFeeByPolicy(policy, estimatedHours);
-                estimatedFee = currentAccumulated;
-
-                currentFeeExplanation = buildCurrentFeeExplanation(policy, estimatedHours, pricingTiers);
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
             }
         }
 
@@ -278,23 +273,16 @@ public class DriverServiceImpl implements DriverService {
                 .vehicleColor(vehicle != null ? vehicle.getVehicleColor() : null)
                 .vehicleBrand(vehicle != null ? vehicle.getBrand() : null)
                 .vehicleModel(vehicle != null ? vehicle.getModel() : null)
+                .vehicleTypeId(vehicleTypeId)
+                .vehicleTypeName(vehicleTypeName)
                 .checkinTime(session.getCheckinTime())
                 .currentTime(now)
                 .parkingMinutes(parkingMinutes)
-                .parkingHours((int) Math.ceil(parkingMinutes / 60.0))
-                .estimatedHours(Math.max(1, (int) Math.ceil(parkingMinutes / 60.0)))
+                .parkingHours(parkingHours)
                 .sessionStatus(session.getSessionStatus())
                 .paymentStatus(session.getPaymentStatus())
-                .vehicleTypeId(vehicleTypeId)
-                .vehicleTypeName(vehicleTypeName)
-                .pricingTiers(pricingTiers)
-                .currentAccumulatedFee(currentAccumulated)
-                .currentFeeExplanation(currentFeeExplanation)
-                .basePrice(policy != null ? policy.getBasePrice() : null)
-                .hourlyRate(policy != null ? policy.getHourlyRate() : null)
-                .peakHourMultiplier(policy != null ? policy.getPeakHourMultiplier() : null)
-                .maxDailyFee(policy != null ? policy.getMaxDailyFee() : null)
-                .overnightFee(policy != null ? policy.getOvernightFee() : null)
+                .basePrice(basePrice)
+                .hourlyRate(hourlyRate)
                 .estimatedFee(estimatedFee)
                 .build();
     }
@@ -385,14 +373,4 @@ public class DriverServiceImpl implements DriverService {
                 .build();
     }
 
-    private String buildCurrentFeeExplanation(PricingPolicy policy, int hours, List<PricingTierResponse> tiers) {
-        if (policy == null || tiers.isEmpty()) return "";
-        for (PricingTierResponse tier : tiers) {
-            if (tier.getMaxHours() != null && hours <= tier.getMaxHours()) {
-                return hours + "h (" + tier.getTierLabel() + ") = " + tier.getPrice() + " VND";
-            }
-        }
-        PricingTierResponse last = tiers.get(tiers.size() - 1);
-        return hours + "h (" + last.getTierLabel() + ") = " + last.getPrice() + " VND";
-    }
 }

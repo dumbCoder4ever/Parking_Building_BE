@@ -57,7 +57,7 @@ public class ParkingSessionController {
             @RequestParam String ticketCode,
             @RequestParam(defaultValue = "false") boolean lostTicket,
             Authentication auth) {
-        EstimateResponse resp = parkingSessionService.estimateFee(ticketCode, lostTicket);
+        EstimateResponse resp = parkingSessionService.estimateFee(ticketCode);
         return ResponseEntity.ok(ApiResponse.ok("Fee estimated successfully", resp));
     }
 
@@ -71,7 +71,7 @@ public class ParkingSessionController {
             @RequestParam(defaultValue = "false") boolean lostTicket,
             Authentication auth) {
         CheckoutResponse resp = parkingSessionService.confirmExitAndCheckout(
-                auth.getName(), sessionId, paymentMethod, lostTicket);
+                auth.getName(), sessionId, paymentMethod);
         return ResponseEntity.ok(ApiResponse.ok("Exit confirmed, driver may proceed", resp));
     }
 }
