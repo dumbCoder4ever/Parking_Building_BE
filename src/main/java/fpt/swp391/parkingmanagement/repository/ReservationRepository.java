@@ -36,6 +36,19 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             @Param("endTime") LocalDateTime endTime,
             @Param("statuses") Collection<String> statuses);
 
+    // Check overlap by vehicle type (1 user can have 1 CAR and 1 BIKE reservation at same time)
+    @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +
+           "WHERE r.user.userId = :userId " +
+           "AND vt.typeName = :vehicleTypeName " +
+           "AND r.reservationStatus IN :statuses " +
+           "AND r.reservationStart < :endTime AND r.reservationEnd > :startTime")
+    List<Reservation> findOverlappingReservationsByVehicleType(
+            @Param("userId") String userId,
+            @Param("vehicleTypeName") String vehicleTypeName,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime,
+            @Param("statuses") Collection<String> statuses);
+
     @Query(value = "SELECT r.* FROM reservations r " +
            "JOIN parking_slots ps ON r.slot_id = ps.slot_id " +
            "WHERE r.reservation_status IN ('PENDING', 'APPROVED') " +
