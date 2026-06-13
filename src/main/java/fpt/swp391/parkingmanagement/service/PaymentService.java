@@ -181,10 +181,25 @@ public class PaymentService {
 
         if (confirmationRequest.getIsConfirmed()) {
             String currentStatus = payment.getPaymentStatus();
+
+            if ("CONFIRMED".equalsIgnoreCase(currentStatus)) {
+                throw new BaseAPIException(ErrorCode.PAYMENT_ALREADY_CONFIRMED,
+                        "Payment has already been confirmed by staff");
+            }
+
+            // Session PAID but payment record still PENDING (webhook/return chưa cập nhật payment)
+            if ("PENDING".equalsIgnoreCase(currentStatus)
+                    && "PAID".equalsIgnoreCase(session.getPaymentStatus())) {
+                payment.setPaymentStatus("PAID");
+                currentStatus = "PAID";
+            }
+
             if (currentStatus == null
                     || (!"PAID".equalsIgnoreCase(currentStatus) && !"SUCCESS".equalsIgnoreCase(currentStatus))) {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Payment must be PAID before staff can confirm");
+                        "Payment must be PAID before staff can confirm. "
+                                + "Current paymentStatus=" + currentStatus
+                                + ", sessionPaymentStatus=" + session.getPaymentStatus());
             }
 
             payment.setPaymentStatus("CONFIRMED");

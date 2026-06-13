@@ -24,6 +24,7 @@ public enum ErrorCode {
     PAYMENT_NOT_COMPLETED("Payment not completed"),
     PAYMENT_NOT_FOUND("Payment not found"),
     PAYMENT_NOT_CONFIRMED("Payment has not been confirmed yet"),
+    PAYMENT_ALREADY_CONFIRMED("Payment has already been confirmed"),
     BUILDING_NOT_FOUND("Building not found");
 
     private final String message;
