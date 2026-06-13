@@ -1,0 +1,363 @@
+{
+  "info": {
+    "_postman_id": "a2f8e1c4-7b3d-4e9a-9c1f-5d6e8a0b2c3d",
+    "name": "Payment Flows",
+    "description": "Test payment API — import vào Postman/Insomnia.\n\nThứ tự:\n1. Login Staff + Login Driver\n2. Get Current Session / Estimate Fee\n3. Initiate Payment\n4. (Dev) Confirm Success  HOẶC  thanh toán thật qua paymentUrl\n5. Confirm By Staff\n6. Checkout",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Login Staff",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"staff1@example.com\",\n  \"password\": \"123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.data && r.data.token) {",
+                  "  pm.collectionVariables.set('staffToken', r.data.token);",
+                  "  pm.collectionVariables.set('staffId', r.data.userId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Driver",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"driver1@example.com\",\n  \"password\": \"1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.data && r.data.token) {",
+                  "  pm.collectionVariables.set('driverToken', r.data.token);",
+                  "  pm.collectionVariables.set('driverId', r.data.userId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Session",
+      "item": [
+        {
+          "name": "Get Current Session (Driver)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{driverToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me/sessions/current",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "me", "sessions", "current"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.data) {",
+                  "  if (r.data.sessionId) pm.collectionVariables.set('sessionId', r.data.sessionId);",
+                  "  if (r.data.ticketCode) pm.collectionVariables.set('ticketCode', r.data.ticketCode);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Estimate Fee",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/estimate?ticketCode={{ticketCode}}&lostTicket=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sessions", "estimate"],
+              "query": [
+                { "key": "ticketCode", "value": "{{ticketCode}}" },
+                { "key": "lostTicket", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.data) {",
+                  "  if (r.data.sessionId) pm.collectionVariables.set('sessionId', r.data.sessionId);",
+                  "  if (r.data.totalFee) pm.collectionVariables.set('amount', r.data.totalFee);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Payment",
+      "item": [
+        {
+          "name": "Initiate PayOS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"paymentMethod\": \"PAYOS\",\n  \"amount\": {{amount}},\n  \"driverId\": \"{{driverId}}\",\n  \"note\": \"Test PayOS\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/initiate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "initiate"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.data && r.data.paymentId) {",
+                  "  pm.collectionVariables.set('paymentId', r.data.paymentId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Initiate VNPay",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"paymentMethod\": \"VNPAY\",\n  \"amount\": {{amount}},\n  \"driverId\": \"{{driverId}}\",\n  \"bankCode\": \"VNPAYQR\",\n  \"language\": \"vn\",\n  \"note\": \"Test VNPay\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/initiate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "initiate"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var r = pm.response.json();",
+                  "if (r && r.data && r.data.paymentId) {",
+                  "  pm.collectionVariables.set('paymentId', r.data.paymentId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm Success (dev/test)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/confirm-success?paymentId={{paymentId}}&transactionCode=TEST-TXN-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "confirm-success"],
+              "query": [
+                { "key": "paymentId", "value": "{{paymentId}}" },
+                { "key": "transactionCode", "value": "TEST-TXN-001" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Confirm By Staff",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentId\": \"{{paymentId}}\",\n  \"sessionId\": \"{{sessionId}}\",\n  \"driverId\": \"{{driverId}}\",\n  \"staffId\": \"{{staffId}}\",\n  \"isConfirmed\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/confirm-by-staff",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "confirm-by-staff"]
+            }
+          }
+        },
+        {
+          "name": "Get Payment Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/{{paymentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "{{paymentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Handle Failure (dev/test)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/handle-failure?paymentId={{paymentId}}&reason=User%20cancelled",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "handle-failure"],
+              "query": [
+                { "key": "paymentId", "value": "{{paymentId}}" },
+                { "key": "reason", "value": "User cancelled" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Checkout",
+      "item": [
+        {
+          "name": "Checkout CASH",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticketCode\": \"{{ticketCode}}\",\n  \"paymentMethod\": \"CASH\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/checkout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sessions", "checkout"]
+            }
+          }
+        },
+        {
+          "name": "Checkout PayOS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticketCode\": \"{{ticketCode}}\",\n  \"paymentMethod\": \"PAYOS\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/checkout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sessions", "checkout"]
+            }
+          }
+        },
+        {
+          "name": "Checkout VNPay",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticketCode\": \"{{ticketCode}}\",\n  \"paymentMethod\": \"VNPAY\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/checkout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sessions", "checkout"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. PayOS Callback (public)",
+      "item": [
+        {
+          "name": "Register PayOS Webhook",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"webhookUrl\": \"https://YOUR-NGROK-URL/api/payments/payos/webhook\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payments/payos/confirm-webhook",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payments", "payos", "confirm-webhook"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "staffToken", "value": "" },
+    { "key": "staffId", "value": "" },
+    { "key": "driverToken", "value": "" },
+    { "key": "driverId", "value": "" },
+    { "key": "sessionId", "value": "" },
+    { "key": "ticketCode", "value": "" },
+    { "key": "paymentId", "value": "" },
+    { "key": "amount", "value": "5000" }
+  ]
+}

@@ -60,6 +60,7 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
                         .requestMatchers("/api/test/public", "/api/public/**").permitAll()
+                        .requestMatchers("/api/enums").permitAll()
                         .requestMatchers("/api/test/auth-check").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers(
