@@ -1,6 +1,9 @@
 package fpt.swp391.parkingmanagement.dto;
 
 import fpt.swp391.parkingmanagement.entity.Payment;
+import fpt.swp391.parkingmanagement.enums.EnumParser;
+import fpt.swp391.parkingmanagement.enums.PaidStatus;
+import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,21 +24,14 @@ public class PaymentResponse {
     private String paymentMethod;
     private BigDecimal amount;
     private LocalDateTime paymentTime;
-    private String paymentStatus;
-    private String paidStatus;
+    private PaymentStatus paymentStatus;
+    private PaidStatus paidStatus;
     private String transactionCode;
     private String note;
     private LocalDateTime createdAt;
 
-    public static String resolvePaidStatus(String paymentStatus) {
-        if (paymentStatus == null) {
-            return "UNPAID";
-        }
-        String normalized = paymentStatus.trim().toUpperCase();
-        if ("PAID".equals(normalized) || "CONFIRMED".equals(normalized) || "SUCCESS".equals(normalized)) {
-            return "PAID";
-        }
-        return "UNPAID";
+    public static PaidStatus resolvePaidStatus(String paymentStatus) {
+        return EnumParser.resolvePaidStatus(paymentStatus);
     }
 
     public static PaymentResponse fromEntity(Payment payment) {
@@ -51,7 +47,7 @@ public class PaymentResponse {
                 .paymentMethod(payment.getPaymentMethod())
                 .amount(payment.getAmount())
                 .paymentTime(payment.getPaymentTime())
-                .paymentStatus(payment.getPaymentStatus())
+                .paymentStatus(EnumParser.parsePaymentStatus(payment.getPaymentStatus()))
                 .paidStatus(resolvePaidStatus(payment.getPaymentStatus()))
                 .transactionCode(payment.getTransactionCode())
                 .note(payment.getNote())
