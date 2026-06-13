@@ -120,7 +120,7 @@ public class PaymentService {
     }
 
     /**
-     * STEP 3: DRIVER makes payment and system confirms it
+     * STEP 2: Driver completes payment (gateway webhook) -> status becomes PAID automatically.
      */
     @Transactional
     public PaymentResponseDTO confirmPaymentSuccess(String paymentId, String transactionCode) {
@@ -151,7 +151,7 @@ public class PaymentService {
     }
 
     /**
-     * STEP 4: STAFF confirms payment and sends final confirmation to DRIVER
+     * STEP 3: Staff confirms payment after gateway marked it PAID.
      */
     @Transactional
     public PaymentConfirmationDTO confirmPaymentByStaff(PaymentConfirmationDTO confirmationRequest) {
@@ -279,8 +279,11 @@ public class PaymentService {
         }
 
         String normalized = paidStatus.trim().toUpperCase();
-        if (!"PAID".equals(normalized) && !"UNPAID".equals(normalized)) {
-            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Status must be PAID or UNPAID");
+        if (!"PAID".equals(normalized)
+                && !"UNPAID".equals(normalized)
+                && !"AWAITING_CONFIRM".equals(normalized)) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST,
+                    "Status must be PAID, UNPAID, or AWAITING_CONFIRM");
         }
         return normalized;
     }
