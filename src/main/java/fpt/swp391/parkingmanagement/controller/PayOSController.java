@@ -75,6 +75,11 @@ public class PayOSController {
             PaymentResponseDTO payment = paymentService.getPaymentByOrderCode(orderCode);
 
             if ("00".equals(code) || "PAID".equalsIgnoreCase(status)) {
+                // Fallback: webhook chưa kịp chạy → tự cập nhật PAID tại đây
+                if ("PENDING".equalsIgnoreCase(payment.getPaymentStatus())) {
+                    payment = paymentService.confirmPaymentSuccess(
+                            payment.getPaymentId(), String.valueOf(orderCode));
+                }
                 return ResponseEntity.ok(Map.of(
                         "status", "SUCCESS",
                         "message", "Thanh toan thanh cong",
