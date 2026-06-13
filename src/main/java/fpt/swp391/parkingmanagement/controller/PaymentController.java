@@ -6,8 +6,10 @@ import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponse;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
 import fpt.swp391.parkingmanagement.dto.StaffPaymentListItemResponse;
+import fpt.swp391.parkingmanagement.enums.PaidStatusFilter;
 import fpt.swp391.parkingmanagement.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -62,7 +64,8 @@ public class PaymentController {
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping
     public ResponseEntity<ApiResponse<List<StaffPaymentListItemResponse>>> getAllPayments(
-            @RequestParam(required = false) String status,
+            @Parameter(description = "Filter: PAID, UNPAID, AWAITING_CONFIRM")
+            @RequestParam(required = false) PaidStatusFilter status,
             @RequestParam(defaultValue = "50") int limit) {
         List<StaffPaymentListItemResponse> payments = paymentService.getAllPaymentsForStaff(status, limit);
         return ResponseEntity.ok(ApiResponse.ok("Payments retrieved successfully", payments));

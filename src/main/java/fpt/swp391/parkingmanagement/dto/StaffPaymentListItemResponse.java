@@ -4,6 +4,10 @@ import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.enums.EnumParser;
+import fpt.swp391.parkingmanagement.enums.PaidStatus;
+import fpt.swp391.parkingmanagement.enums.PaymentStatus;
+import fpt.swp391.parkingmanagement.enums.SessionPaymentStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,13 +31,13 @@ public class StaffPaymentListItemResponse {
     private String reservationCode;
     private String paymentMethod;
     private BigDecimal amount;
-    private String paymentStatus;
-    private String paidStatus;
+    private PaymentStatus paymentStatus;
+    private PaidStatus paidStatus;
     private boolean awaitingStaffConfirm;
     private String transactionCode;
     private LocalDateTime paymentTime;
     private LocalDateTime createdAt;
-    private String sessionPaymentStatus;
+    private SessionPaymentStatus sessionPaymentStatus;
     private String note;
 
     public static StaffPaymentListItemResponse fromEntity(Payment payment) {
@@ -60,13 +64,15 @@ public class StaffPaymentListItemResponse {
                 .reservationCode(reservation != null ? reservation.getReservationCode() : null)
                 .paymentMethod(payment.getPaymentMethod())
                 .amount(payment.getAmount())
-                .paymentStatus(rawStatus)
+                .paymentStatus(EnumParser.parsePaymentStatus(rawStatus))
                 .paidStatus(PaymentResponse.resolvePaidStatus(rawStatus))
                 .awaitingStaffConfirm(awaitingStaffConfirm)
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .createdAt(payment.getCreatedAt())
-                .sessionPaymentStatus(session != null ? session.getPaymentStatus() : null)
+                .sessionPaymentStatus(session != null
+                        ? EnumParser.parseSessionPaymentStatus(session.getPaymentStatus())
+                        : null)
                 .note(payment.getNote())
                 .build();
     }

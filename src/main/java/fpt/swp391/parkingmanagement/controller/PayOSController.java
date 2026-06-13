@@ -1,6 +1,7 @@
 package fpt.swp391.parkingmanagement.controller;
 
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
+import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import fpt.swp391.parkingmanagement.service.PayOSService;
 import fpt.swp391.parkingmanagement.service.PaymentService;
 import org.springframework.http.ResponseEntity;
@@ -37,7 +38,7 @@ public class PayOSController {
 
             PaymentResponseDTO existing = paymentService.getPaymentByOrderCode(orderCode);
 
-            if (!"PENDING".equals(existing.getPaymentStatus())) {
+            if (existing.getPaymentStatus() != PaymentStatus.PENDING) {
                 return ResponseEntity.ok(Map.of(
                         "success", true,
                         "message", "Order already processed"
@@ -76,7 +77,7 @@ public class PayOSController {
 
             if ("00".equals(code) || "PAID".equalsIgnoreCase(status)) {
                 // Fallback: webhook chưa kịp chạy → tự cập nhật PAID tại đây
-                if ("PENDING".equalsIgnoreCase(payment.getPaymentStatus())) {
+                if (payment.getPaymentStatus() == PaymentStatus.PENDING) {
                     payment = paymentService.confirmPaymentSuccess(
                             payment.getPaymentId(), String.valueOf(orderCode));
                 }
