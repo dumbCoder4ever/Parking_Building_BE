@@ -224,7 +224,7 @@ public class ParkingSessionService {
             }
             savedPayment = paymentRepository
                     .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
-                            session.getSessionId(), "SUCCESS")
+                            session.getSessionId(), "PAID")
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
                             "Successful payment record not found for this session"));
         } else {
@@ -253,6 +253,8 @@ public class ParkingSessionService {
         resp.setParkingMinutes((int) minutes);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
+        resp.setSessionStatus(saved.getSessionStatus());
+        resp.setPaymentStatus(saved.getPaymentStatus());
         if (savedPayment != null) {
             resp.setPaymentId(savedPayment.getPaymentId());
         }
@@ -373,7 +375,7 @@ public class ParkingSessionService {
             }
             paymentRepository
                     .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
-                            session.getSessionId(), "SUCCESS")
+                            session.getSessionId(), "PAID")
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
         } else {
             session.setPaymentStatus("PAID");
@@ -402,6 +404,8 @@ public class ParkingSessionService {
         resp.setParkingMinutes((int) minutes);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
+        resp.setSessionStatus(saved.getSessionStatus());
+        resp.setPaymentStatus(saved.getPaymentStatus());
         if (policy != null && session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
             resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
