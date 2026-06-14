@@ -4,11 +4,14 @@ import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
 import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import fpt.swp391.parkingmanagement.service.PayOSService;
 import fpt.swp391.parkingmanagement.service.PaymentService;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import vn.payos.model.webhooks.ConfirmWebhookResponse;
 import vn.payos.model.webhooks.WebhookData;
 
+import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -23,6 +26,9 @@ public class PayOSController {
 
     private final PayOSService payOSService;
     private final PaymentService paymentService;
+
+    @Value("${frontend.url:http://localhost:5173}")
+    private String frontendUrl;
 
     public PayOSController(PayOSService payOSService, PaymentService paymentService) {
         this.payOSService = payOSService;
@@ -68,54 +74,40 @@ public class PayOSController {
     }
 
     @GetMapping("/return")
-    public ResponseEntity<?> handleReturn(
+    public void handleReturn(
             @RequestParam("orderCode") long orderCode,
             @RequestParam(value = "code", required = false) String code,
-            @RequestParam(value = "status", required = false) String status) {
+            @RequestParam(value = "status", required = false) String status,
+            HttpServletResponse response) throws IOException {
         try {
             PaymentResponseDTO payment = paymentService.getPaymentByOrderCode(orderCode);
 
             if ("00".equals(code) || "PAID".equalsIgnoreCase(status)) {
                 // Fallback: webhook chưa kịp chạy → tự cập nhật PAID tại đây
                 if (payment.getPaymentStatus() == PaymentStatus.PENDING) {
-                    payment = paymentService.confirmPaymentSuccess(
+                    paymentService.confirmPaymentSuccess(
                             payment.getPaymentId(), String.valueOf(orderCode));
                 }
-                return ResponseEntity.ok(Map.of(
-                        "status", "SUCCESS",
-                        "message", "Thanh toan thanh cong",
-                        "payment", payment
-                ));
+                response.sendRedirect(frontendUrl + "/payment/success");
+            } else {
+                response.sendRedirect(frontendUrl + "/payment/failed");
             }
-
-            return ResponseEntity.ok(Map.of(
-                    "status", "FAILED",
-                    "message", "Thanh toan khong thanh cong. Ma loi: " + code,
-                    "payment", payment
-            ));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "status", "ERROR",
-                    "message", e.getMessage()
-            ));
+            response.sendRedirect(frontendUrl + "/payment/failed");
         }
     }
 
     @GetMapping("/cancel")
-    public ResponseEntity<?> handleCancel(@RequestParam("orderCode") long orderCode) {
+    public void handleCancel(
+            @RequestParam("orderCode") long orderCode,
+            HttpServletResponse response) throws IOException {
         try {
             PaymentResponseDTO payment = paymentService.getPaymentByOrderCode(orderCode);
-            return ResponseEntity.ok(Map.of(
-                    "status", "CANCELLED",
-                    "message", "Ban da huy thanh toan",
-                    "payment", payment
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "status", "ERROR",
-                    "message", e.getMessage()
-            ));
-        }
+            if (payment.getPaymentStatus() == PaymentStatus.PENDING) {
+                paymentService.handlePaymentFailure(payment.getPaymentId(), "User cancelled payment");
+            }
+        } catch (Exception ignored) {}
+        response.sendRedirect(frontendUrl + "/payment/failed");
     }
 
     @PostMapping("/confirm-webhook")
