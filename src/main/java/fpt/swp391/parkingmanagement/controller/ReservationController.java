@@ -93,7 +93,7 @@ public class ReservationController {
     public ResponseEntity<ApiResponse<List<StaffAssignmentResponse>>> getMyAssignedBuildings(Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Assigned buildings retrieved successfully",
-                managerStaffService.getBuildingsByStaff(auth.getName())));
+                managerStaffService.getBuildingsByEmail(auth.getName())));
     }
 
     @GetMapping("/staff/reservations")
