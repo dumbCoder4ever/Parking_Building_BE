@@ -23,4 +23,5 @@ public class PaymentResponseDTO {
     private LocalDateTime paymentTime;
     private String message;
     private String paymentUrl;
+    private String driverName;
 }
