@@ -221,6 +221,8 @@ public class DriverServiceImpl implements DriverService {
 
         Reservation reservation = session.getReservation();
         Vehicle vehicle = reservation != null ? reservation.getVehicle() : null;
+        LocalDateTime reservationStart = reservation != null ? reservation.getReservationStart() : null;
+        LocalDateTime reservationEnd = reservation != null ? reservation.getReservationEnd() : null;
 
         String buildingId = null, buildingName = null, floorId = null, floorName = null,
                zoneId = null, zoneName = null, slotId = null, slotName = null;
@@ -279,6 +281,8 @@ public class DriverServiceImpl implements DriverService {
                 .currentTime(now)
                 .parkingMinutes(parkingMinutes)
                 .parkingHours(parkingHours)
+                .reservationStart(reservationStart)
+                .reservationEnd(reservationEnd)
                 .sessionStatus(session.getSessionStatus())
                 .paymentStatus(session.getPaymentStatus())
                 .basePrice(basePrice)
