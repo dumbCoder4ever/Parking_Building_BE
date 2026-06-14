@@ -19,6 +19,7 @@ import fpt.swp391.parkingmanagement.dto.CreateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.CreateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.CreateZoneRequest;
 import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
+import fpt.swp391.parkingmanagement.dto.SlotOccupancyDetailResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateSetupStatusRequest;
@@ -181,5 +182,17 @@ public class ManagerBuildingSetupController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Parking slots retrieved successfully",
                 managerBuildingSetupService.getSlotsByZone(zoneId)));
+    }
+
+    @Operation(
+            summary = "Get occupied or reserved slot details",
+            description = "Returns driver, vehicle, reservation, and parking session information "
+                    + "when a manager selects an OCCUPIED, RESERVED, or PENDING_EXIT slot.")
+    @GetMapping("/slots/{slotId}/occupancy")
+    public ResponseEntity<ApiResponse<SlotOccupancyDetailResponse>> getSlotOccupancyDetail(
+            @PathVariable String slotId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Slot occupancy details retrieved successfully",
+                managerBuildingSetupService.getSlotOccupancyDetail(slotId)));
     }
 }
