@@ -103,6 +103,9 @@ public class PaymentService {
             paymentUrl = payosResponse.getCheckoutUrl();
         }
 
+        User driver = userRepository.findById(paymentRequest.getDriverId())
+                .orElseThrow(() -> new RuntimeException("Driver not found"));
+
         PaymentResponseDTO response = PaymentResponseDTO.builder()
                 .paymentId(savedPayment.getPaymentId())
                 .sessionId(session.getSessionId())
@@ -113,10 +116,8 @@ public class PaymentService {
                 .paymentTime(LocalDateTime.now())
                 .paymentUrl(paymentUrl)
                 .message("Payment initiated. Driver can now proceed with payment.")
+                .driverName(driver.getFullName())
                 .build();
-
-        User driver = userRepository.findById(paymentRequest.getDriverId())
-                .orElseThrow(() -> new RuntimeException("Driver not found"));
 
         notificationService.sendPaymentInitiationToDriver(driver, response);
 
