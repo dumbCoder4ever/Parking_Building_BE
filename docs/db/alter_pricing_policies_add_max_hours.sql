@@ -1,4 +1,4 @@
--- Migration: Add max_hours to pricing_policies
+-- Add max_hours column to pricing_policies
 -- Safe to re-run: skips if column already exists
 
 USE parking_db;

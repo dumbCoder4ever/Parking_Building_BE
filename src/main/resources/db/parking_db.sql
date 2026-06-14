@@ -500,6 +500,8 @@
 
                                       hourly_rate DECIMAL(10,2) DEFAULT 0,
 
+                                      max_hours INT DEFAULT 24,
+
                                       overnight_fee DECIMAL(10,2) DEFAULT 0,
 
                                       lost_ticket_fee DECIMAL(10,2) DEFAULT 0,
