@@ -535,9 +535,9 @@ GET `/api/staff/sessions`
 
 ---
 
-## 4.5) SESSION & PAYMENT APIs
+## 5) SESSION & PAYMENT APIs
 
-### 4.5.1) Dự đoán phí (Estimate Fee)
+### 5.1 Dự đoán phí (Estimate Fee)
 ```
 GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
 ```
@@ -567,7 +567,7 @@ GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
 
 ---
 
-### 4.5.2) Tạo Payment (VNPay / PayOS / MOMO)
+### 5.2 Tạo Payment (VNPay / PayOS / MOMO)
 ```
 POST /api/payments/initiate
 ```
@@ -606,7 +606,7 @@ POST /api/payments/initiate
 
 ---
 
-### 4.5.3) Staff xác nhận xe ra sau thanh toán
+### 5.3 Staff xác nhận xe ra sau thanh toán
 ```
 PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=false
 ```
@@ -629,7 +629,7 @@ PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=fals
     "totalFee": 20000,
     "parkingHours": 4,
     "parkingMinutes": 15,
-    "sessionStatus": "PENDING_EXIT",
+    "sessionStatus": "COMPLETED",
     "paymentStatus": "PAID",
     "paymentMethod": "VNPAY"
   }
@@ -637,15 +637,14 @@ PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=fals
 ```
 
 **Lưu ý:**
-- Với CASH: Staff gọi `POST /api/sessions/checkout` (bước 7 trong flow B)
+- Với CASH: Staff gọi `POST /api/sessions/checkout`
 - Với VNPay/PayOS/MOMO: Staff gọi `PATCH /api/sessions/{sessionId}/confirm-exit` sau khi payment webhook confirmed
-- Trạng thái session sẽ là `PENDING_EXIT` → `COMPLETED` khi staff gọi API này
 
 ---
 
-## 5) MANAGER APIs
+## 6) MANAGER APIs
 
-### 5.1 Assign Staff vào Building
+### 6.1 Assign Staff vào Building
 PUT `/api/manager/staff/{userId}/buildings`
 
 **Headers:** `Authorization: Bearer <manager-token>`
@@ -657,7 +656,7 @@ PUT `/api/manager/staff/{userId}/buildings`
 }
 ```
 
-### 5.2 Thêm Staff vào Building
+### 6.2 Thêm Staff vào Building
 POST `/api/manager/buildings/{buildingId}/staff`
 
 **Headers:** `Authorization: Bearer <manager-token>`
@@ -671,9 +670,9 @@ POST `/api/manager/buildings/{buildingId}/staff`
 
 ---
 
-## 6) MANAGER SETUP BUILDING APIs
+## 7) MANAGER SETUP BUILDING APIs
 
-### 6.1 Tạo Building
+### 7.1 Tạo Building
 POST `/api/manager/setup/buildings`
 
 **Headers:** `Authorization: Bearer <manager-token>`
@@ -690,7 +689,7 @@ POST `/api/manager/setup/buildings`
 }
 ```
 
-### 6.2 Tạo Floor
+### 7.2 Tạo Floor
 POST `/api/manager/setup/buildings/{buildingId}/floors`
 
 **Body:**
@@ -703,7 +702,7 @@ POST `/api/manager/setup/buildings/{buildingId}/floors`
 }
 ```
 
-### 6.3 Tạo Zone và Slots
+### 7.3 Tạo Zone và Slots
 POST `/api/manager/setup/floors/{floorId}/zones`
 
 **Body:**
@@ -717,9 +716,9 @@ POST `/api/manager/setup/floors/{floorId}/zones`
 
 ---
 
-## 7) MANAGER PRICING POLICY APIs
+## 8) MANAGER PRICING POLICY APIs
 
-### 7.1 Tạo Pricing Policy
+### 8.1 Tạo Pricing Policy
 POST `/api/manager/pricing-policy`
 
 **Headers:** `Authorization: Bearer <manager-token>`
@@ -742,25 +741,25 @@ POST `/api/manager/pricing-policy`
 }
 ```
 
-### 7.2 Xem tất cả Pricing Policies
+### 8.2 Xem tất cả Pricing Policies
 GET `/api/manager/pricing-policy`
 
-### 7.3 Xem Pricing Policy theo Vehicle Type
+### 8.3 Xem Pricing Policy theo Vehicle Type
 GET `/api/manager/pricing-policy/active/{vehicleTypeId}`
 
 ---
 
-## 8) USER/DRIVER PROFILE APIs
+## 9) USER/DRIVER PROFILE APIs
 
-### 8.1 Xem Profile của tôi
+### 9.1 Xem Profile của tôi
 GET `/api/users/me`
 
 **Headers:** `Authorization: Bearer <driver-token>`
 
-### 8.2 Xem Vehicles của tôi
+### 9.2 Xem Vehicles của tôi
 GET `/api/users/me/vehicles`
 
-### 8.3 Thêm Vehicle
+### 9.3 Thêm Vehicle
 POST `/api/users/me/vehicles`
 
 **Body:**
@@ -876,133 +875,83 @@ POST `/api/users/me/vehicles`
    POST /api/auth/login
    Body: {"email": "staff1@example.com", "password": "123"}
    ```
-   → Copy staff token
 
 6. **Xác nhận xe vào (check-in):**
    ```
    POST /api/sessions/checkin
    Headers: Authorization: Bearer <staff-token>
    Body: {
-     "ticketCode": "<ticketCode-từ-bước-3>",
+     "ticketCode": "<ticketCode>",
      "plateNumber": "51A-12345",
      "buildingId": "building-id"
    }
    ```
-   → Copy `sessionId` từ response
+   → Copy `sessionId`
 
-7. **Dự đoán phí (cho driver biết trước):**
+7. **Dự đoán phí:**
    ```
    GET /api/sessions/estimate?ticketCode=<ticketCode>&lostTicket=false
    Headers: Authorization: Bearer <staff-token>
    ```
-   → Response có `totalFee`, `pricingTiers`, `feeExplanation`
 
-8. **Staff tạo payment link (VNPay/PayOS):**
+8. **Staff tạo payment link:**
    ```
    POST /api/payments/initiate
    Headers: Authorization: Bearer <staff-token>
    Body: {
-     "sessionId": "<sessionId-từ-bước-6>",
+     "sessionId": "<sessionId>",
      "paymentMethod": "VNPAY",
-     "amount": <totalFee-từ-bước-7>,
+     "amount": <totalFee>,
      "driverId": "<driver-user-id>"
    }
    ```
-   → Response có `paymentUrl` (link thanh toán)
-   → Gửi link cho driver qua notification hoặc QR code
 
-9. **Driver thanh toán:**
-   - Driver mở `paymentUrl` → thanh toán trên gateway
-   - Gateway gọi webhook `/api/payments/vnpay/ipn` hoặc `/api/payments/payos/webhook`
-   - Hệ thống tự cập nhật payment = SUCCESS, session.paymentStatus = PAID
+9. **Driver thanh toán** (mở paymentUrl)
 
-10. **Staff xác nhận xe ra (confirm exit):**
+10. **Staff xác nhận xe ra:**
     ```
     PATCH /api/sessions/<sessionId>/confirm-exit?paymentMethod=VNPAY&lostTicket=false
     Headers: Authorization: Bearer <staff-token>
     ```
-    → Slot chuyển PENDING_EXIT → AVAILABLE, reservation = COMPLETED
 
-## C. Manager assign staff
+## D. Manager assign staff
 
-8. **Login manager:**
-   ```
-   POST /api/auth/login
-   Body: {"email": "manager1@example.com", "password": "123"}
-   ```
-   → Copy manager token
+11. **Login manager:**
+    ```
+    POST /api/auth/login
+    Body: {"email": "manager1@example.com", "password": "123"}
+    ```
 
-9. **Assign staff vào building:**
-   ```
-   POST /api/manager/buildings/{buildingId}/staff
-   Headers: Authorization: Bearer <manager-token>
-   Body: {"userId": "staff-user-id"}
-   ```
+12. **Assign staff vào building:**
+    ```
+    POST /api/manager/buildings/{buildingId}/staff
+    Headers: Authorization: Bearer <manager-token>
+    Body: {"userId": "staff-user-id"}
+    ```
 
+---
 
-   {
-  "vehicleTypeId": "33333333-3333-3333-3333-333333333332",
-  "policyName": "Car Standard Pricing",
-  "pricingType": "TIERED",
-  "basePrice": 20000,
-  "hourlyRate": 10000,
-  "overnightFee": 50000,
-  "lostTicketFee": 200000,
-  "peakHourMultiplier": 1.5,
-  "maxDailyFee": 100000,
-  "effectiveFrom": "2026-06-01T00:00:00Z",
-  "effectiveTo": "2030-12-31T23:59:59Z",
-  "status": "ACTIVE",
-  "tier1Hours": 2,
-  "tier1Price": 20000,
-  "tier2Hours": 6,
-  "tier2Price": 40000,
-  "tier3Hours": 12,
-  "tier3Price": 60000,
-  "tier4Hours": 24,
-  "tier4Price": 100000,
-  "perDayPrice": 100000
-}
+# PRICING REFERENCE
 
-Ý nghĩa:
+## Car Pricing
+- ID: `33333333-3333-3333-3333-333333333332`
 
-Thời gian gửi	Phí
-≤ 2 giờ	20.000
-> 2h - 6h	40.000
-> 6h - 12h	60.000
-> 12h - 24h	100.000
-Mỗi ngày tiếp theo	+100.000
-Mất vé	200.000
-Qua đêm	+50.000
-Giờ cao điểm	x1.5  
+| Thời gian gửi | Phí |
+|---|---|
+| ≤ 2 giờ | 20.000 |
+| > 2h - 6h | 40.000 |
+| > 6h - 12h | 60.000 |
+| > 12h - 24h | 100.000 |
+| Mỗi ngày tiếp theo | +100.000 |
+| Mất vé | 200.000 |
 
-{
-  "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
-  "policyName": "Motorbike Standard Pricing",
-  "pricingType": "TIERED",
-  "basePrice": 5000,
-  "hourlyRate": 3000,
-  "overnightFee": 10000,
-  "lostTicketFee": 50000,
-  "peakHourMultiplier": 1.2,
-  "maxDailyFee": 20000,
-  "effectiveFrom": "2026-06-01T00:00:00Z",
-  "effectiveTo": "2030-12-31T23:59:59Z",
-  "status": "ACTIVE",
-  "tier1Hours": 2,
-  "tier1Price": 5000,
-  "tier2Hours": 6,
-  "tier2Price": 10000,
-  "tier3Hours": 12,
-  "tier3Price": 15000,
-  "tier4Hours": 24,
-  "tier4Price": 20000,
-  "perDayPrice": 20000
-}
-Cách tính
-Thời gian gửi	Phí
-≤ 2 giờ	5.000
-> 2h - 6h	10.000
-> 6h - 12h	15.000
-> 12h - 24h	20.000
-Mỗi ngày tiếp theo	+20.000
+## Motorbike Pricing
+- ID: `33333333-3333-3333-3333-333333333331`
+
+| Thời gian gửi | Phí |
+|---|---|
+| ≤ 2 giờ | 5.000 |
+| > 2h - 6h | 10.000 |
+| > 6h - 12h | 15.000 |
+| > 12h - 24h | 20.000 |
+| Mỗi ngày tiếp theo | +20.000 |

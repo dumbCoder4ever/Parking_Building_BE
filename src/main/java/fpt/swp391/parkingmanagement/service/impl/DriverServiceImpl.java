@@ -368,6 +368,7 @@ public class DriverServiceImpl implements DriverService {
                 .checkOutTime(session.getCheckoutTime())
                 .durationMinutes(durationMinutes)
                 .status(session.getSessionStatus())
+                .paymentStatus(session.getPaymentStatus())
                 .totalFee(session.getTotalFee() != null ? session.getTotalFee().doubleValue() : null)
                 .entryType(null)
                 .build();

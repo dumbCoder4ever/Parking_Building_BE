@@ -25,6 +25,7 @@ public class DriverSessionHistoryResponse {
     private LocalDateTime checkOutTime;
     private Long durationMinutes;
     private String status;
+    private String paymentStatus;
     private Double totalFee;
     private String entryType;
 }

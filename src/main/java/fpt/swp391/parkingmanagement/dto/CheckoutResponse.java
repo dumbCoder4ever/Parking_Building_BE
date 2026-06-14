@@ -27,4 +27,7 @@ public class CheckoutResponse {
     
     private int parkingHours;
     private int parkingMinutes;
+    
+    private String sessionStatus;
+    private String paymentStatus;
 }
