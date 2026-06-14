@@ -222,11 +222,10 @@ public class ParkingSessionService {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been completed yet. Initiate and complete payment before checkout.");
             }
-            savedPayment = paymentRepository
-                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
-                            session.getSessionId(), "PAID")
+            savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("PAID", "CONFIRMED"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
                             "Successful payment record not found for this session"));
+            session.setPaymentStatus("PAID");
         } else {
             session.setPaymentStatus("PAID");
             Payment payment = new Payment();
@@ -373,10 +372,10 @@ public class ParkingSessionService {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
                         "Payment has not been completed yet. Driver must complete payment before exit.");
             }
-            paymentRepository
-                    .findFirstBySessionSessionIdAndPaymentStatusOrderByCreatedAtDesc(
-                            session.getSessionId(), "PAID")
-                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
+            findLatestSessionPayment(session.getSessionId(), List.of("PAID", "CONFIRMED"))
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND,
+                            "Successful payment record not found for this session"));
+            session.setPaymentStatus("PAID");
         } else {
             session.setPaymentStatus("PAID");
             Payment payment = new Payment();
