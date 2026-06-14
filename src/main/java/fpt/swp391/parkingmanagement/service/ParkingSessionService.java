@@ -33,6 +33,7 @@ import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
+import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +51,7 @@ public class ParkingSessionService {
     private final PricingPolicyRepository pricingPolicyRepository;
     private final PaymentRepository paymentRepository;
     private final BuildingStaffRepository buildingStaffRepository;
+    private final ReservationRepository reservationRepository;
     private final PricingService pricingService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
@@ -143,6 +145,10 @@ public class ParkingSessionService {
         User staff = userRepository.findByEmail(staffEmail).orElse(null);
         session.setCreatedBy(staff);
 
+        // Update reservation status to CHECKED_IN to prevent auto-expiration job
+        reservation.setReservationStatus("CHECKED_IN");
+        reservationRepository.save(reservation);
+
         ParkingSession saved = parkingSessionRepository.save(session);
 
         ticket.setIsUsed(true);
@@ -212,6 +218,8 @@ public class ParkingSessionService {
         session.setTotalFee(total);
         session.setParkingDuration(hours);
         session.setSessionStatus("COMPLETED");
+
+        // Update reservation to COMPLETED after successful checkout
         if (session.getReservation() != null) {
             session.getReservation().setReservationStatus("COMPLETED");
         }
@@ -362,11 +370,7 @@ public class ParkingSessionService {
 
         session.setTotalFee(total);
         session.setParkingDuration(hours);
-        session.setSessionStatus("PENDING_PAYMENT");
-
-        if (session.getReservation() != null) {
-            session.getReservation().setReservationStatus("PENDING_PAYMENT");
-        }
+        session.setSessionStatus("ACTIVE");
 
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
@@ -388,6 +392,12 @@ public class ParkingSessionService {
             paymentRepository.save(payment);
         }
 
+        // Update reservation to COMPLETED after successful exit
+        if (session.getReservation() != null) {
+            session.getReservation().setReservationStatus("COMPLETED");
+        }
+
+        session.setSessionStatus("COMPLETED");
         ParkingSession saved = parkingSessionRepository.save(session);
 
         ParkingSlot slot = saved.getSlot();
