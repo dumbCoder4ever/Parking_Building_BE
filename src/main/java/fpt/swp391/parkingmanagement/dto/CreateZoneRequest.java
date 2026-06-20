@@ -14,7 +14,4 @@ public class CreateZoneRequest {
     @NotNull(message = "Zone max capacity is required")
     @Min(value = 1, message = "Zone max capacity must be at least 1")
     private Integer maxCapacity;
-
-    @NotBlank(message = "Slot prefix is required")
-    private String slotPrefix;
 }

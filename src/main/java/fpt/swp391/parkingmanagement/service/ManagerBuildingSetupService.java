@@ -246,7 +246,7 @@ public class ManagerBuildingSetupService {
         zone.setStatus("ACTIVE");
         Zone savedZone = zoneRepository.save(zone);
 
-        List<ParkingSlot> slots = buildSlots(savedZone, normalizeText(request.getSlotPrefix()), request.getMaxCapacity());
+        List<ParkingSlot> slots = buildSlots(savedZone, slotPrefixFromZone(savedZone), request.getMaxCapacity());
         parkingSlotRepository.saveAll(slots);
 
         ManagerSetupResponse response = toZoneResponse(savedZone);
@@ -290,18 +290,12 @@ public class ManagerBuildingSetupService {
             }
             removeAvailableSlots(existingSlots, currentSlotCount - targetSlotCount);
         } else if (targetSlotCount > currentSlotCount) {
-            String slotPrefix = request.getSlotPrefix() != null && !request.getSlotPrefix().isBlank()
-                    ? normalizeText(request.getSlotPrefix())
+            String slotPrefix = existingSlots.isEmpty()
+                    ? slotPrefixFromZone(zone)
                     : deriveSlotPrefix(existingSlots);
             List<ParkingSlot> newSlots = buildSlots(
                     zone, slotPrefix, currentSlotCount + 1, targetSlotCount);
             parkingSlotRepository.saveAll(newSlots);
-        }
-
-        if (request.getSlotPrefix() != null && !request.getSlotPrefix().isBlank()) {
-            List<ParkingSlot> slotsToRename =
-                    parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
-            renameZoneSlots(slotsToRename, normalizeText(request.getSlotPrefix()));
         }
 
         zone.setZoneName(normalizedName);
@@ -447,7 +441,7 @@ public class ManagerBuildingSetupService {
 
     private String deriveSlotPrefix(List<ParkingSlot> slots) {
         if (slots.isEmpty()) {
-            throw new RuntimeException("slotPrefix is required when adding slots to a zone with no existing slots");
+            throw new RuntimeException("Cannot derive slot prefix from an empty slot list");
         }
 
         String slotName = slots.get(0).getSlotName();
@@ -458,35 +452,13 @@ public class ManagerBuildingSetupService {
         return slotName;
     }
 
-    private String resolveSlotPrefix(String zoneId) {
-        return parkingSlotRepository.findFirstByZoneZoneIdOrderBySlotNameAsc(zoneId)
-                .map(slot -> deriveSlotPrefix(List.of(slot)))
-                .orElse(null);
-    }
-
-    private void renameZoneSlots(List<ParkingSlot> slots, String slotPrefix) {
-        if (slots.isEmpty()) {
-            return;
+    private String slotPrefixFromZone(Zone zone) {
+        String name = normalizeText(zone.getZoneName());
+        if (name == null || name.isBlank()) {
+            return "Slot";
         }
-
-        String currentPrefix = deriveSlotPrefix(slots);
-        if (slotPrefix.equalsIgnoreCase(currentPrefix)) {
-            return;
-        }
-
-        List<ParkingSlot> orderedSlots = new ArrayList<>(slots);
-        orderedSlots.sort(slotByIndexAscending());
-
-        for (ParkingSlot slot : orderedSlots) {
-            slot.setSlotName("__rename_" + slot.getSlotId());
-        }
-        parkingSlotRepository.saveAll(orderedSlots);
-        parkingSlotRepository.flush();
-
-        for (int i = 0; i < orderedSlots.size(); i++) {
-            orderedSlots.get(i).setSlotName(slotPrefix + "-" + (i + 1));
-        }
-        parkingSlotRepository.saveAll(orderedSlots);
+        String prefix = name.replaceAll("\\s+", "-").replaceAll("[^\\p{L}\\p{N}-]", "");
+        return prefix.isBlank() ? "Slot" : prefix;
     }
 
     private String validateBuildingOrFloorStatus(String status) {
@@ -559,7 +531,6 @@ public class ManagerBuildingSetupService {
                 .maxCapacity(zone.getMaxCapacity())
                 .currentOccupancy(zone.getCurrentOccupancy())
                 .slotCount((int) slotCount)
-                .slotPrefix(resolveSlotPrefix(zone.getZoneId()))
                 .status(zone.getStatus())
                 .createdAt(zone.getCreatedAt())
                 .updatedAt(zone.getUpdatedAt())
