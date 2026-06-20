@@ -18,11 +18,4 @@ public class UpdateZoneRequest {
     @Min(value = 1, message = "Zone max capacity must be at least 1")
     @Schema(description = "Target number of slots in this zone.", example = "20")
     private Integer maxCapacity;
-
-    @Schema(
-            description = "Prefix for parking slots (e.g. A -> A-1, A-2). "
-                    + "When provided, all slots in the zone are renamed to use this prefix. "
-                    + "If omitted while increasing capacity, the prefix is derived from existing slots.",
-            example = "A")
-    private String slotPrefix;
 }

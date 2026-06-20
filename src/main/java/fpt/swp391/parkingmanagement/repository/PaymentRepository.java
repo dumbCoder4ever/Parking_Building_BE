@@ -1,5 +1,7 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,4 +52,47 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             ORDER BY p.paymentTime DESC
             """)
     List<Payment> findByDriverIdOrderByPaymentTimeDesc(@Param("driverId") String driverId, Pageable pageable);
+
+    @Query("""
+            SELECT COALESCE(SUM(p.amount), 0)
+            FROM Payment p
+            WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
+            AND (:from IS NULL OR p.paymentTime >= :from)
+            AND (:to IS NULL OR p.paymentTime <= :to)
+            """)
+    BigDecimal sumPaidRevenue(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    @Query("""
+            SELECT COUNT(p)
+            FROM Payment p
+            WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
+            AND (:from IS NULL OR p.paymentTime >= :from)
+            AND (:to IS NULL OR p.paymentTime <= :to)
+            """)
+    long countPaidPayments(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    @Query("""
+            SELECT b.buildingId AS buildingId,
+                   b.buildingName AS buildingName,
+                   COALESCE(SUM(p.amount), 0) AS totalRevenue,
+                   COUNT(p.paymentId) AS paymentCount
+            FROM Payment p
+            JOIN p.session s
+            JOIN s.slot sl
+            JOIN sl.zone z
+            JOIN z.floor f
+            JOIN f.building b
+            WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
+            AND (:from IS NULL OR p.paymentTime >= :from)
+            AND (:to IS NULL OR p.paymentTime <= :to)
+            GROUP BY b.buildingId, b.buildingName
+            ORDER BY SUM(p.amount) DESC
+            """)
+    List<BuildingRevenueProjection> sumRevenueByBuilding(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
 }

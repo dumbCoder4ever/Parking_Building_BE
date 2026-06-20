@@ -14,6 +14,7 @@ public class VehicleResponse {
     private String vehicleId;
     private String userId;
     private String username;
+    private String ownerFullName;
     private String plateNumber;
     private String vehicleTypeId;
     private String vehicleTypeName;
@@ -21,6 +22,8 @@ public class VehicleResponse {
     private String brand;
     private String model;
     private String status;
+    private LocalDateTime checkInTime;
+    private LocalDateTime checkOutTime;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -30,6 +33,7 @@ public class VehicleResponse {
                 .vehicleId(vehicle.getVehicleId())
                 .userId(vehicle.getUser() != null ? vehicle.getUser().getUserId() : null)
                 .username(vehicle.getUser() != null ? vehicle.getUser().getUsername() : null)
+                .ownerFullName(vehicle.getUser() != null ? vehicle.getUser().getFullName() : null)
                 .plateNumber(vehicle.getPlateNumber())
                 .vehicleTypeId(vehicleType != null ? vehicleType.getVehicleTypeId() : null)
                 .vehicleTypeName(vehicleType != null ? vehicleType.getTypeName() : null)
@@ -40,5 +44,11 @@ public class VehicleResponse {
                 .createdAt(vehicle.getCreatedAt())
                 .updatedAt(vehicle.getUpdatedAt())
                 .build();
+    }
+
+    public VehicleResponse withParkingTimes(LocalDateTime checkInTime, LocalDateTime checkOutTime) {
+        this.checkInTime = checkInTime;
+        this.checkOutTime = checkOutTime;
+        return this;
     }
 }
