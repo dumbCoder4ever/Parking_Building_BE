@@ -1,6 +1,5 @@
 package fpt.swp391.parkingmanagement.service;
 
-import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponse;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
@@ -8,7 +7,6 @@ import fpt.swp391.parkingmanagement.dto.StaffPaymentListItemResponse;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.User;
-import fpt.swp391.parkingmanagement.enums.ConfirmationStatus;
 import fpt.swp391.parkingmanagement.enums.EnumParser;
 import fpt.swp391.parkingmanagement.enums.PaidStatusFilter;
 import fpt.swp391.parkingmanagement.enums.PaymentStatus;
@@ -143,7 +141,8 @@ public class PaymentService {
         session.setPaymentStatus("PAID");
         parkingSessionRepository.save(session);
 
-        return PaymentResponseDTO.builder()
+        User driver = session.getReservation() != null ? session.getReservation().getUser() : null;
+        PaymentResponseDTO response = PaymentResponseDTO.builder()
                 .paymentId(updatedPayment.getPaymentId())
                 .sessionId(payment.getSession().getSessionId())
                 .paymentMethod(updatedPayment.getPaymentMethod())
@@ -151,76 +150,14 @@ public class PaymentService {
                 .paymentStatus(PaymentStatus.PAID)
                 .transactionCode(updatedPayment.getTransactionCode())
                 .paymentTime(updatedPayment.getPaymentTime())
-                .message("Payment successful. Waiting for staff confirmation.")
-                .build();
-    }
-
-    /**
-     * STEP 3: Staff confirms payment after gateway marked it PAID.
-     */
-    @Transactional
-    public PaymentConfirmationDTO confirmPaymentByStaff(PaymentConfirmationDTO confirmationRequest) {
-        Payment payment = paymentRepository.findById(confirmationRequest.getPaymentId())
-                .orElseThrow(() -> new RuntimeException("Payment not found"));
-
-        ParkingSession session = parkingSessionRepository.findById(payment.getSession().getSessionId())
-                .orElseThrow(() -> new RuntimeException("Parking session not found"));
-
-        User driver = userRepository.findById(confirmationRequest.getDriverId())
-                .orElseThrow(() -> new RuntimeException("Driver not found"));
-
-        PaymentConfirmationDTO confirmation = PaymentConfirmationDTO.builder()
-                .paymentId(confirmationRequest.getPaymentId())
-                .sessionId(payment.getSession().getSessionId())
-                .driverId(confirmationRequest.getDriverId())
-                .staffId(confirmationRequest.getStaffId())
-                .amount(payment.getAmount())
-                .paymentMethod(payment.getPaymentMethod())
-                .transactionCode(payment.getTransactionCode())
-                .confirmedAt(LocalDateTime.now())
+                .message("Payment successful. Staff may proceed with checkout.")
                 .build();
 
-        if (confirmationRequest.getIsConfirmed()) {
-            String currentStatus = payment.getPaymentStatus();
-
-            if ("CONFIRMED".equalsIgnoreCase(currentStatus)) {
-                throw new BaseAPIException(ErrorCode.PAYMENT_ALREADY_CONFIRMED,
-                        "Payment has already been confirmed by staff");
-            }
-
-            // Session PAID but payment record still PENDING (webhook/return chưa cập nhật payment)
-            if ("PENDING".equalsIgnoreCase(currentStatus)
-                    && "PAID".equalsIgnoreCase(session.getPaymentStatus())) {
-                payment.setPaymentStatus("PAID");
-                currentStatus = "PAID";
-            }
-
-            if (currentStatus == null
-                    || (!"PAID".equalsIgnoreCase(currentStatus) && !"SUCCESS".equalsIgnoreCase(currentStatus))) {
-                throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Payment must be PAID before staff can confirm. "
-                                + "Current paymentStatus=" + currentStatus
-                                + ", sessionPaymentStatus=" + session.getPaymentStatus());
-            }
-
-            payment.setPaymentStatus("CONFIRMED");
-            session.setPaymentStatus("PAID");
-            confirmation.setConfirmationStatus(ConfirmationStatus.CONFIRMED);
-            confirmation.setMessage("Payment confirmed successfully. You may exit.");
-        } else {
-            payment.setPaymentStatus("FAILED");
-            session.setPaymentStatus("FAILED");
-            confirmation.setConfirmationStatus(ConfirmationStatus.FAILED);
-            confirmation.setReason(confirmationRequest.getReason());
-            confirmation.setMessage("Payment confirmation failed: " + confirmationRequest.getReason());
+        if (driver != null) {
+            notificationService.sendPaymentSuccessToDriver(driver, response);
         }
 
-        paymentRepository.save(payment);
-        parkingSessionRepository.save(session);
-
-        notificationService.sendPaymentConfirmationToDriver(driver, confirmation);
-
-        return confirmation;
+        return response;
     }
 
     /**

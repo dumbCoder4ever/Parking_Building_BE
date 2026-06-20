@@ -59,4 +59,12 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
             + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT', 'PENDING_EXIT') "
             + "ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findCurrentBySlotId(@Param("slotId") String slotId);
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
+            + "AND ps.sessionStatus = 'ACTIVE' ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findActiveByVehicleId(@Param("vehicleId") String vehicleId);
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
+            + "ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
 }
