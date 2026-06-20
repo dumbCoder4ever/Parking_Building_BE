@@ -51,8 +51,6 @@ public class StaffPaymentListItemResponse {
         }
 
         String rawStatus = payment.getPaymentStatus();
-        boolean awaitingStaffConfirm = rawStatus != null
-                && ("PAID".equalsIgnoreCase(rawStatus) || "SUCCESS".equalsIgnoreCase(rawStatus));
 
         return StaffPaymentListItemResponse.builder()
                 .paymentId(payment.getPaymentId())
@@ -66,7 +64,7 @@ public class StaffPaymentListItemResponse {
                 .amount(payment.getAmount())
                 .paymentStatus(EnumParser.parsePaymentStatus(rawStatus))
                 .paidStatus(PaymentResponse.resolvePaidStatus(rawStatus))
-                .awaitingStaffConfirm(awaitingStaffConfirm)
+                .awaitingStaffConfirm(false)
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .createdAt(payment.getCreatedAt())

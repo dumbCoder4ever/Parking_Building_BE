@@ -60,8 +60,8 @@ public class ParkingSessionController {
         return ResponseEntity.ok(ApiResponse.ok("Fee estimated successfully", resp));
     }
 
-    @Operation(summary = "Staff xác nhận driver đã thanh toán → cho xe ra",
-               description = "Sau khi driver thanh toán xong (VNPay/PayOS/MOMO webhook confirmed), staff gọi API này để confirm exit. Slot được giải phóng, reservation = COMPLETED.")
+    @Operation(summary = "Staff checkout after electronic payment",
+               description = "After driver completes VNPay/PayOS/MOMO payment (session paymentStatus = PAID), staff calls this to release the slot.")
     @PatchMapping("/sessions/{sessionId}/confirm-exit")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<CheckoutResponse>> confirmExit(
