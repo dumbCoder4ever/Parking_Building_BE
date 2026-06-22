@@ -4,9 +4,9 @@ Base URL: `http://localhost:8080`
 
 ---
 
-# LUỒNG MỚI (KHÔNG CÓ RESERVATION ĐẶT TRƯỚC)
+# LUỒNG MỚI (CÓ RESERVATION ĐẶT TRƯỚC)
 
-## FLOW DRIVER - GỬI XE THEO LƯỢT
+## FLOW DRIVER - ĐẶT CHỖ TRƯỚC
 
 ### Bước 1: Login
 Driver đăng nhập vào hệ thống.
@@ -18,41 +18,74 @@ GET /api/buildings/{buildingId}
 
 ### Bước 3: Xem slot còn trống
 ```
-GET /api/slots/availability
+GET /api/reservations/availability?buildingId=xxx&vehicleTypeId=yyy
 ```
 Trả về: Building → Floor → Vehicle Type → Zone → Slots
 
-### Bước 4: Đăng ký gửi xe (Tạo lượt gửi)
+### Bước 4: Đăng ký đặt chỗ (Tạo reservation)
 ```
 POST /api/reservations
 ```
 Hệ thống:
-- Tạo ticket_code cho driver
+- Tạo reservation_code và ticket_code cho driver
 - Đổi trạng thái slot: AVAILABLE → RESERVED
+- Reservation status: `PENDING_PAYMENT`
 
-### Bước 5: Driver đến bãi xe
+### Bước 5: Driver thanh toán (VNPay/PayOS/MOMO)
+```
+POST /api/payments/initiate
+```
+Sau khi thanh toán thành công:
+- Reservation status: `PAID`
+
+### Bước 6: Driver đến bãi xe
 Driver đưa:
 - ticket_code
 - biển số xe
 
-### Bước 6: Staff check-in xe
+### Bước 7: Staff check-in xe
 Staff kiểm tra và xác nhận:
 ```
 POST /api/sessions/checkin
+Body: {
+  "ticketCode": "TKT-xxx",
+  "plateNumber": "51A-12345",
+  "checkinPlateImage": "base64-image-string",
+  "checkinVehicleImage": "base64-image-string"
+}
 ```
 Hệ thống:
 - Tạo Parking Session
 - Cập nhật slot: RESERVED → OCCUPIED
-- Ghi nhận: checkin_time, slot, vehicle, staff xử lý
+- Session status: `CHECKED_IN`
+- Ghi nhận: checkin_time, slot, vehicle, staff xử lý, hình ảnh
 
-### Bước 7: Driver lấy xe và thanh toán
-Staff xác nhận xe ra:
+### Bước 8: Staff xác nhận xe ra
+
+**A. Thanh toán CASH:**
 ```
 POST /api/sessions/checkout
+Body: {
+  "ticketCode": "TKT-xxx",
+  "paymentMethod": "CASH",
+  "checkoutPlateImage": "base64-image-string",
+  "checkoutVehicleImage": "base64-image-string"
+}
 ```
 Hệ thống:
+- Session status: `CHECKED_OUT`
+- Reservation status: `COMPLETED`
 - Tính phí theo thời gian gửi
-- Thu phí (CASH, VNPAY, PAYOS, MOMO)
+- Cập nhật slot: OCCUPIED → AVAILABLE
+
+**B. Thanh toán điện tử (VNPay/PayOS/MOMO):**
+Staff gọi confirm-exit sau khi payment webhook confirmed:
+```
+PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY
+```
+Hệ thống:
+- Session status: `COMPLETED`
+- Reservation status: `COMPLETED`
 - Cập nhật slot: OCCUPIED → AVAILABLE
 
 ---
@@ -62,26 +95,36 @@ Hệ thống:
 ### Check-in xe:
 ```
 POST /api/sessions/checkin
+Headers: Authorization: Bearer <staff-token>
 Body: {
   "ticketCode": "TKT-xxx",
   "plateNumber": "51A-12345",
-  "buildingId": "building-id"
+  "checkinPlateImage": "base64-image-string",
+  "checkinVehicleImage": "base64-image-string"
 }
 ```
 
-### Check-out xe:
+### Check-out xe (CASH):
 ```
 POST /api/sessions/checkout
+Headers: Authorization: Bearer <staff-token>
 Body: {
   "ticketCode": "TKT-xxx",
   "paymentMethod": "CASH",
-  "buildingId": "building-id"
+  "checkoutPlateImage": "base64-image-string",
+  "checkoutVehicleImage": "base64-image-string"
 }
 ```
 
 ### Xem session đang hoạt động:
 ```
 GET /api/staff/sessions/active?buildingId=xxx
+```
+
+### Dự đoán phí trước khi checkout:
+```
+GET /api/sessions/estimate?ticketCode=TKT-xxx
+Headers: Authorization: Bearer <staff-token>
 ```
 
 ---
@@ -93,22 +136,26 @@ Flow này dành cho trường hợp driver chọn thanh toán điện tử. Có 
 ### Bước 1: Staff check-in xe (như bình thường)
 ```
 POST /api/sessions/checkin
+Headers: Authorization: Bearer <staff-token>
 Body: {
   "ticketCode": "TKT-xxx",
   "plateNumber": "51A-12345",
-  "buildingId": "building-id"
+  "checkinPlateImage": "base64-image-string",
+  "checkinVehicleImage": "base64-image-string"
 }
 ```
 
-### Bước 2: Staff/Dự đoán phí (Driver xem phí trước khi thanh toán)
+### Bước 2: Dự đoán phí (Driver xem phí trước khi thanh toán)
 ```
-GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
+GET /api/sessions/estimate?ticketCode=TKT-xxx
+Headers: Authorization: Bearer <staff-token> hoặc <driver-token>
 ```
-Trả về chi tiết phí: totalFee, pricingTiers, feeExplanation, thời gian gửi.
+Trả về chi tiết phí: totalFee, basePrice, hourlyRate, thời gian gửi.
 
 ### Bước 3: Staff tạo payment link (VNPay/PayOS/MOMO)
 ```
 POST /api/payments/initiate
+Headers: Authorization: Bearer <staff-token>
 Body: {
   "sessionId": "session-id",
   "paymentMethod": "VNPAY",   // hoặc "PAYOS", "MOMO"
@@ -130,19 +177,31 @@ Trả về: `paymentId`, `paymentUrl` (link thanh toán cho driver).
 
 ### Bước 6: Staff xác nhận xe ra (Confirm Exit)
 ```
-PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=false
+PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY
+Headers: Authorization: Bearer <staff-token>
 ```
 - Staff gọi API này sau khi biết payment đã thành công
-- Slot chuyển sang PENDING_EXIT (hoặc AVAILABLE), reservation = COMPLETED
+- Slot chuyển sang AVAILABLE, reservation = COMPLETED, session = COMPLETED
 
-### Tóm tắt trạng thái
+### Tóm tắt trạng thái Session mới
 
-| Trạng thái | Ý nghĩa |
+| Trạng thái Session | Ý nghĩa |
 |---|---|
-| ACTIVE | Session đang hoạt động |
-| PENDING_PAYMENT | Staff đã tính phí, chờ driver thanh toán |
-| PENDING_EXIT | Driver đã thanh toán, chờ staff cho ra |
+| CHECKED_IN | Xe đã vào bãi, đang đỗ |
+| CHECKED_OUT | Xe đã checkout (trả tiền mặt) |
 | COMPLETED | Checkout hoàn tất |
+| OVERDUE | Quá giờ đặt chỗ |
+| CANCELLED | Session bị hủy |
+
+### Tóm tắt trạng thái Reservation mới
+
+| Trạng thái Reservation | Ý nghĩa |
+|---|---|
+| PENDING_PAYMENT | Chờ thanh toán |
+| PAID | Đã thanh toán |
+| COMPLETED | Hoàn tất (đã ra) |
+| CANCELLED | Bị hủy |
+| EXPIRED | Hết hạn |
 
 ---
 
@@ -375,36 +434,48 @@ POST `/api/sessions/checkin`
   "ticketCode": "TKT-xxx",
   "plateNumber": "51A-12345",
   "vehicleColor": "White",
-  "buildingId": "building-id",
-  "slotId": "slot-id"  // optional - nếu không truyền sẽ tự động tìm slot
+  "checkinPlateImage": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+  "checkinVehicleImage": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
 }
 ```
 
-**Response:**
+**Response (thành công):**
 ```json
 {
   "success": true,
   "message": "Check-in successful",
   "data": {
-    "sessionId": "session123",
+    "sessionId": "abc123-def456",
     "ticketCode": "TKT-xxx",
-    "plateNumber": "51A-12345",
+    "vehiclePlate": "51A-12345",
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
     "vehicleTypeName": "Motorbike",
+    "buildingId": "building-id",
     "buildingName": "Main Parking Building",
-    "floorName": "Floor 1",
+    "floorId": "floor-1",
+    "floorName": "Floor 1 - Motorbike",
+    "zoneId": "zone-a",
     "zoneName": "Zone A",
+    "slotId": "slot-001",
     "slotName": "A-001",
-    "checkinTime": "2026-06-10T14:05:00",
-    "sessionStatus": "ACTIVE",
+    "checkinTime": "2026-06-21T14:05:00",
+    "sessionStatus": "CHECKED_IN",
     "paymentStatus": "UNPAID",
-    "estimatedFee": 3000
+    "estimatedFee": 5000,
+    "basePrice": 5000,
+    "hourlyRate": 3000
   }
 }
 ```
 
+**Lưu ý:**
+- `checkinPlateImage` và `checkinVehicleImage` là bắt buộc (base64 string)
+- Sau check-in thành công, slot chuyển từ `RESERVED` → `OCCUPIED`
+- Session status mới: `CHECKED_IN`
+
 ---
 
-### 4.2 Check-out xe (Thu phí)
+### 4.2 Check-out xe (Thu phí - CASH)
 POST `/api/sessions/checkout`
 
 **Headers:** `Authorization: Bearer <staff-token>`
@@ -414,45 +485,50 @@ POST `/api/sessions/checkout`
 {
   "ticketCode": "TKT-xxx",
   "paymentMethod": "CASH",
-  "buildingId": "building-id",
-  "note": "Optional note"
+  "checkoutPlateImage": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+  "checkoutVehicleImage": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
 }
 ```
 
-**Response:**
+**Response (thành công):**
 ```json
 {
   "success": true,
-  "message": "Checkout successful. Payment completed.",
+  "message": "Checkout successful",
   "data": {
-    "sessionId": "session123",
+    "sessionId": "abc123-def456",
     "ticketCode": "TKT-xxx",
-    "plateNumber": "51A-12345",
+    "vehiclePlate": "51A-12345",
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
     "vehicleTypeName": "Motorbike",
+    "buildingId": "building-id",
     "buildingName": "Main Parking Building",
-    "floorName": "Floor 1",
+    "floorId": "floor-1",
+    "floorName": "Floor 1 - Motorbike",
+    "zoneId": "zone-a",
     "zoneName": "Zone A",
+    "slotId": "slot-001",
     "slotName": "A-001",
-    "checkinTime": "2026-06-10T14:05:00",
-    "checkoutTime": "2026-06-10T17:30:00",
+    "checkinTime": "2026-06-21T14:05:00",
+    "checkoutTime": "2026-06-21T17:30:00",
     "parkingHours": 4,
     "parkingMinutes": 205,
-    "sessionStatus": "COMPLETED",
+    "sessionStatus": "CHECKED_OUT",
     "paymentStatus": "PAID",
-    "totalFee": 12000,
-    "paymentId": "payment123",
+    "totalFee": 14000,
+    "paymentId": "payment-uuid",
     "paymentMethod": "CASH",
-    "basePrice": 3000,
-    "hourlyRate": 2000,
-    "pricingTiers": [
-      {"tierLabel": "≤ 2h", "maxHours": 2, "price": 5000},
-      {"tierLabel": "≤ 4h", "maxHours": 4, "price": 8000},
-      {"tierLabel": "≤ 8h", "maxHours": 8, "price": 12000}
-    ],
-    "feeExplanation": "4h parking: ≤ 8h = 12000 VND"
+    "basePrice": 5000,
+    "hourlyRate": 3000
   }
 }
 ```
+
+**Lưu ý:**
+- `checkoutPlateImage` và `checkoutVehicleImage` là bắt buộc (base64 string)
+- Sau checkout thành công: slot chuyển `OCCUPIED` → `AVAILABLE`
+- Session status: `CHECKED_OUT`, Reservation status: `COMPLETED`
+- Với thanh toán điện tử (VNPay/PayOS/MOMO), dùng `PATCH /api/sessions/{sessionId}/confirm-exit`
 
 ---
 
@@ -514,13 +590,31 @@ PATCH `/api/staff/reservations/{ticketCode}/status`
 
 ---
 
-### 4.8 Xem sessions đang hoạt động
+### 4.8 Xem sessions đang hoạt động (CHECKED_IN)
 GET `/api/staff/sessions/active`
 
 **Headers:** `Authorization: Bearer <staff-token>`
 
 **Query params:**
 - `buildingId` — để lọc theo building
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "sessionId": "abc123-def456",
+      "ticketCode": "TKT-xxx",
+      "vehiclePlate": "51A-12345",
+      "slotName": "A-001",
+      "checkinTime": "2026-06-21T14:05:00",
+      "sessionStatus": "CHECKED_IN",
+      "paymentStatus": "UNPAID"
+    }
+  ]
+}
+```
 
 ---
 
@@ -531,7 +625,7 @@ GET `/api/staff/sessions`
 
 **Query params:**
 - `buildingId` — để lọc theo building
-- `status` (ACTIVE, COMPLETED, etc.)
+- `status` — CHECKED_IN, CHECKED_OUT, COMPLETED, OVERDUE
 
 ---
 
@@ -539,10 +633,9 @@ GET `/api/staff/sessions`
 
 ### 5.1 Dự đoán phí (Estimate Fee)
 ```
-GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
+GET /api/sessions/estimate?ticketCode=TKT-xxx
+Headers: Authorization: Bearer <staff-token> hoặc <driver-token>
 ```
-
-**Headers:** `Authorization: Bearer <staff-token>` hoặc `<driver-token>`
 
 **Response:**
 ```json
@@ -550,17 +643,26 @@ GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
   "success": true,
   "message": "Fee estimated successfully",
   "data": {
-    "sessionId": "session123",
+    "sessionId": "abc123-def456",
     "ticketCode": "TKT-xxx",
-    "totalFee": 20000,
+    "vehiclePlate": "51A-12345",
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+    "vehicleTypeName": "Motorbike",
+    "checkinTime": "2026-06-21T14:05:00",
+    "estimatedCheckoutTime": "2026-06-21T18:05:00",
     "parkingHours": 4,
     "parkingMinutes": 15,
-    "checkinTime": "2026-06-10T10:00:00",
-    "pricingTiers": [
-      { "tierLabel": "≤ 2h", "maxHours": 2, "price": 5000 },
-      { "tierLabel": "≤ 6h", "maxHours": 6, "price": 10000 }
-    ],
-    "feeExplanation": "4h parking: ≤ 6h = 10000 VND"
+    "totalFee": 14000,
+    "basePrice": 5000,
+    "hourlyRate": 3000,
+    "buildingId": "building-id",
+    "buildingName": "Main Parking Building",
+    "floorId": "floor-1",
+    "floorName": "Floor 1 - Motorbike",
+    "zoneId": "zone-a",
+    "zoneName": "Zone A",
+    "slotId": "slot-001",
+    "slotName": "A-001"
   }
 }
 ```
@@ -570,19 +672,16 @@ GET /api/sessions/estimate?ticketCode=TKT-xxx&lostTicket=false
 ### 5.2 Tạo Payment (VNPay / PayOS / MOMO)
 ```
 POST /api/payments/initiate
+Headers: Authorization: Bearer <staff-token>
 ```
-
-**Headers:** `Authorization: Bearer <staff-token>`
 
 **Body:**
 ```json
 {
-  "sessionId": "session123",
+  "sessionId": "abc123-def456",
   "paymentMethod": "VNPAY",
-  "amount": 20000,
-  "driverId": "driver-user-id",
-  "bankCode": "VNPAYQR",
-  "language": "vn"
+  "amount": 14000,
+  "driverId": "driver-user-id"
 }
 ```
 
@@ -593,31 +692,28 @@ POST /api/payments/initiate
   "message": "Payment initiated successfully",
   "data": {
     "paymentId": "payment-uuid",
-    "sessionId": "session123",
+    "sessionId": "abc123-def456",
     "paymentMethod": "VNPAY",
-    "amount": 20000,
+    "amount": 14000,
     "paymentStatus": "PENDING",
     "transactionCode": "TXN-1234-5678",
-    "paymentUrl": "https://sandbox.vnpayment.vn/...",
-    "message": "Payment initiated. Driver can now proceed with payment."
+    "paymentUrl": "https://sandbox.vnpayment.vn/..."
   }
 }
 ```
 
 ---
 
-### 5.3 Staff xác nhận xe ra sau thanh toán
+### 5.3 Staff xác nhận xe ra sau thanh toán điện tử
 ```
-PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=false
+PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY
+Headers: Authorization: Bearer <staff-token>
 ```
-
-**Headers:** `Authorization: Bearer <staff-token>`
 
 **Path Params:** `sessionId` - ID của parking session
 
 **Query Params:**
 - `paymentMethod` (optional): VNPAY, PAYOS, MOMO, CASH
-- `lostTicket` (optional, default=false): true nếu driver mất vé
 
 **Response:**
 ```json
@@ -625,8 +721,10 @@ PATCH /api/sessions/{sessionId}/confirm-exit?paymentMethod=VNPAY&lostTicket=fals
   "success": true,
   "message": "Exit confirmed, driver may proceed",
   "data": {
-    "sessionId": "session123",
-    "totalFee": 20000,
+    "sessionId": "abc123-def456",
+    "ticketCode": "TKT-xxx",
+    "checkoutTime": "2026-06-21T18:05:00",
+    "totalFee": 14000,
     "parkingHours": 4,
     "parkingMinutes": 15,
     "sessionStatus": "COMPLETED",
@@ -777,12 +875,36 @@ POST `/api/users/me/vehicles`
 
 # STATUS VALUES
 
-- **Parking slot:** AVAILABLE, RESERVED, OCCUPIED, MAINTENANCE, PENDING_EXIT
-- **Parking registration:** PENDING, APPROVED, REJECTED, CANCELLED, COMPLETED, PENDING_PAYMENT, EXPIRED
-- **Ticket:** ACTIVE, USED, EXPIRED, LOST
-- **Parking session:** ACTIVE, PENDING_PAYMENT, PENDING_EXIT, COMPLETED, CANCELLED
-- **Parking session payment:** UNPAID, PAID, FAILED
-- **Payment:** PENDING, SUCCESS, FAILED
+## Parking Session Status (MỚI)
+- `CHECKED_IN` - Xe đã vào bãi, đang đỗ
+- `CHECKED_OUT` - Xe đã checkout (thanh toán tiền mặt)
+- `COMPLETED` - Checkout hoàn tất (thanh toán điện tử)
+- `OVERDUE` - Quá giờ đặt chỗ
+- `CANCELLED` - Session bị hủy
+
+## Reservation Status (MỚI)
+- `PENDING_PAYMENT` - Chờ thanh toán (thay thế PENDING)
+- `PAID` - Đã thanh toán (thay thế APPROVED)
+- `COMPLETED` - Hoàn tất (đã ra bãi)
+- `CANCELLED` - Bị hủy
+- `EXPIRED` - Hết hạn (đã thanh toán nhưng không check-in)
+
+## Parking Slot Status
+- `AVAILABLE` - Slot trống
+- `RESERVED` - Đã được đặt trước
+- `OCCUPIED` - Đang có xe đỗ
+- `MAINTENANCE` - Đang bảo trì
+
+## Ticket Status
+- `ACTIVE` - Vé còn hiệu lực
+- `USED` - Đã sử dụng
+- `EXPIRED` - Hết hạn
+- `LOST` - Mất vé
+
+## Payment Status
+- `UNPAID` - Chưa thanh toán
+- `PAID` - Đã thanh toán
+- `FAILED` - Thanh toán thất bại
 
 ---
 
@@ -852,7 +974,8 @@ POST `/api/users/me/vehicles`
    Body: {
      "ticketCode": "<ticketCode-từ-bước-3>",
      "plateNumber": "51A-12345",
-     "buildingId": "building-id"
+     "checkinPlateImage": "data:image/jpeg;base64,...",
+     "checkinVehicleImage": "data:image/jpeg;base64,..."
    }
    ```
 
@@ -863,10 +986,11 @@ POST `/api/users/me/vehicles`
    Body: {
      "ticketCode": "<ticketCode-từ-bước-3>",
      "paymentMethod": "CASH",
-     "buildingId": "building-id"
+     "checkoutPlateImage": "data:image/jpeg;base64,...",
+     "checkoutVehicleImage": "data:image/jpeg;base64,..."
    }
    ```
-   → Response sẽ có `totalFee` đã tính
+   → Response sẽ có `totalFee` đã tính, `sessionStatus: "CHECKED_OUT"`
 
 ## C. Staff check-in và check-out (VNPay / PayOS / MOMO)
 
@@ -883,14 +1007,15 @@ POST `/api/users/me/vehicles`
    Body: {
      "ticketCode": "<ticketCode>",
      "plateNumber": "51A-12345",
-     "buildingId": "building-id"
+     "checkinPlateImage": "data:image/jpeg;base64,...",
+     "checkinVehicleImage": "data:image/jpeg;base64,..."
    }
    ```
-   → Copy `sessionId`
+   → Copy `sessionId`, `sessionStatus: "CHECKED_IN"`
 
 7. **Dự đoán phí:**
    ```
-   GET /api/sessions/estimate?ticketCode=<ticketCode>&lostTicket=false
+   GET /api/sessions/estimate?ticketCode=<ticketCode>
    Headers: Authorization: Bearer <staff-token>
    ```
 
