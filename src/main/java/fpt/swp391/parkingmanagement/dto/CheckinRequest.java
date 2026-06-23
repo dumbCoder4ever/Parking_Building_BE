@@ -11,5 +11,6 @@ public class CheckinRequest {
     private String plateNumber;
     private String vehicleColor;
     private String vehicleTypeId;
+    // Set programmatically after Cloudinary upload — not sent by client
     private String checkinImageUrl;
 }
