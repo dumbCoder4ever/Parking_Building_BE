@@ -155,7 +155,6 @@ public class VehicleService {
         if (request.getModel() != null) {
             vehicle.setModel(normalizeText(request.getModel()));
         }
-
         return VehicleResponse.from(vehicleRepository.save(vehicle));
     }
 
@@ -296,10 +295,12 @@ public class VehicleService {
         VehicleResponse response = VehicleResponse.from(vehicle);
         var activeSession = parkingSessionRepository.findActiveByVehicleId(vehicle.getVehicleId());
         if (activeSession.isPresent()) {
-            return response.withParkingTimes(activeSession.get().getCheckinTime(), null);
+            var s = activeSession.get();
+            return response.withParkingTimes(s.getCheckinTime(), null, s.getCheckinImageUrl(), null);
         }
         return parkingSessionRepository.findLatestByVehicleId(vehicle.getVehicleId())
-                .map(session -> response.withParkingTimes(session.getCheckinTime(), session.getCheckoutTime()))
+                .map(s -> response.withParkingTimes(s.getCheckinTime(), s.getCheckoutTime(),
+                        s.getCheckinImageUrl(), s.getCheckoutImageUrl()))
                 .orElse(response);
     }
 

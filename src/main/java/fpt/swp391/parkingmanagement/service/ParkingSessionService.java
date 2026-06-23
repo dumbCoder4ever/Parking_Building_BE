@@ -36,6 +36,7 @@ import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -52,6 +53,7 @@ public class ParkingSessionService {
     private final PaymentRepository paymentRepository;
     private final BuildingStaffRepository buildingStaffRepository;
     private final ReservationRepository reservationRepository;
+    private final VehicleRepository vehicleRepository;
     private final PricingService pricingService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
@@ -89,7 +91,9 @@ public class ParkingSessionService {
 
         var reservation = ticket.getReservation();
         if (reservation == null) throw new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND);
-        if (!"APPROVED".equalsIgnoreCase(reservation.getReservationStatus())) {
+
+        String resStatus = reservation.getReservationStatus();
+        if (!"PENDING".equalsIgnoreCase(resStatus) && !"APPROVED".equalsIgnoreCase(resStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED);
         }
 
@@ -100,13 +104,6 @@ public class ParkingSessionService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (reservation.getReservationEnd() != null) {
-            Integer gracePeriodMinutes = reservation.getGracePeriodMinutes();
-            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 15;
-            if (now.isAfter(reservation.getReservationEnd().plusMinutes(grace))) {
-                throw new BaseAPIException(ErrorCode.RESERVATION_EXPIRED);
-            }
-        }
 
         Vehicle vehicle = reservation.getVehicle();
         ParkingSlot slot = reservation.getSlot();
@@ -142,6 +139,11 @@ public class ParkingSessionService {
         session.setSessionStatus("ACTIVE");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
+        session.setCheckinImageUrl(req.getCheckinImageUrl());
+        if (req.getCheckinImageUrl() != null && vehicle != null) {
+            vehicle.setImageUrl(req.getCheckinImageUrl());
+            vehicleRepository.save(vehicle);
+        }
         User staff = userRepository.findByEmail(staffEmail).orElse(null);
         session.setCreatedBy(staff);
 
@@ -163,6 +165,7 @@ public class ParkingSessionService {
         resp.setTicketCode(ticket.getTicketCode());
         resp.setVehiclePlate(vehicle != null ? vehicle.getPlateNumber() : null);
         resp.setCheckinTime(saved.getCheckinTime());
+        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
@@ -218,6 +221,12 @@ public class ParkingSessionService {
         session.setTotalFee(total);
         session.setParkingDuration(hours);
         session.setSessionStatus("COMPLETED");
+        session.setCheckoutImageUrl(req.getCheckoutImageUrl());
+        if (req.getCheckoutImageUrl() != null && session.getVehicle() != null) {
+            Vehicle checkoutVehicle = session.getVehicle();
+            checkoutVehicle.setImageUrl(req.getCheckoutImageUrl());
+            vehicleRepository.save(checkoutVehicle);
+        }
 
         // Update reservation to COMPLETED after successful checkout
         if (session.getReservation() != null) {
@@ -262,6 +271,7 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         resp.setSessionStatus(saved.getSessionStatus());
         resp.setPaymentStatus(saved.getPaymentStatus());
+        resp.setCheckoutImageUrl(saved.getCheckoutImageUrl());
         if (savedPayment != null) {
             resp.setPaymentId(savedPayment.getPaymentId());
         }
