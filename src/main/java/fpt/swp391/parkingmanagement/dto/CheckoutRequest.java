@@ -10,4 +10,5 @@ public class CheckoutRequest {
     private String ticketCode;
 
     private String paymentMethod;
+    private String checkoutImageUrl;
 }

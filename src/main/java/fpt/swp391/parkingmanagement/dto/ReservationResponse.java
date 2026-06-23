@@ -13,6 +13,7 @@ public class ReservationResponse {
     private String reservationNote;
     private LocalDateTime reservationStart;
     private LocalDateTime reservationEnd;
+    private LocalDateTime createdAt;
 
     // User info
     private String userId;

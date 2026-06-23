@@ -30,4 +30,5 @@ public class CheckoutResponse {
     
     private String sessionStatus;
     private String paymentStatus;
+    private String checkoutImageUrl;
 }
