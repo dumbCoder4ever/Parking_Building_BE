@@ -28,6 +28,7 @@ import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
+import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
@@ -70,6 +71,7 @@ public class ReservationService {
     private final BuildingStaffRepository buildingStaffRepository;
     private final PricingService pricingService;
     private final PricingPolicyRepository pricingPolicyRepository;
+    private final ParkingSessionRepository parkingSessionRepository;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -86,7 +88,8 @@ public class ReservationService {
             NotificationService notificationService,
             BuildingStaffRepository buildingStaffRepository,
             PricingService pricingService,
-            PricingPolicyRepository pricingPolicyRepository) {
+            PricingPolicyRepository pricingPolicyRepository,
+            ParkingSessionRepository parkingSessionRepository) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -101,6 +104,7 @@ public class ReservationService {
         this.buildingStaffRepository = buildingStaffRepository;
         this.pricingService = pricingService;
         this.pricingPolicyRepository = pricingPolicyRepository;
+        this.parkingSessionRepository = parkingSessionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -706,6 +710,14 @@ public class ReservationService {
         if (ticket != null) {
             resp.setTicketCode(ticket.getTicketCode());
         }
+
+        parkingSessionRepository
+                .findFirstByReservationReservationIdOrderByCreatedAtDesc(reservation.getReservationId())
+                .ifPresent(session -> {
+                    resp.setCheckinImageUrl(session.getCheckinImageUrl());
+                    resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
+                });
+
         return resp;
     }
 
