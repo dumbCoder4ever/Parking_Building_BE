@@ -11,4 +11,5 @@ public class CheckinRequest {
     private String plateNumber;
     private String vehicleColor;
     private String vehicleTypeId;
+    private String checkinImageUrl;
 }

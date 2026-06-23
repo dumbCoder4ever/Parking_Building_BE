@@ -21,6 +21,7 @@ public class ParkingSessionResponse {
     private String vehicleTypeId;
     private String vehicleTypeName;
     private LocalDateTime checkinTime;
+    private String checkinImageUrl;
     
     private BigDecimal estimatedFee;
     private BigDecimal basePrice;

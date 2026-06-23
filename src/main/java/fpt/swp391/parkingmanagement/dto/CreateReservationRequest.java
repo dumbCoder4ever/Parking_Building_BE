@@ -26,9 +26,6 @@ public class CreateReservationRequest {
     @NotBlank
     private String slotId;
 
-    @NotNull
+    @NotNull(message = "Reservation start time is required")
     private LocalDateTime reservationStart;
-
-    @NotNull
-    private LocalDateTime reservationEnd;
 }
