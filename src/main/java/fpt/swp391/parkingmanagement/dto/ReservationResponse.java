@@ -49,4 +49,8 @@ public class ReservationResponse {
     private BigDecimal hourlyRate;
     private Integer maxHours;
     private String vehicleTypeName;
+
+    // Session images
+    private String checkinImageUrl;
+    private String checkoutImageUrl;
 }

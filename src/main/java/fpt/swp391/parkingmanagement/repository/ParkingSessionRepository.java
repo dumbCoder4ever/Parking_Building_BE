@@ -67,4 +67,6 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
             + "ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
+
+    Optional<ParkingSession> findFirstByReservationReservationIdOrderByCreatedAtDesc(String reservationId);
 }
