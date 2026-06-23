@@ -21,9 +21,12 @@ public class VehicleResponse {
     private String vehicleColor;
     private String brand;
     private String model;
+    private String imageUrl;
     private String status;
     private LocalDateTime checkInTime;
     private LocalDateTime checkOutTime;
+    private String checkinImageUrl;
+    private String checkoutImageUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -40,15 +43,19 @@ public class VehicleResponse {
                 .vehicleColor(vehicle.getVehicleColor())
                 .brand(vehicle.getBrand())
                 .model(vehicle.getModel())
+                .imageUrl(vehicle.getImageUrl())
                 .status(vehicle.getStatus())
                 .createdAt(vehicle.getCreatedAt())
                 .updatedAt(vehicle.getUpdatedAt())
                 .build();
     }
 
-    public VehicleResponse withParkingTimes(LocalDateTime checkInTime, LocalDateTime checkOutTime) {
+    public VehicleResponse withParkingTimes(LocalDateTime checkInTime, LocalDateTime checkOutTime,
+            String checkinImageUrl, String checkoutImageUrl) {
         this.checkInTime = checkInTime;
         this.checkOutTime = checkOutTime;
+        this.checkinImageUrl = checkinImageUrl;
+        this.checkoutImageUrl = checkoutImageUrl;
         return this;
     }
 }

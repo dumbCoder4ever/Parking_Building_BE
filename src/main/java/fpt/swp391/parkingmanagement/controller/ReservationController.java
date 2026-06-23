@@ -104,6 +104,14 @@ public class ReservationController {
                 reservationService.getAllReservationsForStaff(auth.getName())));
     }
 
+    @GetMapping("/staff/reservations/queue")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getPendingQueue(Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Pending reservations in FIFO order",
+                reservationService.getPendingReservationsFifo(auth.getName())));
+    }
+
     @GetMapping("/staff/reservations/by-status")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<ReservationResponse>>> getReservationsByStatus(
