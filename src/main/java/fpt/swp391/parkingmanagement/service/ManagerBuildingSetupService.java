@@ -48,7 +48,7 @@ public class ManagerBuildingSetupService {
 
     private static final Set<String> BUILDING_FLOOR_STATUSES = Set.of("ACTIVE", "INACTIVE", "MAINTENANCE");
     private static final Set<String> ZONE_STATUSES = Set.of("ACTIVE", "INACTIVE", "FULL", "MAINTENANCE");
-    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
+    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "CHECKED_IN");
 
     private final BuildingRepository buildingRepository;
     private final FloorRepository floorRepository;
@@ -125,6 +125,17 @@ public class ManagerBuildingSetupService {
                 : null;
 
         return toSlotOccupancyDetail(slot, reservation, session, ticket);
+    }
+
+    @Transactional
+    public void forceResetSlotStatus(String slotId) {
+        ParkingSlot slot = findSlot(slotId);
+        String currentStatus = slot.getSlotStatus();
+        if ("AVAILABLE".equalsIgnoreCase(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Slot is already AVAILABLE");
+        }
+        slot.setSlotStatus("AVAILABLE");
+        parkingSlotRepository.save(slot);
     }
 
     @Transactional

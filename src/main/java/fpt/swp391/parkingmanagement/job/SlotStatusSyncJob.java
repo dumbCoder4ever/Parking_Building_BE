@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Reservation;
+import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class SlotStatusSyncJob {
 
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
+    private final ParkingSessionRepository parkingSessionRepository;
 
     @Scheduled(fixedRate = 30000)
     @Transactional
@@ -30,11 +32,6 @@ public class SlotStatusSyncJob {
         try {
             // Find all RESERVED slots
             List<ParkingSlot> reservedSlots = parkingSlotRepository.findBySlotStatusIgnoreCase("RESERVED");
-            
-            if (reservedSlots.isEmpty()) {
-                log.debug("No reserved slots found");
-                return;
-            }
 
             // Get all active reservation slot IDs
             List<Reservation> activeReservations = reservationRepository.findAll().stream()
@@ -71,7 +68,25 @@ public class SlotStatusSyncJob {
             }
 
             if (fixedCount > 0) {
-                log.info("SlotStatusSyncJob: Fixed {} orphaned slots", fixedCount);
+                log.info("SlotStatusSyncJob: Fixed {} orphaned RESERVED slots", fixedCount);
+            }
+
+            // Fix OCCUPIED slots that have no active session (orphaned check-in state)
+            List<ParkingSlot> occupiedSlots = parkingSlotRepository.findBySlotStatusIgnoreCase("OCCUPIED");
+            int occupiedFixed = 0;
+            for (ParkingSlot slot : occupiedSlots) {
+                boolean hasActiveSession = parkingSessionRepository
+                        .findCurrentBySlotId(slot.getSlotId())
+                        .isPresent();
+                if (!hasActiveSession) {
+                    slot.setSlotStatus("AVAILABLE");
+                    parkingSlotRepository.save(slot);
+                    occupiedFixed++;
+                    log.warn("Fixed orphaned OCCUPIED slot: {} (no active session found)", slot.getSlotName());
+                }
+            }
+            if (occupiedFixed > 0) {
+                log.info("SlotStatusSyncJob: Fixed {} orphaned OCCUPIED slots", occupiedFixed);
             }
         } catch (Exception e) {
             log.error("Error in slot status sync job", e);
