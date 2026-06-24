@@ -714,6 +714,10 @@ public class ReservationService {
         parkingSessionRepository
                 .findFirstByReservationReservationIdOrderByCreatedAtDesc(reservation.getReservationId())
                 .ifPresent(session -> {
+                    resp.setSessionId(session.getSessionId());
+                    resp.setCheckinTime(session.getCheckinTime());
+                    resp.setCheckoutTime(session.getCheckoutTime());
+                    resp.setTotalFee(session.getTotalFee());
                     resp.setCheckinImageUrl(session.getCheckinImageUrl());
                     resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
                 });
