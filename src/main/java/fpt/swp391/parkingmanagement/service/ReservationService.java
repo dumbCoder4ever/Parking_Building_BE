@@ -720,6 +720,8 @@ public class ReservationService {
                     resp.setTotalFee(session.getTotalFee());
                     resp.setCheckinImageUrl(session.getCheckinImageUrl());
                     resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
+                    resp.setParkingDuration(session.getParkingDuration());
+                    resp.setPaymentStatus(session.getPaymentStatus());
                 });
 
         return resp;
