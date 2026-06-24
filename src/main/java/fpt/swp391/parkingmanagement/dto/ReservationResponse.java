@@ -57,4 +57,6 @@ public class ReservationResponse {
     private BigDecimal totalFee;
     private String checkinImageUrl;
     private String checkoutImageUrl;
+    private Integer parkingDuration;
+    private String paymentStatus;
 }
