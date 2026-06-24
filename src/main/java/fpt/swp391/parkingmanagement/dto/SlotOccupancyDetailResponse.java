@@ -47,4 +47,5 @@ public class SlotOccupancyDetailResponse {
     private LocalDateTime checkinTime;
     private LocalDateTime checkoutTime;
     private Long parkedDurationMinutes;
+    private String checkinImageUrl;
 }
