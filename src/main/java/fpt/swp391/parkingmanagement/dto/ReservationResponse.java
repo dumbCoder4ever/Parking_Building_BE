@@ -50,7 +50,11 @@ public class ReservationResponse {
     private Integer maxHours;
     private String vehicleTypeName;
 
-    // Session images
+    // Parking session info
+    private String sessionId;
+    private LocalDateTime checkinTime;
+    private LocalDateTime checkoutTime;
+    private BigDecimal totalFee;
     private String checkinImageUrl;
     private String checkoutImageUrl;
 }
