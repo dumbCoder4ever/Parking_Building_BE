@@ -195,4 +195,14 @@ public class ManagerBuildingSetupController {
                 "Slot occupancy details retrieved successfully",
                 managerBuildingSetupService.getSlotOccupancyDetail(slotId)));
     }
+
+    @Operation(
+            summary = "Force-reset a stuck slot to AVAILABLE",
+            description = "Emergency reset for slots stuck in OCCUPIED/RESERVED/PENDING_EXIT "
+                    + "with no corresponding active session or reservation.")
+    @PostMapping("/slots/{slotId}/force-reset")
+    public ResponseEntity<ApiResponse<Void>> forceResetSlotStatus(@PathVariable String slotId) {
+        managerBuildingSetupService.forceResetSlotStatus(slotId);
+        return ResponseEntity.ok(ApiResponse.ok("Slot has been force-reset to AVAILABLE", null));
+    }
 }
