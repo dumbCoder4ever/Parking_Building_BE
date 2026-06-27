@@ -69,4 +69,17 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
 
     Optional<ParkingSession> findFirstByReservationReservationIdOrderByCreatedAtDesc(String reservationId);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE v.plateNumber = :plateNumber AND ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE' "
+            + "ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findActiveGuestByPlateNumber(@Param("plateNumber") String plateNumber);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE ps.sessionId = :sessionId AND ps.reservation IS NULL")
+    Optional<ParkingSession> findGuestSessionById(@Param("sessionId") String sessionId);
 }
