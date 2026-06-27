@@ -57,7 +57,7 @@ public class ReservationController {
     // =========================================================================
 
     @GetMapping("/slots/availability")
-    @PreAuthorize("hasAnyRole('DRIVER','MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<SlotAvailabilityDto>>> getAvailableSlots(
             @RequestParam(required = false) String buildingId,
             @RequestParam(required = false) String vehicleTypeId) {
