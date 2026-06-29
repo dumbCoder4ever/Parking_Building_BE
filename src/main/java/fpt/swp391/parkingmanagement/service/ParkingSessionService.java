@@ -753,6 +753,14 @@ public class ParkingSessionService {
         resp.setCheckinImageUrl(ps.getCheckinImageUrl());
         resp.setEstimatedFee(ps.getEstimatedFee());
 
+        if (vehicleType != null) {
+            PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+            if (policy != null) {
+                resp.setBasePrice(policy.getBasePrice());
+                resp.setHourlyRate(policy.getHourlyRate());
+            }
+        }
+
         if (vehicle != null) {
             resp.setVehiclePlate(vehicle.getPlateNumber());
             resp.setVehicleColor(vehicle.getVehicleColor());
