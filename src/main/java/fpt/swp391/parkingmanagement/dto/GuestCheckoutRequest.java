@@ -6,8 +6,8 @@ import lombok.Data;
 @Data
 public class GuestCheckoutRequest {
 
-    @NotBlank(message = "Session ID is required")
-    private String sessionId;
+    @NotBlank(message = "Ticket code is required")
+    private String ticketCode;
 
     private String paymentMethod;
 
