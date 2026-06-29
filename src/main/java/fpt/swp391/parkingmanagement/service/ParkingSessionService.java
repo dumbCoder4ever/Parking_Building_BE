@@ -566,11 +566,24 @@ public class ParkingSessionService {
 
         ParkingSession saved = parkingSessionRepository.save(session);
 
+        // Create a guest ticket so staff can use ticket code for checkout/payment
+        Ticket guestTicket = new Ticket();
+        guestTicket.setTicketCode(generateGuestTicketCode());
+        guestTicket.setIsUsed(false);
+        guestTicket.setIsLost(false);
+        guestTicket.setStatus("ACTIVE");
+        guestTicket.setIssuedAt(now);
+        Ticket savedTicket = ticketRepository.save(guestTicket);
+
+        saved.setTicket(savedTicket);
+        saved = parkingSessionRepository.save(saved);
+
         slot.setSlotStatus("OCCUPIED");
         parkingSlotRepository.save(slot);
 
         GuestCheckinResponse resp = new GuestCheckinResponse();
         resp.setSessionId(saved.getSessionId());
+        resp.setTicketCode(savedTicket.getTicketCode());
         resp.setGuestName(saved.getGuestName());
         resp.setGuestPhone(saved.getGuestPhone());
         resp.setVehiclePlate(vehicle.getPlateNumber());
@@ -591,12 +604,13 @@ public class ParkingSessionService {
 
     @Transactional
     public CheckoutResponse guestCheckout(String staffEmail, GuestCheckoutRequest req) {
-        ParkingSession session = parkingSessionRepository.findById(req.getSessionId())
-                .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND));
+        Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
-        if (!"ACTIVE".equalsIgnoreCase(session.getSessionStatus())) {
-            throw new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND, "Session is not active");
-        }
+        ParkingSession session = parkingSessionRepository
+                .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE")
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
+                        "No active guest session found for ticket: " + req.getTicketCode()));
 
         if (session.getReservation() != null) {
             throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "This is not a guest session. Use regular checkout.");
@@ -730,6 +744,9 @@ public class ParkingSessionService {
 
         GuestCheckinResponse resp = new GuestCheckinResponse();
         resp.setSessionId(ps.getSessionId());
+        if (ps.getTicket() != null) {
+            resp.setTicketCode(ps.getTicket().getTicketCode());
+        }
         resp.setGuestName(ps.getGuestName());
         resp.setGuestPhone(ps.getGuestPhone());
         resp.setCheckinTime(ps.getCheckinTime());
@@ -749,6 +766,21 @@ public class ParkingSessionService {
 
         applyHierarchyGuest(resp, ps.getSlot());
         return resp;
+    }
+
+    public GuestCheckinResponse getGuestSessionByTicketCode(String ticketCode) {
+        ParkingSession ps = parkingSessionRepository.findGuestSessionByTicketCode(ticketCode)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
+                        "No guest session found for ticket: " + ticketCode));
+        GuestCheckinResponse resp = mapToGuestCheckinResponse(ps);
+        if (ps.getTicket() != null) {
+            resp.setTicketCode(ps.getTicket().getTicketCode());
+        }
+        return resp;
+    }
+
+    private String generateGuestTicketCode() {
+        return "G-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 9000 + 1000);
     }
 
     // ======================== END GUEST FLOW ========================
