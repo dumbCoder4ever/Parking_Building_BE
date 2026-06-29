@@ -12,8 +12,10 @@ import fpt.swp391.parkingmanagement.enums.PaidStatusFilter;
 import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
+import fpt.swp391.parkingmanagement.entity.Ticket;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
+import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +40,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final UserRepository userRepository;
+    private final TicketRepository ticketRepository;
     private final NotificationService notificationService;
 
     @Autowired
@@ -52,8 +55,17 @@ public class PaymentService {
      */
     @Transactional
     public PaymentResponseDTO initiatePayment(PaymentRequestDTO paymentRequest) {
-        ParkingSession session = parkingSessionRepository.findById(paymentRequest.getSessionId())
-                .orElseThrow(() -> new RuntimeException("Parking session not found"));
+        ParkingSession session;
+        if (paymentRequest.getTicketCode() != null && !paymentRequest.getTicketCode().isBlank()) {
+            Ticket ticket = ticketRepository.findByTicketCode(paymentRequest.getTicketCode())
+                    .orElseThrow(() -> new RuntimeException("Ticket not found: " + paymentRequest.getTicketCode()));
+            session = parkingSessionRepository
+                    .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE")
+                    .orElseThrow(() -> new RuntimeException("No active session for ticket: " + paymentRequest.getTicketCode()));
+        } else {
+            session = parkingSessionRepository.findById(paymentRequest.getSessionId())
+                    .orElseThrow(() -> new RuntimeException("Parking session not found"));
+        }
 
         if (!session.getSessionStatus().equals("ACTIVE")) {
             throw new RuntimeException("Session is not active");
@@ -101,8 +113,15 @@ public class PaymentService {
             paymentUrl = payosResponse.getCheckoutUrl();
         }
 
-        User driver = userRepository.findById(paymentRequest.getDriverId())
-                .orElseThrow(() -> new RuntimeException("Driver not found"));
+        // driverId is optional: null or blank means this is a guest session
+        User driver = (paymentRequest.getDriverId() != null && !paymentRequest.getDriverId().isBlank())
+                ? userRepository.findById(paymentRequest.getDriverId())
+                        .orElseThrow(() -> new RuntimeException("Driver not found"))
+                : null;
+
+        String displayName = (driver != null)
+                ? driver.getFullName()
+                : session.getGuestName();
 
         PaymentResponseDTO response = PaymentResponseDTO.builder()
                 .paymentId(savedPayment.getPaymentId())
@@ -114,10 +133,12 @@ public class PaymentService {
                 .paymentTime(LocalDateTime.now())
                 .paymentUrl(paymentUrl)
                 .message("Payment initiated. Driver can now proceed with payment.")
-                .driverName(driver.getFullName())
+                .driverName(displayName)
                 .build();
 
-        notificationService.sendPaymentInitiationToDriver(driver, response);
+        if (driver != null) {
+            notificationService.sendPaymentInitiationToDriver(driver, response);
+        }
 
         return response;
     }
