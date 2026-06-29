@@ -8,6 +8,7 @@ import lombok.Data;
 @Data
 public class GuestCheckinResponse {
     private String sessionId;
+    private String ticketCode;
 
     private String guestName;
     private String guestPhone;
