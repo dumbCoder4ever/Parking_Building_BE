@@ -72,18 +72,18 @@ public class GuestSessionController {
 
     @Operation(
         summary = "Guest Check-out",
-        description = "Staff thực hiện checkout cho khách vãng lai. "
+        description = "Staff thực hiện checkout cho khách vãng lai bằng ticket code. "
                     + "Tính phí theo thời gian thực tế, thanh toán tiền mặt hoặc điện tử. Gửi multipart/form-data."
     )
     @PostMapping(value = "/checkout", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CheckoutResponse>> guestCheckout(
-            @RequestParam String sessionId,
+            @RequestParam String ticketCode,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) MultipartFile checkoutImage,
             Authentication auth) {
 
         GuestCheckoutRequest req = new GuestCheckoutRequest();
-        req.setSessionId(sessionId);
+        req.setTicketCode(ticketCode);
         req.setPaymentMethod(paymentMethod);
         if (checkoutImage != null && !checkoutImage.isEmpty()) {
             req.setCheckoutImageUrl(cloudinaryService.uploadParkingImage(checkoutImage));
@@ -117,5 +117,18 @@ public class GuestSessionController {
 
         GuestCheckinResponse resp = parkingSessionService.findActiveGuestByPlate(plateNumber);
         return ResponseEntity.ok(ApiResponse.ok("Active guest session found", resp));
+    }
+
+    @Operation(
+        summary = "Look up guest session by ticket code",
+        description = "Staff nhập ticket code để tra cứu thông tin session và phí trước khi thực hiện checkout/payment."
+    )
+    @GetMapping("/ticket/{ticketCode}")
+    public ResponseEntity<ApiResponse<GuestCheckinResponse>> findByTicketCode(
+            @PathVariable String ticketCode,
+            Authentication auth) {
+
+        GuestCheckinResponse resp = parkingSessionService.getGuestSessionByTicketCode(ticketCode);
+        return ResponseEntity.ok(ApiResponse.ok("Guest session found", resp));
     }
 }
