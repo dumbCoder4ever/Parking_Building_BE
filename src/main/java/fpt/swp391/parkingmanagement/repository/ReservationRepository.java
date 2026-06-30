@@ -139,4 +139,12 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             @Param("userId") String userId,
             @Param("vehicleTypeName") String vehicleTypeName,
             @Param("statuses") Collection<String> statuses);
+
+    // ============ DASHBOARD STATS ============
+
+    @Query("SELECT COUNT(r) FROM Reservation r WHERE r.reservationStatus = :status")
+    long countByReservationStatus(@Param("status") String status);
+
+    @Query("SELECT COUNT(r) FROM Reservation r WHERE r.createdAt >= :from AND r.createdAt < :to")
+    long countReservationsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }
