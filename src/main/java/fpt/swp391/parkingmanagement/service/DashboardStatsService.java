@@ -29,12 +29,16 @@ public class DashboardStatsService {
     private final BuildingRepository buildingRepository;
 
     @Transactional(readOnly = true)
-    public DashboardStatsResponse getStats() {
+    public DashboardStatsResponse getStats(LocalDate fromDay, LocalDate toDay) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime startOfToday = now.toLocalDate().atStartOfDay();
         LocalDateTime endOfToday = startOfToday.plusDays(1);
         LocalDateTime startOfMonth = now.toLocalDate().withDayOfMonth(1).atStartOfDay();
-        LocalDateTime last7DaysStart = now.toLocalDate().minusDays(6).atStartOfDay();
+
+        LocalDate resolvedFrom = (fromDay != null) ? fromDay : now.toLocalDate().minusDays(6);
+        LocalDate resolvedTo = (toDay != null) ? toDay : now.toLocalDate();
+        LocalDateTime trendFrom = resolvedFrom.atStartOfDay();
+        LocalDateTime trendTo = resolvedTo.atTime(23, 59, 59);
 
         return DashboardStatsResponse.builder()
                 .generatedAt(now)
@@ -44,7 +48,7 @@ public class DashboardStatsService {
                 .users(buildUserStats(startOfMonth, now))
                 .incidents(buildIncidentStats(startOfMonth, now))
                 .revenueByPaymentMethod(buildPaymentMethodStats())
-                .revenueLast7Days(buildRevenueTrend(last7DaysStart, now))
+                .revenueTrend(buildRevenueTrend(trendFrom, trendTo))
                 .build();
     }
 
@@ -160,7 +164,7 @@ public class DashboardStatsService {
                     .build());
         }
 
-        // Đảm bảo đủ 7 ngày, ngày không có giao dịch thì revenue = 0
+        // Fill all dates in range; days with no transactions get revenue = 0
         List<RevenueTrendItem> result = new ArrayList<>();
         LocalDate cursor = from.toLocalDate();
         LocalDate end = to.toLocalDate();

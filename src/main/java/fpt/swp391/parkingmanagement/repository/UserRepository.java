@@ -40,6 +40,6 @@ public interface UserRepository extends JpaRepository<User, String> {
     @Query("SELECT COUNT(u) FROM User u WHERE u.role = :role AND (u.isDeleted IS NULL OR u.isDeleted = false)")
     long countActiveByRole(@Param("role") String role);
 
-    @Query("SELECT COUNT(u) FROM User u WHERE u.createdAt >= :from AND u.createdAt < :to AND (u.isDeleted IS NULL OR u.isDeleted = false)")
+    @Query("SELECT COUNT(u) FROM User u WHERE u.createdAt >= :from AND u.createdAt < :to AND u.role != 'ROLE_ADMIN' AND (u.isDeleted IS NULL OR u.isDeleted = false)")
     long countNewUsersInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }
