@@ -46,4 +46,13 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     Optional<ParkingSlot> findFirstByZoneZoneIdOrderBySlotNameAsc(String zoneId);
 
     List<ParkingSlot> findBySlotStatusIgnoreCase(String slotStatus);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSlot ps WHERE UPPER(ps.slotStatus) = UPPER(:status)")
+    long countBySlotStatus(@Param("status") String status);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.building b WHERE b.buildingId = :buildingId")
+    long countByBuildingId(@Param("buildingId") String buildingId);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.building b WHERE b.buildingId = :buildingId AND UPPER(ps.slotStatus) = UPPER(:status)")
+    long countByBuildingIdAndSlotStatus(@Param("buildingId") String buildingId, @Param("status") String status);
 }
