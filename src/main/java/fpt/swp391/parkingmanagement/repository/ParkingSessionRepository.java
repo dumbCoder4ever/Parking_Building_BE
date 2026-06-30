@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -89,4 +90,24 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
             + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
             + "WHERE t.ticketCode = :ticketCode AND ps.reservation IS NULL")
     Optional<ParkingSession> findGuestSessionByTicketCode(@Param("ticketCode") String ticketCode);
+
+    // ============ DASHBOARD STATS ============
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.sessionStatus = :status")
+    long countBySessionStatus(@Param("status") String status);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.checkinTime >= :from AND ps.checkinTime < :to")
+    long countSessionsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL AND ps.checkinTime >= :from AND ps.checkinTime < :to")
+    long countGuestSessionsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("SELECT COALESCE(AVG(ps.parkingDuration), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED'")
+    Double avgDurationMinutesCompleted();
+
+    @Query("SELECT COALESCE(AVG(ps.totalFee), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0")
+    Double avgFeeCompleted();
+
+    @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus = 'ACTIVE' AND ps.reservation IS NOT NULL")
+    long countDistinctDriversCurrentlyParked();
 }
