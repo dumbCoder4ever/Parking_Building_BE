@@ -55,4 +55,24 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
 
     @Query("SELECT COUNT(ps) FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.building b WHERE b.buildingId = :buildingId AND UPPER(ps.slotStatus) = UPPER(:status)")
     long countByBuildingIdAndSlotStatus(@Param("buildingId") String buildingId, @Param("status") String status);
+
+
+    /**
+     * Single round-trip: aggregate slot counts per zone for a building (or all buildings).
+     * Replaces N+1 count queries in availability/occupancy dashboards.
+     */
+    @Query("SELECT new fpt.swp391.parkingmanagement.repository.ZoneSlotCount(" +
+            "z.zoneId, z.zoneName, z.status, f.floorId, f.floorName, f.floorLevel, f.status, " +
+            "vt.vehicleTypeId, vt.typeName, b.buildingId, b.buildingName, b.status, " +
+            "COUNT(ps), SUM(CASE WHEN UPPER(ps.slotStatus) = 'AVAILABLE' THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN UPPER(ps.slotStatus) = 'RESERVED' THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN UPPER(ps.slotStatus) = 'OCCUPIED' THEN 1 ELSE 0 END)) " +
+            "FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE (:buildingId IS NULL OR b.buildingId = :buildingId) " +
+            "AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId) " +
+            "GROUP BY z.zoneId, z.zoneName, z.status, f.floorId, f.floorName, f.floorLevel, f.status, " +
+            "vt.vehicleTypeId, vt.typeName, b.buildingId, b.buildingName, b.status")
+    List<ZoneSlotCount> aggregateSlotCounts(@Param("buildingId") String buildingId,
+                                            @Param("vehicleTypeId") String vehicleTypeId);
+
 }
