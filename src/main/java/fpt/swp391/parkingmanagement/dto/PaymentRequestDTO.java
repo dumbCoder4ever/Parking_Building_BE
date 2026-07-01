@@ -13,6 +13,8 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @Builder
 public class PaymentRequestDTO {
+    /** Either sessionId or ticketCode must be provided. ticketCode takes priority. */
+    private String ticketCode;
     private String sessionId;
     private String paymentMethod;
     private BigDecimal amount;

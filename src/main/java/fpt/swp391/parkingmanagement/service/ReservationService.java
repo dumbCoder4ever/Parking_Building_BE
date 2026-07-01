@@ -28,6 +28,7 @@ import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
+import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
@@ -50,7 +51,7 @@ public class ReservationService {
 
     private static final Set<String> ACTIVE_BUILDING_FLOOR_STATUSES = Set.of("ACTIVE");
     private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
-    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
+    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "CHECKED_IN");
     private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of(
             "PENDING", "APPROVED", "REJECTED", "CANCELLED", "EXPIRED", 
             "COMPLETED", "NO_SHOW", "CHECKED_IN", "PENDING_PAYMENT"
@@ -70,6 +71,7 @@ public class ReservationService {
     private final BuildingStaffRepository buildingStaffRepository;
     private final PricingService pricingService;
     private final PricingPolicyRepository pricingPolicyRepository;
+    private final ParkingSessionRepository parkingSessionRepository;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -86,7 +88,8 @@ public class ReservationService {
             NotificationService notificationService,
             BuildingStaffRepository buildingStaffRepository,
             PricingService pricingService,
-            PricingPolicyRepository pricingPolicyRepository) {
+            PricingPolicyRepository pricingPolicyRepository,
+            ParkingSessionRepository parkingSessionRepository) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -101,6 +104,7 @@ public class ReservationService {
         this.buildingStaffRepository = buildingStaffRepository;
         this.pricingService = pricingService;
         this.pricingPolicyRepository = pricingPolicyRepository;
+        this.parkingSessionRepository = parkingSessionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -282,6 +286,14 @@ public class ReservationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ReservationResponse> getPendingReservationsFifo(String staffEmail) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        return reservationRepository.findPendingByBuildingOrderByCreatedAtAsc(buildingId).stream()
+                .map(this::toReservationResponse)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<ReservationResponse> getReservationsByStatusForStaff(String staffEmail, String status) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
         return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
@@ -340,7 +352,6 @@ public class ReservationService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        validateReservationWindow(req);
         Vehicle vehicle = resolveVehicle(email, user, req);
         ParkingSlot slot = findSlot(req.getSlotId());
         validateSlotSelection(slot, vehicle);
@@ -352,9 +363,9 @@ public class ReservationService {
             throw new RuntimeException("Selected slot already has an active reservation");
         }
 
-        // 1 user có thể đặt 1 CAR và 1 BIKE cùng ngày, miễn không trùng giờ cùng loại xe
+        // 1 user không được đặt 2 reservation cùng loại xe cùng lúc
         String vehicleTypeName = vehicle.getVehicleType().getTypeName();
-        validateNoTimeConflictByVehicleType(user.getUserId(), vehicleTypeName, req.getReservationStart(), req.getReservationEnd());
+        validateNoActiveReservationByVehicleType(user.getUserId(), vehicleTypeName);
 
         slot.setSlotStatus("RESERVED");
         parkingSlotRepository.save(slot);
@@ -362,7 +373,6 @@ public class ReservationService {
         Reservation reservation = new Reservation();
         reservation.setReservationCode("RS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         reservation.setReservationStart(req.getReservationStart());
-        reservation.setReservationEnd(req.getReservationEnd());
         reservation.setSlot(slot);
         reservation.setUser(user);
         reservation.setVehicle(vehicle);
@@ -536,23 +546,11 @@ public class ReservationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Slot not found: " + slotId));
     }
 
-    private void validateReservationWindow(CreateReservationRequest req) {
-        if (!req.getReservationEnd().isAfter(req.getReservationStart())) {
-            throw new RuntimeException("Reservation end must be after reservation start");
-        }
-        
-        long hours = java.time.Duration.between(req.getReservationStart(), req.getReservationEnd()).toHours();
-        if (hours > 24) {
-            throw new RuntimeException("Reservation duration cannot exceed 24 hours");
-        }
-    }
-
-    private void validateNoTimeConflictByVehicleType(String userId, String vehicleTypeName, LocalDateTime start, LocalDateTime end) {
-        // 1 user có thể đặt 1 CAR và 1 BIKE cùng ngày, miễn không trùng giờ cùng loại xe
-        List<Reservation> overlapping = reservationRepository.findOverlappingReservationsByVehicleType(
-                userId, vehicleTypeName, start, end, ACTIVE_RESERVATION_STATUSES);
-        if (!overlapping.isEmpty()) {
-            throw new RuntimeException("You already have a reservation for " + vehicleTypeName + " that overlaps with this time slot");
+    private void validateNoActiveReservationByVehicleType(String userId, String vehicleTypeName) {
+        List<Reservation> active = reservationRepository.findActiveReservationsByVehicleType(
+                userId, vehicleTypeName, ACTIVE_RESERVATION_STATUSES);
+        if (!active.isEmpty()) {
+            throw new RuntimeException("You already have an active reservation for " + vehicleTypeName);
         }
     }
 
@@ -673,6 +671,7 @@ public class ReservationService {
         resp.setReservationNote(reservation.getNote());
         resp.setReservationStart(reservation.getReservationStart());
         resp.setReservationEnd(reservation.getReservationEnd());
+        resp.setCreatedAt(reservation.getCreatedAt());
 
         // User info
         if (reservation.getUser() != null) {
@@ -711,6 +710,20 @@ public class ReservationService {
         if (ticket != null) {
             resp.setTicketCode(ticket.getTicketCode());
         }
+
+        parkingSessionRepository
+                .findFirstByReservationReservationIdOrderByCreatedAtDesc(reservation.getReservationId())
+                .ifPresent(session -> {
+                    resp.setSessionId(session.getSessionId());
+                    resp.setCheckinTime(session.getCheckinTime());
+                    resp.setCheckoutTime(session.getCheckoutTime());
+                    resp.setTotalFee(session.getTotalFee());
+                    resp.setCheckinImageUrl(session.getCheckinImageUrl());
+                    resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
+                    resp.setParkingDuration(session.getParkingDuration());
+                    resp.setPaymentStatus(session.getPaymentStatus());
+                });
+
         return resp;
     }
 

@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -154,7 +155,6 @@ public class VehicleService {
         if (request.getModel() != null) {
             vehicle.setModel(normalizeText(request.getModel()));
         }
-
         return VehicleResponse.from(vehicleRepository.save(vehicle));
     }
 
@@ -175,12 +175,48 @@ public class VehicleService {
     }
 
     @Transactional(readOnly = true)
-    public List<VehicleResponse> searchVehicles(String plateNumber) {
-        List<Vehicle> vehicles = StringUtils.hasText(plateNumber)
-                ? vehicleRepository.findByPlateNumberContainingIgnoreCaseOrderByCreatedAtDesc(
-                        normalizeText(plateNumber))
-                : vehicleRepository.findAllByOrderByCreatedAtDesc();
-        return vehicles.stream().map(VehicleResponse::from).toList();
+    public List<VehicleResponse> searchVehicles(
+            String plateNumber,
+            String status,
+            String userId,
+            String username,
+            String ownerFullName,
+            String vehicleTypeId,
+            Boolean parked,
+            LocalDateTime checkInFrom,
+            LocalDateTime checkInTo) {
+        List<Vehicle> vehicles = vehicleRepository.searchForManager(
+                normalizeOptionalText(plateNumber),
+                normalizeOptionalStatus(status),
+                normalizeOptionalText(userId),
+                normalizeOptionalText(username),
+                normalizeOptionalText(ownerFullName),
+                normalizeOptionalText(vehicleTypeId));
+
+        return vehicles.stream()
+                .map(this::toManagerVehicleResponse)
+                .filter(response -> matchesParkedFilter(response, parked))
+                .filter(response -> matchesCheckInRange(response, checkInFrom, checkInTo))
+                .toList();
+    }
+
+    @Transactional
+    public VehicleResponse transferVehicleOwner(String vehicleId, String newUserId) {
+        Vehicle vehicle = findVehicle(vehicleId);
+        User newOwner = userRepository.findById(normalizeText(newUserId))
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + newUserId));
+
+        if (newOwner.getRole() == null || !newOwner.getRole().toUpperCase().contains("DRIVER")) {
+            throw new RuntimeException("New owner must be a driver account");
+        }
+
+        if (vehicle.getUser() != null && vehicle.getUser().getUserId().equals(newOwner.getUserId())) {
+            return toManagerVehicleResponse(vehicle);
+        }
+
+        ensureVehicleCanBeTransferred(vehicleId);
+        vehicle.setUser(newOwner);
+        return toManagerVehicleResponse(vehicleRepository.save(vehicle));
     }
 
     @Transactional
@@ -242,13 +278,30 @@ public class VehicleService {
     }
 
     private void ensureVehicleCanBeRemoved(String vehicleId) {
+        ensureVehicleCanBeTransferred(vehicleId);
+    }
+
+    private void ensureVehicleCanBeTransferred(String vehicleId) {
         if (reservationRepository.existsByVehicleVehicleIdAndReservationStatusIn(
                 vehicleId, ACTIVE_RESERVATION_STATUSES)) {
-            throw new RuntimeException("Cannot delete vehicle with active reservations");
+            throw new RuntimeException("Cannot transfer vehicle with active reservations");
         }
         if (parkingSessionRepository.existsByVehicleVehicleIdAndSessionStatus(vehicleId, "ACTIVE")) {
-            throw new RuntimeException("Cannot delete vehicle with an active parking session");
+            throw new RuntimeException("Cannot transfer vehicle with an active parking session");
         }
+    }
+
+    private VehicleResponse toManagerVehicleResponse(Vehicle vehicle) {
+        VehicleResponse response = VehicleResponse.from(vehicle);
+        var activeSession = parkingSessionRepository.findActiveByVehicleId(vehicle.getVehicleId());
+        if (activeSession.isPresent()) {
+            var s = activeSession.get();
+            return response.withParkingTimes(s.getCheckinTime(), null, s.getCheckinImageUrl(), null);
+        }
+        return parkingSessionRepository.findLatestByVehicleId(vehicle.getVehicleId())
+                .map(s -> response.withParkingTimes(s.getCheckinTime(), s.getCheckoutTime(),
+                        s.getCheckinImageUrl(), s.getCheckoutImageUrl()))
+                .orElse(response);
     }
 
     private String validateStatus(String status, Set<String> allowedValues) {
@@ -265,5 +318,38 @@ public class VehicleService {
 
     private String normalizeText(String value) {
         return value == null ? null : value.trim().replaceAll("\\s+", " ");
+    }
+
+    private String normalizeOptionalText(String value) {
+        return StringUtils.hasText(value) ? normalizeText(value) : null;
+    }
+
+    private String normalizeOptionalStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return null;
+        }
+        return validateStatus(status, MANAGER_VEHICLE_STATUSES);
+    }
+
+    private boolean matchesParkedFilter(VehicleResponse response, Boolean parked) {
+        if (parked == null) {
+            return true;
+        }
+        boolean isParked = response.getCheckInTime() != null && response.getCheckOutTime() == null;
+        return parked == isParked;
+    }
+
+    private boolean matchesCheckInRange(VehicleResponse response, LocalDateTime checkInFrom, LocalDateTime checkInTo) {
+        if (checkInFrom == null && checkInTo == null) {
+            return true;
+        }
+        LocalDateTime checkInTime = response.getCheckInTime();
+        if (checkInTime == null) {
+            return false;
+        }
+        if (checkInFrom != null && checkInTime.isBefore(checkInFrom)) {
+            return false;
+        }
+        return checkInTo == null || !checkInTime.isAfter(checkInTo);
     }
 }

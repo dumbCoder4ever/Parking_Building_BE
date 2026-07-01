@@ -1,5 +1,7 @@
 package fpt.swp391.parkingmanagement.service;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -12,19 +14,30 @@ import fpt.swp391.parkingmanagement.dto.CreateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.CreateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.CreateZoneRequest;
 import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
+import fpt.swp391.parkingmanagement.dto.SlotOccupancyDetailResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateZoneRequest;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
+import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
+import fpt.swp391.parkingmanagement.entity.Reservation;
+import fpt.swp391.parkingmanagement.entity.Ticket;
+import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.entity.Zone;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
+import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
+import fpt.swp391.parkingmanagement.repository.ReservationRepository;
+import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,12 +48,16 @@ public class ManagerBuildingSetupService {
 
     private static final Set<String> BUILDING_FLOOR_STATUSES = Set.of("ACTIVE", "INACTIVE", "MAINTENANCE");
     private static final Set<String> ZONE_STATUSES = Set.of("ACTIVE", "INACTIVE", "FULL", "MAINTENANCE");
+    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "CHECKED_IN");
 
     private final BuildingRepository buildingRepository;
     private final FloorRepository floorRepository;
     private final ZoneRepository zoneRepository;
     private final ParkingSlotRepository parkingSlotRepository;
     private final VehicleTypeRepository vehicleTypeRepository;
+    private final ReservationRepository reservationRepository;
+    private final ParkingSessionRepository parkingSessionRepository;
+    private final TicketRepository ticketRepository;
 
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getAllBuildings() {
@@ -78,6 +95,47 @@ public class ManagerBuildingSetupService {
                 .sorted(slotByIndexAscending())
                 .map(this::toSlotResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public SlotOccupancyDetailResponse getSlotOccupancyDetail(String slotId) {
+        ParkingSlot slot = findSlot(slotId);
+        String slotStatus = slot.getSlotStatus();
+
+        if ("AVAILABLE".equalsIgnoreCase(slotStatus) || "MAINTENANCE".equalsIgnoreCase(slotStatus)) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Slot is not occupied or reserved");
+        }
+
+        ParkingSession session = parkingSessionRepository.findCurrentBySlotId(slot.getSlotId()).orElse(null);
+        Reservation reservation = session != null && session.getReservation() != null
+                ? session.getReservation()
+                : reservationRepository
+                        .findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
+                                slot.getSlotId(), ACTIVE_RESERVATION_STATUSES)
+                        .orElse(null);
+
+        if (reservation == null && session == null) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "No active reservation or parking session found for this slot");
+        }
+
+        Ticket ticket = reservation != null
+                ? ticketRepository.findByReservationReservationId(reservation.getReservationId()).orElse(null)
+                : (session != null ? session.getTicket() : null);
+
+        return toSlotOccupancyDetail(slot, reservation, session, ticket);
+    }
+
+    @Transactional
+    public void forceResetSlotStatus(String slotId) {
+        ParkingSlot slot = findSlot(slotId);
+        String currentStatus = slot.getSlotStatus();
+        if ("AVAILABLE".equalsIgnoreCase(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Slot is already AVAILABLE");
+        }
+        slot.setSlotStatus("AVAILABLE");
+        parkingSlotRepository.save(slot);
     }
 
     @Transactional
@@ -199,7 +257,7 @@ public class ManagerBuildingSetupService {
         zone.setStatus("ACTIVE");
         Zone savedZone = zoneRepository.save(zone);
 
-        List<ParkingSlot> slots = buildSlots(savedZone, normalizeText(request.getSlotPrefix()), request.getMaxCapacity());
+        List<ParkingSlot> slots = buildSlots(savedZone, slotPrefixFromZone(savedZone), request.getMaxCapacity());
         parkingSlotRepository.saveAll(slots);
 
         ManagerSetupResponse response = toZoneResponse(savedZone);
@@ -243,18 +301,12 @@ public class ManagerBuildingSetupService {
             }
             removeAvailableSlots(existingSlots, currentSlotCount - targetSlotCount);
         } else if (targetSlotCount > currentSlotCount) {
-            String slotPrefix = request.getSlotPrefix() != null && !request.getSlotPrefix().isBlank()
-                    ? normalizeText(request.getSlotPrefix())
+            String slotPrefix = existingSlots.isEmpty()
+                    ? slotPrefixFromZone(zone)
                     : deriveSlotPrefix(existingSlots);
             List<ParkingSlot> newSlots = buildSlots(
                     zone, slotPrefix, currentSlotCount + 1, targetSlotCount);
             parkingSlotRepository.saveAll(newSlots);
-        }
-
-        if (request.getSlotPrefix() != null && !request.getSlotPrefix().isBlank()) {
-            List<ParkingSlot> slotsToRename =
-                    parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
-            renameZoneSlots(slotsToRename, normalizeText(request.getSlotPrefix()));
         }
 
         zone.setZoneName(normalizedName);
@@ -287,6 +339,11 @@ public class ManagerBuildingSetupService {
     private Zone findZone(String zoneId) {
         return zoneRepository.findById(zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("Zone not found: " + zoneId));
+    }
+
+    private ParkingSlot findSlot(String slotId) {
+        return parkingSlotRepository.findBySlotId(slotId)
+                .orElseThrow(() -> new ResourceNotFoundException("Slot not found: " + slotId));
     }
 
     private VehicleType resolveVehicleType(String buildingId, CreateFloorRequest request) {
@@ -395,7 +452,7 @@ public class ManagerBuildingSetupService {
 
     private String deriveSlotPrefix(List<ParkingSlot> slots) {
         if (slots.isEmpty()) {
-            throw new RuntimeException("slotPrefix is required when adding slots to a zone with no existing slots");
+            throw new RuntimeException("Cannot derive slot prefix from an empty slot list");
         }
 
         String slotName = slots.get(0).getSlotName();
@@ -406,35 +463,13 @@ public class ManagerBuildingSetupService {
         return slotName;
     }
 
-    private String resolveSlotPrefix(String zoneId) {
-        return parkingSlotRepository.findFirstByZoneZoneIdOrderBySlotNameAsc(zoneId)
-                .map(slot -> deriveSlotPrefix(List.of(slot)))
-                .orElse(null);
-    }
-
-    private void renameZoneSlots(List<ParkingSlot> slots, String slotPrefix) {
-        if (slots.isEmpty()) {
-            return;
+    private String slotPrefixFromZone(Zone zone) {
+        String name = normalizeText(zone.getZoneName());
+        if (name == null || name.isBlank()) {
+            return "Slot";
         }
-
-        String currentPrefix = deriveSlotPrefix(slots);
-        if (slotPrefix.equalsIgnoreCase(currentPrefix)) {
-            return;
-        }
-
-        List<ParkingSlot> orderedSlots = new ArrayList<>(slots);
-        orderedSlots.sort(slotByIndexAscending());
-
-        for (ParkingSlot slot : orderedSlots) {
-            slot.setSlotName("__rename_" + slot.getSlotId());
-        }
-        parkingSlotRepository.saveAll(orderedSlots);
-        parkingSlotRepository.flush();
-
-        for (int i = 0; i < orderedSlots.size(); i++) {
-            orderedSlots.get(i).setSlotName(slotPrefix + "-" + (i + 1));
-        }
-        parkingSlotRepository.saveAll(orderedSlots);
+        String prefix = name.replaceAll("\\s+", "-").replaceAll("[^\\p{L}\\p{N}-]", "");
+        return prefix.isBlank() ? "Slot" : prefix;
     }
 
     private String validateBuildingOrFloorStatus(String status) {
@@ -507,7 +542,6 @@ public class ManagerBuildingSetupService {
                 .maxCapacity(zone.getMaxCapacity())
                 .currentOccupancy(zone.getCurrentOccupancy())
                 .slotCount((int) slotCount)
-                .slotPrefix(resolveSlotPrefix(zone.getZoneId()))
                 .status(zone.getStatus())
                 .createdAt(zone.getCreatedAt())
                 .updatedAt(zone.getUpdatedAt())
@@ -525,6 +559,101 @@ public class ManagerBuildingSetupService {
                 .createdAt(slot.getCreatedAt())
                 .updatedAt(slot.getUpdatedAt())
                 .build();
+    }
+
+    private SlotOccupancyDetailResponse toSlotOccupancyDetail(
+            ParkingSlot slot,
+            Reservation reservation,
+            ParkingSession session,
+            Ticket ticket) {
+        Zone zone = slot.getZone();
+        Floor floor = zone != null ? zone.getFloor() : null;
+        Building building = floor != null ? floor.getBuilding() : null;
+
+        SlotOccupancyDetailResponse.SlotOccupancyDetailResponseBuilder builder = SlotOccupancyDetailResponse.builder()
+                .slotId(slot.getSlotId())
+                .slotName(slot.getSlotName())
+                .slotStatus(slot.getSlotStatus())
+                .buildingId(building != null ? building.getBuildingId() : null)
+                .buildingName(building != null ? building.getBuildingName() : null)
+                .floorId(floor != null ? floor.getFloorId() : null)
+                .floorName(floor != null ? floor.getFloorName() : null)
+                .floorLevel(floor != null ? floor.getFloorLevel() : null)
+                .zoneId(zone != null ? zone.getZoneId() : null)
+                .zoneName(zone != null ? zone.getZoneName() : null);
+
+        if (reservation != null) {
+            builder.reservationId(reservation.getReservationId())
+                    .reservationCode(reservation.getReservationCode())
+                    .reservationStatus(reservation.getReservationStatus())
+                    .reservationStart(reservation.getReservationStart())
+                    .reservationEnd(reservation.getReservationEnd());
+
+            User driver = reservation.getUser();
+            if (driver != null) {
+                builder.driverId(driver.getUserId())
+                        .driverUsername(driver.getUsername())
+                        .driverFullName(driver.getFullName())
+                        .driverEmail(driver.getEmail())
+                        .driverPhoneNumber(driver.getPhoneNumber());
+            }
+
+            Vehicle vehicle = reservation.getVehicle();
+            if (vehicle != null) {
+                builder.vehicleId(vehicle.getVehicleId())
+                        .vehiclePlateNumber(vehicle.getPlateNumber())
+                        .vehicleBrand(vehicle.getBrand())
+                        .vehicleModel(vehicle.getModel())
+                        .vehicleColor(vehicle.getVehicleColor());
+                VehicleType vehicleType = vehicle.getVehicleType();
+                if (vehicleType != null) {
+                    builder.vehicleTypeName(vehicleType.getTypeName());
+                }
+            }
+        } else if (session != null) {
+            // Guest session (no reservation) — vehicle linked directly on the session
+            builder.guestName(session.getGuestName())
+                    .guestPhone(session.getGuestPhone());
+
+            Vehicle vehicle = session.getVehicle();
+            if (vehicle != null) {
+                builder.vehicleId(vehicle.getVehicleId())
+                        .vehiclePlateNumber(vehicle.getPlateNumber())
+                        .vehicleBrand(vehicle.getBrand())
+                        .vehicleModel(vehicle.getModel())
+                        .vehicleColor(vehicle.getVehicleColor());
+                VehicleType vehicleType = vehicle.getVehicleType();
+                if (vehicleType != null) {
+                    builder.vehicleTypeName(vehicleType.getTypeName());
+                }
+            }
+        }
+
+        if (ticket != null) {
+            builder.ticketCode(ticket.getTicketCode());
+        }
+
+        if (session != null) {
+            builder.sessionId(session.getSessionId())
+                    .sessionStatus(session.getSessionStatus())
+                    .checkinTime(session.getCheckinTime())
+                    .checkoutTime(session.getCheckoutTime())
+                    .parkedDurationMinutes(calculateParkedDurationMinutes(session))
+                    .checkinImageUrl(session.getCheckinImageUrl());
+        }
+
+        return builder.build();
+    }
+
+    private Long calculateParkedDurationMinutes(ParkingSession session) {
+        LocalDateTime checkinTime = session.getCheckinTime();
+        if (checkinTime == null) {
+            return null;
+        }
+        LocalDateTime endTime = session.getCheckoutTime() != null
+                ? session.getCheckoutTime()
+                : LocalDateTime.now();
+        return Duration.between(checkinTime, endTime).toMinutes();
     }
 
     private String normalizeText(String value) {

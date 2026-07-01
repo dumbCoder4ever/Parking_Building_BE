@@ -46,8 +46,6 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     Optional<ParkingSlot> findFirstByZoneZoneIdOrderBySlotNameAsc(String zoneId);
 
     List<ParkingSlot> findBySlotStatusIgnoreCase(String slotStatus);
-<<<<<<< Updated upstream
-=======
 
     @Query("SELECT COUNT(ps) FROM ParkingSlot ps WHERE UPPER(ps.slotStatus) = UPPER(:status)")
     long countBySlotStatus(@Param("status") String status);
@@ -57,6 +55,7 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
 
     @Query("SELECT COUNT(ps) FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.building b WHERE b.buildingId = :buildingId AND UPPER(ps.slotStatus) = UPPER(:status)")
     long countByBuildingIdAndSlotStatus(@Param("buildingId") String buildingId, @Param("status") String status);
+
 
     /**
      * Single round-trip: aggregate slot counts per zone for a building (or all buildings).
@@ -75,5 +74,5 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             "vt.vehicleTypeId, vt.typeName, b.buildingId, b.buildingName, b.status")
     List<ZoneSlotCount> aggregateSlotCounts(@Param("buildingId") String buildingId,
                                             @Param("vehicleTypeId") String vehicleTypeId);
->>>>>>> Stashed changes
+
 }

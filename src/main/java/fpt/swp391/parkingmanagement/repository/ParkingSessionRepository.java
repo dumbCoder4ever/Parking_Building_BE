@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,4 +52,63 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketId = :ticketId AND ps.sessionStatus = 'ACTIVE'")
     Optional<ParkingSession> findCurrentSessionByUser(@Param("ticketId") String ticketId);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "LEFT JOIN FETCH ps.ticket "
+            + "WHERE ps.slot.slotId = :slotId "
+            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT', 'PENDING_EXIT') "
+            + "ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findCurrentBySlotId(@Param("slotId") String slotId);
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
+            + "AND ps.sessionStatus = 'ACTIVE' ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findActiveByVehicleId(@Param("vehicleId") String vehicleId);
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
+            + "ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
+
+    Optional<ParkingSession> findFirstByReservationReservationIdOrderByCreatedAtDesc(String reservationId);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE v.plateNumber = :plateNumber AND ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE' "
+            + "ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findActiveGuestByPlateNumber(@Param("plateNumber") String plateNumber);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE ps.sessionId = :sessionId AND ps.reservation IS NULL")
+    Optional<ParkingSession> findGuestSessionById(@Param("sessionId") String sessionId);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.ticket t "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE t.ticketCode = :ticketCode AND ps.reservation IS NULL")
+    Optional<ParkingSession> findGuestSessionByTicketCode(@Param("ticketCode") String ticketCode);
+
+    // ============ DASHBOARD STATS ============
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.sessionStatus = :status")
+    long countBySessionStatus(@Param("status") String status);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.checkinTime >= :from AND ps.checkinTime < :to")
+    long countSessionsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL AND ps.checkinTime >= :from AND ps.checkinTime < :to")
+    long countGuestSessionsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("SELECT COALESCE(AVG(ps.parkingDuration), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED'")
+    Double avgDurationMinutesCompleted();
+
+    @Query("SELECT COALESCE(AVG(ps.totalFee), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0")
+    Double avgFeeCompleted();
+
+    @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus = 'ACTIVE' AND ps.reservation IS NOT NULL")
+    long countDistinctDriversCurrentlyParked();
 }

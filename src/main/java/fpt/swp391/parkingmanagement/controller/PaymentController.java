@@ -1,7 +1,6 @@
 package fpt.swp391.parkingmanagement.controller;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
-import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentRequestDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponse;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
@@ -42,15 +41,6 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.ok("Payment confirmed successfully", response));
     }
 
-    @Operation(summary = "Staff confirms payment completion")
-    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-    @PostMapping("/confirm-by-staff")
-    public ResponseEntity<ApiResponse<PaymentConfirmationDTO>> confirmPaymentByStaff(
-            @RequestBody PaymentConfirmationDTO confirmationRequest) {
-        PaymentConfirmationDTO response = paymentService.confirmPaymentByStaff(confirmationRequest);
-        return ResponseEntity.ok(ApiResponse.ok("Payment reviewed successfully", response));
-    }
-
     @Operation(summary = "Handle payment failure from gateway")
     @PostMapping("/handle-failure")
     public ResponseEntity<ApiResponse<PaymentResponseDTO>> handlePaymentFailure(
@@ -60,11 +50,11 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.ok("Payment failure recorded", response));
     }
 
-    @Operation(summary = "Staff lists payments (filter: PAID, UNPAID, or AWAITING_CONFIRM)")
+    @Operation(summary = "Staff lists payments (filter: PAID or UNPAID)")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping
     public ResponseEntity<ApiResponse<List<StaffPaymentListItemResponse>>> getAllPayments(
-            @Parameter(description = "Filter: PAID, UNPAID, AWAITING_CONFIRM")
+            @Parameter(description = "Filter: PAID or UNPAID")
             @RequestParam(required = false) PaidStatusFilter status,
             @RequestParam(defaultValue = "50") int limit) {
         List<StaffPaymentListItemResponse> payments = paymentService.getAllPaymentsForStaff(status, limit);

@@ -5,6 +5,8 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import fpt.swp391.parkingmanagement.entity.Vehicle;
 
@@ -35,4 +37,24 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     boolean existsByPlateNumber(String plateNumber);
 
     int countByUserUserId(String userId);
+
+    @Query("""
+            SELECT v FROM Vehicle v
+            JOIN FETCH v.user u
+            JOIN FETCH v.vehicleType vt
+            WHERE (:plateNumber IS NULL OR LOWER(v.plateNumber) LIKE LOWER(CONCAT('%', :plateNumber, '%')))
+            AND (:status IS NULL OR UPPER(v.status) = UPPER(:status))
+            AND (:userId IS NULL OR u.userId = :userId)
+            AND (:username IS NULL OR LOWER(u.username) LIKE LOWER(CONCAT('%', :username, '%')))
+            AND (:ownerFullName IS NULL OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :ownerFullName, '%')))
+            AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId)
+            ORDER BY v.createdAt DESC
+            """)
+    List<Vehicle> searchForManager(
+            @Param("plateNumber") String plateNumber,
+            @Param("status") String status,
+            @Param("userId") String userId,
+            @Param("username") String username,
+            @Param("ownerFullName") String ownerFullName,
+            @Param("vehicleTypeId") String vehicleTypeId);
 }
