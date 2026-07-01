@@ -45,6 +45,9 @@ public class Vehicle {
 
     private String model;
 
+    @Column(name = "image_url")
+    private String imageUrl;
+
     @Column(nullable = false, length = 20)
     private String status;
 

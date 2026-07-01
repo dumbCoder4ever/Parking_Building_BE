@@ -13,6 +13,7 @@ public class ReservationResponse {
     private String reservationNote;
     private LocalDateTime reservationStart;
     private LocalDateTime reservationEnd;
+    private LocalDateTime createdAt;
 
     // User info
     private String userId;
@@ -48,4 +49,14 @@ public class ReservationResponse {
     private BigDecimal hourlyRate;
     private Integer maxHours;
     private String vehicleTypeName;
+
+    // Parking session info
+    private String sessionId;
+    private LocalDateTime checkinTime;
+    private LocalDateTime checkoutTime;
+    private BigDecimal totalFee;
+    private String checkinImageUrl;
+    private String checkoutImageUrl;
+    private Integer parkingDuration;
+    private String paymentStatus;
 }

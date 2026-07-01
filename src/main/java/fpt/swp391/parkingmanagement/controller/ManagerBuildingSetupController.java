@@ -19,6 +19,7 @@ import fpt.swp391.parkingmanagement.dto.CreateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.CreateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.CreateZoneRequest;
 import fpt.swp391.parkingmanagement.dto.ManagerSetupResponse;
+import fpt.swp391.parkingmanagement.dto.SlotOccupancyDetailResponse;
 import fpt.swp391.parkingmanagement.dto.UpdateBuildingRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateFloorRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateSetupStatusRequest;
@@ -153,7 +154,7 @@ public class ManagerBuildingSetupController {
 
     @Operation(
             summary = "Update zone",
-            description = "Update zone name, rename slot prefix, and change the number of slots by adjusting maxCapacity.")
+            description = "Update zone name and change the number of slots by adjusting maxCapacity.")
     @PutMapping("/zones/{zoneId}")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateZone(
             @PathVariable String zoneId,
@@ -181,5 +182,27 @@ public class ManagerBuildingSetupController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Parking slots retrieved successfully",
                 managerBuildingSetupService.getSlotsByZone(zoneId)));
+    }
+
+    @Operation(
+            summary = "Get occupied or reserved slot details",
+            description = "Returns driver, vehicle, reservation, and parking session information "
+                    + "when a manager selects an OCCUPIED, RESERVED, or PENDING_EXIT slot.")
+    @GetMapping("/slots/{slotId}/occupancy")
+    public ResponseEntity<ApiResponse<SlotOccupancyDetailResponse>> getSlotOccupancyDetail(
+            @PathVariable String slotId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Slot occupancy details retrieved successfully",
+                managerBuildingSetupService.getSlotOccupancyDetail(slotId)));
+    }
+
+    @Operation(
+            summary = "Force-reset a stuck slot to AVAILABLE",
+            description = "Emergency reset for slots stuck in OCCUPIED/RESERVED/PENDING_EXIT "
+                    + "with no corresponding active session or reservation.")
+    @PostMapping("/slots/{slotId}/force-reset")
+    public ResponseEntity<ApiResponse<Void>> forceResetSlotStatus(@PathVariable String slotId) {
+        managerBuildingSetupService.forceResetSlotStatus(slotId);
+        return ResponseEntity.ok(ApiResponse.ok("Slot has been force-reset to AVAILABLE", null));
     }
 }

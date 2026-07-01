@@ -57,7 +57,7 @@ public class ReservationController {
     // =========================================================================
 
     @GetMapping("/slots/availability")
-    @PreAuthorize("hasAnyRole('DRIVER','MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<SlotAvailabilityDto>>> getAvailableSlots(
             @RequestParam(required = false) String buildingId,
             @RequestParam(required = false) String vehicleTypeId) {
@@ -102,6 +102,14 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "All reservations retrieved successfully",
                 reservationService.getAllReservationsForStaff(auth.getName())));
+    }
+
+    @GetMapping("/staff/reservations/queue")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getPendingQueue(Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Pending reservations in FIFO order",
+                reservationService.getPendingReservationsFifo(auth.getName())));
     }
 
     @GetMapping("/staff/reservations/by-status")

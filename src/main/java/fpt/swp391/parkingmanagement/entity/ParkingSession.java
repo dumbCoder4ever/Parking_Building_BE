@@ -62,6 +62,18 @@ public class ParkingSession {
 
     private String note;
 
+    @Column(name = "guest_name", length = 100)
+    private String guestName;
+
+    @Column(name = "guest_phone", length = 20)
+    private String guestPhone;
+
+    @Column(name = "checkin_image_url")
+    private String checkinImageUrl;
+
+    @Column(name = "checkout_image_url")
+    private String checkoutImageUrl;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     @ToString.Exclude

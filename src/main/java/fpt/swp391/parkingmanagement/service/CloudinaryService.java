@@ -15,11 +15,19 @@ public class CloudinaryService {
     private final Cloudinary cloudinary;
 
     public String upload(MultipartFile file) {
+        return uploadToFolder(file, "parking-management/avatars", "Avatar");
+    }
+
+    public String uploadParkingImage(MultipartFile file) {
+        return uploadToFolder(file, "parking-management/sessions", "Parking image");
+    }
+
+    private String uploadToFolder(MultipartFile file, String folder, String label) {
         if (file == null || file.isEmpty()) {
-            throw new RuntimeException("Avatar file is empty");
+            throw new RuntimeException(label + " file is empty");
         }
         if (file.getContentType() != null && !file.getContentType().startsWith("image/")) {
-            throw new RuntimeException("Avatar file must be an image");
+            throw new RuntimeException(label + " file must be an image");
         }
 
         try {
@@ -27,7 +35,7 @@ public class CloudinaryService {
                     file.getBytes(),
                     ObjectUtils.asMap(
                             "resource_type", "image",
-                            "folder", "parking-management/avatars")
+                            "folder", folder)
             );
 
             Object secureUrl = uploadResult.get("secure_url");

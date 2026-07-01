@@ -123,4 +123,28 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     int countByUserUserId(String userId);
 
     Optional<Reservation> findFirstByUserUserIdOrderByCreatedAtAsc(String userId);
+
+    // FIFO: xe đặt trước checkin trước - lấy PENDING reservations theo thứ tự createdAt ASC
+    @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId AND r.reservationStatus = 'PENDING' ORDER BY r.createdAt ASC")
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    List<Reservation> findPendingByBuildingOrderByCreatedAtAsc(@Param("buildingId") String buildingId);
+
+    // Check active reservations by vehicle type (không dùng time range nữa)
+    @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +
+           "WHERE r.user.userId = :userId " +
+           "AND vt.typeName = :vehicleTypeName " +
+           "AND r.reservationStatus IN :statuses")
+    List<Reservation> findActiveReservationsByVehicleType(
+            @Param("userId") String userId,
+            @Param("vehicleTypeName") String vehicleTypeName,
+            @Param("statuses") Collection<String> statuses);
+
+    // ============ DASHBOARD STATS ============
+
+    @Query("SELECT COUNT(r) FROM Reservation r WHERE r.reservationStatus = :status")
+    long countByReservationStatus(@Param("status") String status);
+
+    @Query("SELECT COUNT(r) FROM Reservation r WHERE r.createdAt >= :from AND r.createdAt < :to")
+    long countReservationsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

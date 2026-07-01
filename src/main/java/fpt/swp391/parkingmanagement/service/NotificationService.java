@@ -1,6 +1,5 @@
 package fpt.swp391.parkingmanagement.service;
 
-import fpt.swp391.parkingmanagement.dto.PaymentConfirmationDTO;
 import fpt.swp391.parkingmanagement.dto.PaymentResponseDTO;
 import fpt.swp391.parkingmanagement.dto.WsMessage;
 import fpt.swp391.parkingmanagement.entity.User;
@@ -44,7 +43,7 @@ public class NotificationService {
         sendToUser(driver.getUsername(), "PAYMENT_INITIATED", paymentResponse);
     }
 
-    public void sendPaymentConfirmationToDriver(User driver, PaymentConfirmationDTO confirmation) {
-        sendToUser(driver.getUsername(), "PAYMENT_CONFIRMED", confirmation);
+    public void sendPaymentSuccessToDriver(User driver, PaymentResponseDTO paymentResponse) {
+        sendToUser(driver.getUsername(), "PAYMENT_PAID", paymentResponse);
     }
 }

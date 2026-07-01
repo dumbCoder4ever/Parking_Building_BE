@@ -10,4 +10,6 @@ public class CheckoutRequest {
     private String ticketCode;
 
     private String paymentMethod;
+    // Set programmatically after Cloudinary upload — not sent by client
+    private String checkoutImageUrl;
 }
