@@ -54,7 +54,8 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     Optional<ParkingSession> findCurrentSessionByUser(@Param("ticketId") String ticketId);
 
     @Query("SELECT ps FROM ParkingSession ps "
-            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle v LEFT JOIN FETCH v.vehicleType "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
             + "LEFT JOIN FETCH ps.ticket "
             + "WHERE ps.slot.slotId = :slotId "
             + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT', 'PENDING_EXIT') "
