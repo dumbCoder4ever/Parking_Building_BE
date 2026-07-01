@@ -27,6 +27,9 @@ public class SlotOccupancyDetailResponse {
     private String driverEmail;
     private String driverPhoneNumber;
 
+    private String guestName;
+    private String guestPhone;
+
     private String vehicleId;
     private String vehiclePlateNumber;
     private String vehicleBrand;
