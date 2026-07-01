@@ -122,7 +122,7 @@ public class ManagerBuildingSetupService {
 
         Ticket ticket = reservation != null
                 ? ticketRepository.findByReservationReservationId(reservation.getReservationId()).orElse(null)
-                : null;
+                : (session != null ? session.getTicket() : null);
 
         return toSlotOccupancyDetail(slot, reservation, session, ticket);
     }
@@ -599,6 +599,23 @@ public class ManagerBuildingSetupService {
             }
 
             Vehicle vehicle = reservation.getVehicle();
+            if (vehicle != null) {
+                builder.vehicleId(vehicle.getVehicleId())
+                        .vehiclePlateNumber(vehicle.getPlateNumber())
+                        .vehicleBrand(vehicle.getBrand())
+                        .vehicleModel(vehicle.getModel())
+                        .vehicleColor(vehicle.getVehicleColor());
+                VehicleType vehicleType = vehicle.getVehicleType();
+                if (vehicleType != null) {
+                    builder.vehicleTypeName(vehicleType.getTypeName());
+                }
+            }
+        } else if (session != null) {
+            // Guest session (no reservation) — vehicle linked directly on the session
+            builder.guestName(session.getGuestName())
+                    .guestPhone(session.getGuestPhone());
+
+            Vehicle vehicle = session.getVehicle();
             if (vehicle != null) {
                 builder.vehicleId(vehicle.getVehicleId())
                         .vehiclePlateNumber(vehicle.getPlateNumber())
