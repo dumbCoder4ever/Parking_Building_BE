@@ -52,6 +52,9 @@ dependencies {
     testRuntimeOnly 'com.h2database:h2'
     // OCR
     implementation 'net.sourceforge.tess4j:tess4j:5.13.0'
+
+    // Mail
+    implementation 'com.sun.mail:jakarta.mail:2.0.2'
 }
 
 tasks.named('test') {
