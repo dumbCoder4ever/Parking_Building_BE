@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,6 +38,13 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
 
     @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building", "zone.floor.vehicleType"})
     List<ParkingSlot> findByZoneZoneIdOrderBySlotNameAsc(String zoneId);
+
+    /**
+     * FIX N+1: Batch-load slots cho nhiều zones trong 1 query thay vì loop từng zone.
+     * Dùng trong ReservationService.getAvailability().
+     */
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building", "zone.floor.vehicleType"})
+    List<ParkingSlot> findByZoneZoneIdInOrderBySlotNameAsc(Collection<String> zoneIds);
 
     @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building", "zone.floor.vehicleType"})
     Optional<ParkingSlot> findBySlotId(String slotId);
