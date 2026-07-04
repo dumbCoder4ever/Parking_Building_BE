@@ -20,9 +20,31 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
 
     Optional<Reservation> findByReservationCode(String reservationCode);
 
-    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user", "vehicle.vehicleType"})
     Optional<Reservation> findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
             String slotId, Collection<String> statuses);
+
+    /**
+     * FIX N+1: Batch-load active reservations cho nhiều slot trong 1 query.
+     * Trước đây gọi findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc
+     * trong loop → mỗi slot 1 query.
+     */
+    @EntityGraph(attributePaths = {"vehicle", "user", "vehicle.vehicleType"})
+    List<Reservation> findBySlotSlotIdInAndReservationStatusInOrderByCreatedAtDesc(
+            Collection<String> slotIds, Collection<String> statuses);
+
+    /**
+     * Batch-load active reservations for all zones in 1 query.
+     * Dùng trong getAvailability() để loại bỏ N+1 reservation lookup.
+     */
+    @Query("SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z " +
+           "JOIN FETCH r.vehicle JOIN FETCH r.user JOIN FETCH r.vehicle.vehicleType " +
+           "WHERE z.zoneId IN :zoneIds AND r.reservationStatus IN :statuses " +
+           "ORDER BY r.createdAt DESC")
+    @EntityGraph(attributePaths = {"slot", "vehicle", "user"})
+    List<Reservation> findBySlotZoneIdInAndReservationStatusInOrderByCreatedAtDesc(
+            @Param("zoneIds") Collection<String> zoneIds,
+            @Param("statuses") Collection<String> statuses);
 
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findByUserUserIdOrderByCreatedAtDesc(String userId);
