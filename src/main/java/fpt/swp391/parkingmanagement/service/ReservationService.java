@@ -2,9 +2,15 @@ package fpt.swp391.parkingmanagement.service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,7 +22,9 @@ import fpt.swp391.parkingmanagement.dto.SlotAvailabilityDto;
 import fpt.swp391.parkingmanagement.dto.SlotStatusResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
+import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
+import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.Ticket;
 import fpt.swp391.parkingmanagement.entity.User;
@@ -41,6 +49,7 @@ import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.service.PricingService;
 import fpt.swp391.parkingmanagement.dto.PricingPolicySummaryDto;
 import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
+import fpt.swp391.parkingmanagement.repository.ZoneSlotCount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,142 +118,219 @@ public class ReservationService {
 
     @Transactional(readOnly = true)
     public List<SlotAvailabilityDto> getAvailability(String buildingId, String vehicleTypeId) {
+        // =====================================================================
+        // Strategy:
+        // 1. aggregateSlotCounts → counts per zone/floor (1 query)
+        // 2. buildBuildingEnrichment → building data + vehicleTypes + pricing (1 query/building)
+        // 3. findBySlotZoneIdIn → active reservations cho tất cả zones (1 query)
+        // 4. Per-zone slot query → slots cho mỗi zone (1 query/zone, dùng index)
+        // Total: ~4-5 queries cố định, MySQL dùng index hiệu quả.
+        // =====================================================================
+
+        // QUERY 1: Get zone stats with counts (1 query)
+        List<ZoneSlotCount> zoneStats = parkingSlotRepository.aggregateSlotCounts(
+                StringUtils.hasText(buildingId) ? normalizeText(buildingId) : null,
+                StringUtils.hasText(vehicleTypeId) ? normalizeText(vehicleTypeId) : null);
+
+        if (zoneStats.isEmpty()) {
+            return List.of();
+        }
+
+        // Filter ACTIVE only
+        zoneStats = zoneStats.stream()
+                .filter(z -> "ACTIVE".equalsIgnoreCase(z.getBuildingStatus()))
+                .filter(z -> "ACTIVE".equalsIgnoreCase(z.getFloorStatus()))
+                .filter(z -> ACTIVE_ZONE_STATUSES.contains(normalize(z.getZoneStatus())))
+                .toList();
+
+        if (zoneStats.isEmpty()) {
+            return List.of();
+        }
+
+        // QUERY 2: Load building enrichment cho tất cả buildings (1 query/building)
+        Set<String> buildingIds = zoneStats.stream()
+                .map(ZoneSlotCount::getBuildingId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<String, BuildingEnrichment> enrichments = new HashMap<>();
+        for (String bId : buildingIds) {
+            enrichments.put(bId, buildBuildingEnrichment(bId));
+        }
+
+        // QUERY 3: Batch load active reservations cho TẤT CẢ zones (1 query)
+        List<String> zoneIds = zoneStats.stream().map(ZoneSlotCount::getZoneId).toList();
+        List<Reservation> allReservations = reservationRepository
+                .findBySlotZoneIdInAndReservationStatusInOrderByCreatedAtDesc(zoneIds, ACTIVE_RESERVATION_STATUSES);
+        Map<String, Reservation> reservationBySlotId = allReservations.stream()
+                .collect(Collectors.toMap(r -> r.getSlot().getSlotId(), r -> r, (a, b) -> a));
+
+        // BUILD RESPONSE: per-zone slot query (dùng index → nhanh)
         List<SlotAvailabilityDto> result = new ArrayList<>();
+        for (ZoneSlotCount zoneStat : zoneStats) {
+            BuildingEnrichment enr = enrichments.get(zoneStat.getBuildingId());
+            boolean isFirstForBuilding = enr != null && !enr.consumed;
 
-        List<Floor> floors = resolveFloors(buildingId);
-        Set<String> processedBuildings = new java.util.HashSet<>();
+            // QUERY 4 (per-zone): slots cho zone này (MySQL dùng index trên zone_id)
+            List<ParkingSlot> zoneSlots = parkingSlotRepository
+                    .findByZoneZoneIdOrderBySlotNameAsc(zoneStat.getZoneId());
 
-        for (Floor floor : floors) {
-            if (!ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(floor.getStatus()))) {
-                continue;
-            }
-            VehicleType floorVehicleType = floor.getVehicleType();
-            if (floorVehicleType == null || floorVehicleType.getVehicleTypeId() == null) {
-                continue;
-            }
-            if (StringUtils.hasText(vehicleTypeId)
-                    && !normalizeText(vehicleTypeId).equals(floorVehicleType.getVehicleTypeId())) {
-                continue;
-            }
+            SlotAvailabilityDto.SlotAvailabilityDtoBuilder dtoBuilder = SlotAvailabilityDto.builder()
+                    .buildingId(zoneStat.getBuildingId())
+                    .buildingName(zoneStat.getBuildingName())
+                    .floorId(zoneStat.getFloorId())
+                    .floorName(zoneStat.getFloorName())
+                    .floorLevel(zoneStat.getFloorLevel())
+                    .floorStatus(zoneStat.getFloorStatus())
+                    .floorVehicleTypeId(zoneStat.getVehicleTypeId())
+                    .floorVehicleTypeName(zoneStat.getVehicleTypeName())
+                    .zoneId(zoneStat.getZoneId())
+                    .zoneName(zoneStat.getZoneName())
+                    .zoneStatus(zoneStat.getZoneStatus())
+                    .totalSlots(zoneStat.getTotalSlots() != null ? zoneStat.getTotalSlots().intValue() : 0)
+                    .availableSlots(zoneStat.getAvailableSlots() != null ? zoneStat.getAvailableSlots().intValue() : 0);
 
-            Building building = floor.getBuilding();
-            if (building == null) {
-                continue;
-            }
-
-            // Check if this is the first floor for this building
-            boolean isFirstFloorForBuilding = processedBuildings.add(building.getBuildingId());
-
-            // Get building-level info only for the first floor
-            List<VehicleTypeOptionResponse> supportedVehicleTypes = null;
-            List<PricingPolicySummaryDto> pricingPolicies = null;
-            String operatingHoursDisplay = null;
-            String parkingRules = null;
-
-            if (isFirstFloorForBuilding) {
-                // Get all vehicle types supported by this building's floors
-                List<VehicleTypeOptionResponse> vehicleTypes = floorRepository
-                        .findByBuildingBuildingIdOrderByFloorLevelAsc(building.getBuildingId()).stream()
-                        .filter(f -> ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(f.getStatus())))
-                        .map(Floor::getVehicleType)
-                        .filter(vt -> vt != null)
-                        .distinct()
-                        .map(vt -> VehicleTypeOptionResponse.builder()
-                                .vehicleTypeId(vt.getVehicleTypeId())
-                                .typeName(vt.getTypeName())
-                                .description(vt.getDescription())
-                                .sizeCategory(vt.getSizeCategory())
-                                .build())
-                        .toList();
-
-                // Get active pricing policies for each vehicle type
-                List<PricingPolicySummaryDto> policies = new ArrayList<>();
-                for (Floor f : floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(building.getBuildingId())) {
-                    if (f.getVehicleType() != null && f.getVehicleType().getVehicleTypeId() != null) {
-                        pricingPolicyRepository.findAllActiveForVehicleType(f.getVehicleType().getVehicleTypeId())
-                                .stream()
-                                .filter(p -> p.getStatus().equals("ACTIVE"))
-                                .findFirst()
-                                .ifPresent(p -> {
-                                    policies.add(PricingPolicySummaryDto.builder()
-                                            .policyId(p.getPolicyId())
-                                            .vehicleTypeId(p.getVehicleType().getVehicleTypeId())
-                                            .vehicleTypeName(p.getVehicleType().getTypeName())
-                                            .pricingType(p.getPricingType())
-                                            .basePrice(p.getBasePrice())
-                                            .hourlyRate(p.getHourlyRate())
-                                            .maxHours(p.getMaxHours())
-                                            .build());
-                                });
-                    }
-                }
-
-                // Build operating hours display
-                if (building.getOperatingStartTime() != null && building.getOperatingEndTime() != null) {
-                    operatingHoursDisplay = String.format("%s - %s",
-                            building.getOperatingStartTime().toString(),
-                            building.getOperatingEndTime().toString());
-                }
-
-                // Default parking rules only if building has no custom rules
-                parkingRules = "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
-
-                supportedVehicleTypes = vehicleTypes;
-                pricingPolicies = policies;
+            // Enrich building info 1 lần cho zone đầu tiên của building
+            if (enr != null && isFirstForBuilding) {
+                dtoBuilder.buildingAddress(enr.address)
+                        .buildingPhone(enr.contactNumber)
+                        .operatingStartTime(enr.operatingStartTime)
+                        .operatingEndTime(enr.operatingEndTime)
+                        .operatingHoursDisplay(enr.operatingHoursDisplay)
+                        .parkingRules(enr.parkingRules)
+                        .supportedVehicleTypes(enr.supportedVehicleTypes)
+                        .pricingPolicies(enr.pricingPolicies);
+                enr.consumed = true;
             }
 
-            // Only show parking rules if available
-            String effectiveParkingRules = (parkingRules != null && !parkingRules.isBlank()) ? parkingRules : null;
+            // Pre-load pricing cho vehicleType này (Caffeine cache → ko query DB thêm)
+            PricingPolicy zonePolicy = pricingService.getActivePolicy(zoneStat.getVehicleTypeId());
+            VehicleType vtRef = new VehicleType();
+            vtRef.setVehicleTypeId(zoneStat.getVehicleTypeId());
+            vtRef.setTypeName(zoneStat.getVehicleTypeName());
 
-            List<Zone> zones = zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId());
-            for (Zone zone : zones) {
-                if (!ACTIVE_ZONE_STATUSES.contains(normalize(zone.getStatus()))) {
-                    continue;
-                }
-
-                List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId());
-
-                List<SlotAvailabilityDto> slotDtos = slots.stream()
-                        .map(slot -> toSlotAvailability(slot, floorVehicleType))
-                        .toList();
-
-                long availableSlots = slotDtos.stream()
-                        .filter(slot -> "AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()))
-                        .count();
-
-                // Build zone DTO - ALWAYS include building basic info
-                SlotAvailabilityDto.SlotAvailabilityDtoBuilder dtoBuilder = SlotAvailabilityDto.builder()
-                        .buildingId(building.getBuildingId())
-                        .buildingName(building.getBuildingName())
-                        .floorId(floor.getFloorId())
-                        .floorName(floor.getFloorName())
-                        .floorLevel(floor.getFloorLevel())
-                        .floorStatus(floor.getStatus())
-                        .floorVehicleTypeId(floorVehicleType.getVehicleTypeId())
-                        .floorVehicleTypeName(floorVehicleType.getTypeName())
-                        .zoneId(zone.getZoneId())
-                        .zoneName(zone.getZoneName())
-                        .zoneStatus(zone.getStatus())
-                        .totalSlots(slotDtos.size())
-                        .availableSlots(availableSlots)
-                        .slots(slotDtos);
-
-                // Only add enriched building info on first floor to avoid duplication
-                if (isFirstFloorForBuilding) {
-                    dtoBuilder.buildingAddress(building.getAddress())
-                            .buildingPhone(building.getContactNumber())
-                            .operatingStartTime(building.getOperatingStartTime())
-                            .operatingEndTime(building.getOperatingEndTime())
-                            .operatingHoursDisplay(operatingHoursDisplay)
-                            .parkingRules(effectiveParkingRules)
-                            .supportedVehicleTypes(supportedVehicleTypes)
-                            .pricingPolicies(pricingPolicies);
-                }
-
-                result.add(dtoBuilder.build());
+            List<SlotAvailabilityDto> slotDtos = new ArrayList<>(zoneSlots.size());
+            for (ParkingSlot slot : zoneSlots) {
+                slotDtos.add(buildSlotAvailabilityDto(slot, vtRef, zonePolicy,
+                        reservationBySlotId.get(slot.getSlotId())));
             }
+            dtoBuilder.slots(slotDtos);
+
+            result.add(dtoBuilder.build());
         }
         return result;
+    }
+
+    /**
+     * Holder cho data enrich của 1 building (tránh query lặp lại khi có nhiều zones).
+     */
+    private static class BuildingEnrichment {
+        String address;
+        String contactNumber;
+        java.time.LocalTime operatingStartTime;
+        java.time.LocalTime operatingEndTime;
+        String operatingHoursDisplay;
+        String parkingRules;
+        List<VehicleTypeOptionResponse> supportedVehicleTypes;
+        List<PricingPolicySummaryDto> pricingPolicies;
+        boolean consumed = false;
+    }
+
+    /**
+     * Build 1 lần cho cả building: vehicle types + pricing policies + operating hours.
+     * Trước đây logic này nằm trong loop của getAvailability(), gọi lặp lại cho mỗi zone.
+     */
+    private BuildingEnrichment buildBuildingEnrichment(String buildingId) {
+        BuildingEnrichment enr = new BuildingEnrichment();
+
+        // QUERY: floors kèm vehicleType (1 query, dùng EntityGraph đã có)
+        List<Floor> floors = floorRepository
+                .findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId).stream()
+                .filter(f -> ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(f.getStatus())))
+                .toList();
+
+        // Dedupe vehicleTypes theo vehicleTypeId
+        enr.supportedVehicleTypes = floors.stream()
+                .map(Floor::getVehicleType)
+                .filter(vt -> vt != null)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(
+                                VehicleType::getVehicleTypeId,
+                                vt -> VehicleTypeOptionResponse.builder()
+                                        .vehicleTypeId(vt.getVehicleTypeId())
+                                        .typeName(vt.getTypeName())
+                                        .description(vt.getDescription())
+                                        .sizeCategory(vt.getSizeCategory())
+                                        .build(),
+                                (a, b) -> a),
+                        m -> new ArrayList<>(m.values())));
+
+        // QUERY: pricing policies cho mỗi vehicle type (gọi 1 lần / vt, không trong loop zone)
+        Map<String, PricingPolicySummaryDto> policyByVt = new LinkedHashMap<>();
+        for (Floor f : floors) {
+            if (f.getVehicleType() == null || f.getVehicleType().getVehicleTypeId() == null) continue;
+            String vtId = f.getVehicleType().getVehicleTypeId();
+            if (policyByVt.containsKey(vtId)) continue;
+            pricingPolicyRepository.findAllActiveForVehicleType(vtId).stream()
+                    .filter(p -> "ACTIVE".equals(p.getStatus()))
+                    .findFirst()
+                    .ifPresent(p -> policyByVt.put(vtId, PricingPolicySummaryDto.builder()
+                            .policyId(p.getPolicyId())
+                            .vehicleTypeId(p.getVehicleType().getVehicleTypeId())
+                            .vehicleTypeName(p.getVehicleType().getTypeName())
+                            .pricingType(p.getPricingType())
+                            .basePrice(p.getBasePrice())
+                            .hourlyRate(p.getHourlyRate())
+                            .maxHours(p.getMaxHours())
+                            .build()));
+        }
+        enr.pricingPolicies = new ArrayList<>(policyByVt.values());
+
+        // Operating hours từ floor đầu tiên (cùng building nên giống nhau)
+        if (!floors.isEmpty() && floors.get(0).getBuilding() != null) {
+            Building b = floors.get(0).getBuilding();
+            enr.address = b.getAddress();
+            enr.contactNumber = b.getContactNumber();
+            enr.operatingStartTime = b.getOperatingStartTime();
+            enr.operatingEndTime = b.getOperatingEndTime();
+            if (b.getOperatingStartTime() != null && b.getOperatingEndTime() != null) {
+                enr.operatingHoursDisplay = b.getOperatingStartTime() + " - " + b.getOperatingEndTime();
+            }
+        }
+        enr.parkingRules = "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
+
+        return enr;
+    }
+
+    /**
+     * Build SlotAvailabilityDto cho 1 slot, dùng data đã load sẵn (không query thêm).
+     */
+    private SlotAvailabilityDto buildSlotAvailabilityDto(ParkingSlot slot, VehicleType floorVehicleType,
+                                                         PricingPolicy preloadedPolicy,
+                                                         Reservation activeReservation) {
+        SlotAvailabilityDto dto = new SlotAvailabilityDto();
+        applyHierarchy(dto, slot, slot.getZone().getFloor());
+        dto.setSlotStatus(slot.getSlotStatus());
+        dto.setAvailableCount("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()) ? 1 : 0);
+        dto.setVehicleTypeId(floorVehicleType.getVehicleTypeId());
+        dto.setVehicleTypeName(floorVehicleType.getTypeName());
+
+        // Dùng pricing đã pre-load cho zone (KHÔNG query lại)
+        if (preloadedPolicy != null) {
+            dto.setBasePrice(preloadedPolicy.getBasePrice());
+            dto.setHourlyRate(preloadedPolicy.getHourlyRate());
+            dto.setMaxHours(preloadedPolicy.getMaxHours());
+        }
+
+        // Reserved info lấy từ batch query đã load (KHÔNG query từng slot)
+        if (activeReservation != null) {
+            User user = activeReservation.getUser();
+            Vehicle vehicle = activeReservation.getVehicle();
+            dto.setReservedByUserId(user != null ? user.getUserId() : null);
+            dto.setReservedByUsername(user != null ? user.getUsername() : null);
+            dto.setReservedByVehicleId(vehicle != null ? vehicle.getVehicleId() : null);
+        }
+
+        return dto;
     }
 
     @Transactional(readOnly = true)
@@ -262,8 +348,32 @@ public class ReservationService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        return reservationRepository.findByUserUserIdOrderByCreatedAtDesc(user.getUserId()).stream()
-                .map(this::toReservationResponse)
+        List<Reservation> reservations = reservationRepository.findByUserUserIdOrderByCreatedAtDesc(user.getUserId());
+        return batchToReservationResponse(reservations);
+    }
+
+    /**
+     * FIX N+1: Convert list reservations sang response trong 2 query batch
+     * thay vì 2 query / reservation.
+     */
+    private List<ReservationResponse> batchToReservationResponse(List<Reservation> reservations) {
+        if (reservations.isEmpty()) return List.of();
+
+        // Batch 1: load tất cả tickets
+        List<String> reservationIds = reservations.stream().map(Reservation::getReservationId).toList();
+        Map<String, Ticket> ticketByReservationId = ticketRepository
+                .findByReservationReservationIdIn(reservationIds).stream()
+                .collect(Collectors.toMap(t -> t.getReservation().getReservationId(), Function.identity(), (a, b) -> a));
+
+        // Batch 2: load tất cả latest sessions (1 query thay vì N)
+        Map<String, ParkingSession> latestSessionByResId = parkingSessionRepository
+                .findLatestByReservationIds(reservationIds).stream()
+                .collect(Collectors.toMap(s -> s.getReservation().getReservationId(), Function.identity(), (a, b) -> a));
+
+        return reservations.stream()
+                .map(r -> toReservationResponse(r,
+                        ticketByReservationId.get(r.getReservationId()),
+                        latestSessionByResId.get(r.getReservationId())))
                 .toList();
     }
 
@@ -272,41 +382,33 @@ public class ReservationService {
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservations(String staffEmail, String buildingId) {
         checkStaffBuildingAssignment(staffEmail, buildingId);
-        return reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId).stream()
-                .map(this::toReservationResponse)
-                .toList();
+        return batchToReservationResponse(reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId));
     }
 
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservationsForStaff(String staffEmail) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
-        return reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId).stream()
-                .map(this::toReservationResponse)
-                .toList();
+        return batchToReservationResponse(reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId));
     }
 
     @Transactional(readOnly = true)
     public List<ReservationResponse> getPendingReservationsFifo(String staffEmail) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
-        return reservationRepository.findPendingByBuildingOrderByCreatedAtAsc(buildingId).stream()
-                .map(this::toReservationResponse)
-                .toList();
+        return batchToReservationResponse(reservationRepository.findPendingByBuildingOrderByCreatedAtAsc(buildingId));
     }
 
     @Transactional(readOnly = true)
     public List<ReservationResponse> getReservationsByStatusForStaff(String staffEmail, String status) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
-        return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
-                .map(this::toReservationResponse)
-                .toList();
+        return batchToReservationResponse(
+                reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status));
     }
 
     @Transactional(readOnly = true)
     public List<ReservationResponse> getReservationsByStatus(String staffEmail, String buildingId, String status) {
         checkStaffBuildingAssignment(staffEmail, buildingId);
-        return reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status).stream()
-                .map(this::toReservationResponse)
-                .toList();
+        return batchToReservationResponse(
+                reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, status));
     }
 
     @Transactional(readOnly = true)
@@ -613,37 +715,6 @@ public class ReservationService {
                 });
     }
 
-    private SlotAvailabilityDto toSlotAvailability(ParkingSlot slot, VehicleType floorVehicleType) {
-        SlotAvailabilityDto dto = new SlotAvailabilityDto();
-        applyHierarchy(dto, slot, slot.getZone().getFloor());
-        dto.setSlotStatus(slot.getSlotStatus());
-        dto.setAvailableCount("AVAILABLE".equalsIgnoreCase(slot.getSlotStatus()) ? 1 : 0);
-        dto.setVehicleTypeId(floorVehicleType.getVehicleTypeId());
-        dto.setVehicleTypeName(floorVehicleType.getTypeName());
-        
-        var policy = pricingService.getActivePolicy(floorVehicleType.getVehicleTypeId());
-        if (policy != null) {
-            dto.setBasePrice(policy.getBasePrice());
-            dto.setHourlyRate(policy.getHourlyRate());
-            dto.setMaxHours(policy.getMaxHours());
-        }
-
-        // Set reserved user info nếu slot đang RESERVED
-        if ("RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
-            var reservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
-                    slot.getSlotId(), ACTIVE_RESERVATION_STATUSES).orElse(null);
-            if (reservation != null) {
-                User user = reservation.getUser();
-                Vehicle vehicle = reservation.getVehicle();
-                dto.setReservedByUserId(user != null ? user.getUserId() : null);
-                dto.setReservedByUsername(user != null ? user.getUsername() : null);
-                dto.setReservedByVehicleId(vehicle != null ? vehicle.getVehicleId() : null);
-            }
-        }
-
-        return dto;
-    }
-
     private ReservationResponse toReservationResponse(Reservation reservation) {
         Ticket ticket = ticketRepository.findByReservationReservationId(reservation.getReservationId()).orElse(null);
         ReservationResponse resp = toReservationResponse(reservation, ticket);
@@ -660,6 +731,37 @@ public class ReservationService {
             }
         }
 
+        return resp;
+    }
+
+    /**
+     * Overload dùng cho batch convert - ticket + session đã được load sẵn,
+     * tránh N+1 query.
+     */
+    private ReservationResponse toReservationResponse(Reservation reservation, Ticket ticket, ParkingSession session) {
+        ReservationResponse resp = toReservationResponse(reservation, ticket);
+        // Pricing
+        if (reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null) {
+            String vtId = reservation.getVehicle().getVehicleType().getVehicleTypeId();
+            resp.setVehicleTypeName(reservation.getVehicle().getVehicleType().getTypeName());
+            var policy = pricingService.getActivePolicy(vtId);
+            if (policy != null) {
+                resp.setBasePrice(policy.getBasePrice());
+                resp.setHourlyRate(policy.getHourlyRate());
+                resp.setMaxHours(policy.getMaxHours());
+            }
+        }
+        // Session (đã load sẵn)
+        if (session != null) {
+            resp.setSessionId(session.getSessionId());
+            resp.setCheckinTime(session.getCheckinTime());
+            resp.setCheckoutTime(session.getCheckoutTime());
+            resp.setTotalFee(session.getTotalFee());
+            resp.setCheckinImageUrl(session.getCheckinImageUrl());
+            resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
+            resp.setParkingDuration(session.getParkingDuration());
+            resp.setPaymentStatus(session.getPaymentStatus());
+        }
         return resp;
     }
 

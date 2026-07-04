@@ -56,6 +56,11 @@ public class ReservationController {
     // FLOW 1: USER ĐẶT TRƯỚC SLOT
     // =========================================================================
 
+    /**
+     * @deprecated Use GET /api/buildings/available + GET /api/buildings/{id}/detail + GET /api/zones/{id}/slots
+     *             instead for better UX and query performance.
+     */
+    @Deprecated
     @GetMapping("/slots/availability")
     @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<SlotAvailabilityDto>>> getAvailableSlots(

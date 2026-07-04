@@ -1,6 +1,7 @@
 package fpt.swp391.parkingmanagement.repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -71,6 +72,21 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
 
     Optional<ParkingSession> findFirstByReservationReservationIdOrderByCreatedAtDesc(String reservationId);
+
+    /**
+     * FIX N+1: Batch-load latest session cho nhiều reservation.
+     * Native query: lấy session có createdAt MAX theo từng reservation_id.
+     */
+    @Query(value = """
+            SELECT ps.* FROM parking_sessions ps
+            INNER JOIN (
+                SELECT reservation_id, MAX(created_at) AS max_created
+                FROM parking_sessions
+                WHERE reservation_id IN (:reservationIds)
+                GROUP BY reservation_id
+            ) latest ON ps.reservation_id = latest.reservation_id AND ps.created_at = latest.max_created
+            """, nativeQuery = true)
+    List<ParkingSession> findLatestByReservationIds(@Param("reservationIds") Collection<String> reservationIds);
 
     @Query("SELECT ps FROM ParkingSession ps "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
