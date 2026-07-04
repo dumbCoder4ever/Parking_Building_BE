@@ -18,8 +18,6 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
 
     Optional<Vehicle> findByVehicleIdAndUserUserId(String vehicleId, String userId);
 
-    List<Vehicle> findByUserUserIdOrderByCreatedAtDesc(String userId);
-
     @EntityGraph(attributePaths = {"user", "vehicleType"})
     List<Vehicle> findByPlateNumberContainingIgnoreCaseOrderByCreatedAtDesc(String plateNumber);
 
@@ -33,6 +31,14 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     boolean existsByVehicleTypeVehicleTypeId(String vehicleTypeId);
 
     List<Vehicle> findByUserUserId(String userId);
+
+    /**
+     * FIX N+1: Load kèm vehicleType + user trong 1 query (LEFT JOIN).
+     * Trước đây chỉ fetch Vehicle, mỗi vehicle trigger 1-2 query thêm
+     * khi VehicleResponse đọc vehicleType/user → N+1.
+     */
+    @EntityGraph(attributePaths = {"vehicleType", "user"})
+    List<Vehicle> findByUserUserIdOrderByCreatedAtDesc(String userId);
 
     boolean existsByPlateNumber(String plateNumber);
 
