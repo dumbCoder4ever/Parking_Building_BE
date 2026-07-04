@@ -39,6 +39,10 @@ out/
 ### Duplicate folder ###
 Parking_Building_BE/
 
+### Logs ###
+logs/
+*.log
+
 # Security
 .env
 *.pem
