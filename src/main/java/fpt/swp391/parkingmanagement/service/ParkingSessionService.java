@@ -509,6 +509,15 @@ public class ParkingSessionService {
 
     @Transactional
     public GuestCheckinResponse guestCheckin(String staffEmail, GuestCheckinRequest req) {
+        String plateNumber = req.getPlateNumber().toUpperCase();
+
+        vehicleRepository.findByPlateNumberIgnoreCase(plateNumber).ifPresent(vehicle -> {
+            if (parkingSessionRepository.existsByVehicleVehicleIdAndSessionStatus(vehicle.getVehicleId(), "ACTIVE")) {
+                throw new BaseAPIException(ErrorCode.GUEST_ALREADY_PARKING,
+                        "Vehicle " + plateNumber + " already has an active parking session");
+            }
+        });
+
         ParkingSlot slot = parkingSlotRepository.findBySlotId(req.getSlotId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_FOUND));
 
@@ -519,27 +528,23 @@ public class ParkingSessionService {
         String buildingId = resolveBuildingId(slot);
         checkStaffBuildingAssignment(staffEmail, buildingId);
 
-        VehicleType vehicleType = vehicleTypeRepository.findById(req.getVehicleTypeId())
-                .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND));
+        VehicleType vehicleType = resolveVehicleTypeFromSlot(slot);
 
-        // Reuse existing guest vehicle by plate number, or create a new one
-        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(req.getPlateNumber())
+        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(plateNumber)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
-                    v.setPlateNumber(req.getPlateNumber().toUpperCase());
+                    v.setPlateNumber(plateNumber);
                     v.setVehicleType(vehicleType);
-                    v.setVehicleColor(req.getVehicleColor());
-                    v.setBrand(req.getBrand());
-                    v.setModel(req.getModel());
                     v.setStatus("ACTIVE");
                     return vehicleRepository.save(v);
                 });
 
-        // Update vehicle info if provided
-        if (req.getVehicleColor() != null) vehicle.setVehicleColor(req.getVehicleColor());
-        if (req.getBrand() != null) vehicle.setBrand(req.getBrand());
-        if (req.getModel() != null) vehicle.setModel(req.getModel());
-        if (req.getCheckinImageUrl() != null) vehicle.setImageUrl(req.getCheckinImageUrl());
+        if (vehicle.getVehicleType() == null) {
+            vehicle.setVehicleType(vehicleType);
+        }
+        if (req.getCheckinImageUrl() != null) {
+            vehicle.setImageUrl(req.getCheckinImageUrl());
+        }
         vehicleRepository.save(vehicle);
 
         LocalDateTime now = LocalDateTime.now();
@@ -558,15 +563,12 @@ public class ParkingSessionService {
         session.setSessionStatus("ACTIVE");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
-        session.setGuestName(req.getGuestName());
-        session.setGuestPhone(req.getGuestPhone());
         session.setNote(req.getNote());
         session.setCheckinImageUrl(req.getCheckinImageUrl());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
 
-        // Create a guest ticket so staff can use ticket code for checkout/payment
         Ticket guestTicket = new Ticket();
         guestTicket.setTicketCode(generateGuestTicketCode());
         guestTicket.setIsUsed(false);
@@ -584,12 +586,7 @@ public class ParkingSessionService {
         GuestCheckinResponse resp = new GuestCheckinResponse();
         resp.setSessionId(saved.getSessionId());
         resp.setTicketCode(savedTicket.getTicketCode());
-        resp.setGuestName(saved.getGuestName());
-        resp.setGuestPhone(saved.getGuestPhone());
         resp.setVehiclePlate(vehicle.getPlateNumber());
-        resp.setVehicleColor(vehicle.getVehicleColor());
-        resp.setBrand(vehicle.getBrand());
-        resp.setModel(vehicle.getModel());
         resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
@@ -602,15 +599,22 @@ public class ParkingSessionService {
         return resp;
     }
 
+    private VehicleType resolveVehicleTypeFromSlot(ParkingSlot slot) {
+        Zone zone = slot.getZone();
+        if (zone == null || zone.getFloor() == null || zone.getFloor().getVehicleType() == null) {
+            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                    "Cannot resolve vehicle type from the selected slot");
+        }
+        return zone.getFloor().getVehicleType();
+    }
+
     @Transactional
     public CheckoutResponse guestCheckout(String staffEmail, GuestCheckoutRequest req) {
-        Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
-                .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
+        String plateNumber = req.getPlateNumber().toUpperCase();
 
-        ParkingSession session = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE")
+        ParkingSession session = parkingSessionRepository.findActiveGuestByPlateNumber(plateNumber)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
-                        "No active guest session found for ticket: " + req.getTicketCode()));
+                        "No active guest session found for plate: " + plateNumber));
 
         if (session.getReservation() != null) {
             throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "This is not a guest session. Use regular checkout.");
