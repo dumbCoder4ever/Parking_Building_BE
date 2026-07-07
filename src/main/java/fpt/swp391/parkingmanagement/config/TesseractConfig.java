@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Configuration
 @Slf4j
@@ -16,7 +18,7 @@ public class TesseractConfig {
     private Tesseract tesseractInstance;
 
     @Value("${ocr.tesseract.datapath}")
-    private String datapath;
+    private String datapathRaw;
 
     @Value("${ocr.tesseract.language:eng}")
     private String language;
@@ -29,6 +31,7 @@ public class TesseractConfig {
 
     @Bean
     public Tesseract tesseract() {
+        String datapath = resolveDatapath(datapathRaw);
         File dir = new File(datapath);
         if (!dir.exists() || !dir.isDirectory()) {
             log.warn("Tesseract datapath does not exist: {} - OCR will fail until folder is created", datapath);
@@ -51,6 +54,24 @@ public class TesseractConfig {
         t.setPageSegMode(7);
         this.tesseractInstance = t;
         return t;
+    }
+
+    private String resolveDatapath(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Paths.get("tessdata").toAbsolutePath().toString();
+        }
+        try {
+            String normalized = raw.replace('\\', '/').trim();
+            Path path = Paths.get(normalized);
+            if (!path.isAbsolute()) {
+                path = Paths.get(System.getProperty("user.dir")).resolve(path).normalize();
+            }
+            return path.toString();
+        } catch (Exception e) {
+            Path fallback = Paths.get("tessdata").toAbsolutePath().normalize();
+            log.warn("Invalid Tesseract datapath '{}', falling back to {}", raw, fallback);
+            return fallback.toString();
+        }
     }
 
     @PreDestroy

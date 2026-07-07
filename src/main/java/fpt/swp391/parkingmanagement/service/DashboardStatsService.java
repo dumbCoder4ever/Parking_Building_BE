@@ -110,6 +110,10 @@ public class DashboardStatsService {
                 .sessionsThisMonth(thisMonth)
                 .guestSessionsToday(guestToday)
                 .registeredSessionsToday(today - guestToday)
+                .totalGuestSessionsAllTime(parkingSessionRepository.countGuestSessionsAllTime())
+                .totalDriverSessionsAllTime(parkingSessionRepository.countDriverSessionsAllTime())
+                .activeGuestSessions(parkingSessionRepository.countActiveGuestSessions())
+                .activeDriverSessions(parkingSessionRepository.countActiveDriverSessions())
                 .avgDurationMinutes(avgDuration != null ? Math.round(avgDuration * 10.0) / 10.0 : 0.0)
                 .avgFee(avgFee)
                 .build();
