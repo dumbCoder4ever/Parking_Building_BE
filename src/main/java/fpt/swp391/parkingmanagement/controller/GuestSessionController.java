@@ -17,7 +17,11 @@ import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.service.CloudinaryService;
+import fpt.swp391.parkingmanagement.service.OcrService;
+import fpt.swp391.parkingmanagement.service.OcrService.OcrResult;
 import fpt.swp391.parkingmanagement.service.ParkingSessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,39 +36,28 @@ public class GuestSessionController {
 
     private final ParkingSessionService parkingSessionService;
     private final CloudinaryService cloudinaryService;
+    private final OcrService ocrService;
 
     @Operation(
         summary = "Guest Check-in",
-        description = "Staff nhập thông tin xe khách vãng lai (không có tài khoản) để cho xe vào bãi. "
-                    + "Tạo ParkingSession trực tiếp không qua Reservation/Ticket. Gửi multipart/form-data."
+        description = "Staff chụp/upload ảnh biển số xe khách vãng lai. Hệ thống dùng Tesseract OCR đọc biển số, "
+                    + "tạo ParkingSession và gán slot. Chỉ cần gửi multipart/form-data với plateImage và slotId."
     )
     @PostMapping(value = "/checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<GuestCheckinResponse>> guestCheckin(
-            @RequestParam String plateNumber,
-            @RequestParam String vehicleTypeId,
             @RequestParam String slotId,
-            @RequestParam(required = false) String vehicleColor,
-            @RequestParam(required = false) String brand,
-            @RequestParam(required = false) String model,
-            @RequestParam(required = false) String guestName,
-            @RequestParam(required = false) String guestPhone,
+            @RequestParam MultipartFile plateImage,
             @RequestParam(required = false) String note,
-            @RequestParam(required = false) MultipartFile checkinImage,
             Authentication auth) {
+
+        String plateNumber = detectPlateOrThrow(plateImage);
+        String imageUrl = cloudinaryService.uploadParkingImage(plateImage);
 
         GuestCheckinRequest req = new GuestCheckinRequest();
         req.setPlateNumber(plateNumber);
-        req.setVehicleTypeId(vehicleTypeId);
         req.setSlotId(slotId);
-        req.setVehicleColor(vehicleColor);
-        req.setBrand(brand);
-        req.setModel(model);
-        req.setGuestName(guestName);
-        req.setGuestPhone(guestPhone);
         req.setNote(note);
-        if (checkinImage != null && !checkinImage.isEmpty()) {
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(checkinImage));
-        }
+        req.setCheckinImageUrl(imageUrl);
 
         GuestCheckinResponse resp = parkingSessionService.guestCheckin(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok("Guest check-in successful", resp));
@@ -72,22 +65,22 @@ public class GuestSessionController {
 
     @Operation(
         summary = "Guest Check-out",
-        description = "Staff thực hiện checkout cho khách vãng lai bằng ticket code. "
-                    + "Tính phí theo thời gian thực tế, thanh toán tiền mặt hoặc điện tử. Gửi multipart/form-data."
+        description = "Staff chụp/upload ảnh biển số để checkout khách vãng lai. OCR đọc biển số, "
+                    + "tra cứu phiên ACTIVE và tính phí. Gửi multipart/form-data với plateImage."
     )
     @PostMapping(value = "/checkout", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CheckoutResponse>> guestCheckout(
-            @RequestParam String ticketCode,
+            @RequestParam MultipartFile plateImage,
             @RequestParam(required = false) String paymentMethod,
-            @RequestParam(required = false) MultipartFile checkoutImage,
             Authentication auth) {
 
+        String plateNumber = detectPlateOrThrow(plateImage);
+        String imageUrl = cloudinaryService.uploadParkingImage(plateImage);
+
         GuestCheckoutRequest req = new GuestCheckoutRequest();
-        req.setTicketCode(ticketCode);
+        req.setPlateNumber(plateNumber);
         req.setPaymentMethod(paymentMethod);
-        if (checkoutImage != null && !checkoutImage.isEmpty()) {
-            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImage(checkoutImage));
-        }
+        req.setCheckoutImageUrl(imageUrl);
 
         CheckoutResponse resp = parkingSessionService.guestCheckout(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok("Guest checkout successful", resp));
@@ -121,7 +114,7 @@ public class GuestSessionController {
 
     @Operation(
         summary = "Look up guest session by ticket code",
-        description = "Staff nhập ticket code để tra cứu thông tin session và phí trước khi thực hiện checkout/payment."
+        description = "Staff tra cứu thông tin session và phí theo ticket code (in khi check-in)."
     )
     @GetMapping("/ticket/{ticketCode}")
     public ResponseEntity<ApiResponse<GuestCheckinResponse>> findByTicketCode(
@@ -130,5 +123,22 @@ public class GuestSessionController {
 
         GuestCheckinResponse resp = parkingSessionService.getGuestSessionByTicketCode(ticketCode);
         return ResponseEntity.ok(ApiResponse.ok("Guest session found", resp));
+    }
+
+    private String detectPlateOrThrow(MultipartFile plateImage) {
+        if (plateImage == null || plateImage.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST, "Plate image is required");
+        }
+        try {
+            OcrResult result = ocrService.recognizeFromUpload(plateImage);
+            if (result.plateNumber() == null || result.plateNumber().isBlank()) {
+                throw new BaseAPIException(ErrorCode.OCR_PLATE_NOT_DETECTED);
+            }
+            return result.plateNumber().toUpperCase();
+        } catch (BaseAPIException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            throw new BaseAPIException(ErrorCode.OCR_FAILED, ex.getMessage());
+        }
     }
 }

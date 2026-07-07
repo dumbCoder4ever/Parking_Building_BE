@@ -1,5 +1,7 @@
 package fpt.swp391.parkingmanagement.service;
 
+import fpt.swp391.parkingmanagement.exception.BaseAPIException;
+import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.sourceforge.tess4j.Tesseract;
@@ -89,7 +91,7 @@ public class OcrService {
                     .build();
         } catch (TesseractException e) {
             log.error("Tesseract OCR failed", e);
-            throw new RuntimeException("OCR failed: " + e.getMessage(), e);
+            throw new BaseAPIException(ErrorCode.OCR_FAILED, e.getMessage());
         }
     }
 
