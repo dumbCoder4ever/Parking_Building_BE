@@ -46,8 +46,16 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             @Param("zoneIds") Collection<String> zoneIds,
             @Param("statuses") Collection<String> statuses);
 
-    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
-    List<Reservation> findByUserUserIdOrderByCreatedAtDesc(String userId);
+    @Query("SELECT r FROM Reservation r " +
+           "JOIN FETCH r.slot s " +
+           "JOIN FETCH s.zone z " +
+           "JOIN FETCH z.floor f " +
+           "JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle " +
+           "JOIN FETCH r.user " +
+           "WHERE r.user.userId = :userId " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findByUserUserIdOrderByCreatedAtDesc(@Param("userId") String userId);
 
     @Query("SELECT r FROM Reservation r WHERE r.user.userId = :userId " +
            "AND r.reservationStatus IN :statuses " +
@@ -151,6 +159,19 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "WHERE f.building.buildingId = :buildingId AND r.reservationStatus = 'PENDING' ORDER BY r.createdAt ASC")
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findPendingByBuildingOrderByCreatedAtAsc(@Param("buildingId") String buildingId);
+
+    /**
+     * Tìm reservation PENDING/APPROVED theo biển số xe (case-insensitive).
+     * Dùng trong quick checkin: staff quét biển số → hệ thống tự tìm reservation phù hợp.
+     */
+    @Query("SELECT r FROM Reservation r " +
+           "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+           "JOIN FETCH r.user " +
+           "WHERE UPPER(v.plateNumber) = UPPER(:plateNumber) " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED') " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findPendingByPlateNumber(@Param("plateNumber") String plateNumber);
 
     // Check active reservations by vehicle type (không dùng time range nữa)
     @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +

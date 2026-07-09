@@ -2,9 +2,8 @@ package fpt.swp391.parkingmanagement.controller;
 
 import fpt.swp391.parkingmanagement.dto.OcrRequest;
 import fpt.swp391.parkingmanagement.dto.OcrResponse;
-import fpt.swp391.parkingmanagement.service.OcrService;
-import fpt.swp391.parkingmanagement.service.OcrService.OcrResult;
-import io.swagger.v3.oas.annotations.tags.Tag;
+import fpt.swp391.parkingmanagement.service.FptAiOcrService;
+import fpt.swp391.parkingmanagement.service.FptAiOcrService.OcrResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -21,7 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Tag(name = "ocr-controller")
 public class OcrController {
 
-    private final OcrService ocrService;
+    private final FptAiOcrService ocrService;
 
     @PostMapping(value = "/plate", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<OcrResponse> detectFromUrl(@RequestBody OcrRequest request) {
@@ -44,6 +43,7 @@ public class OcrController {
                 r.candidates(),
                 r.rawText(),
                 r.normalizedText(),
-                r.confidence());
+                r.confidence(),
+                r.duplicateActiveSession());
     }
 }

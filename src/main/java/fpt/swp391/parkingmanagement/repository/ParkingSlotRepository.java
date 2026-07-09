@@ -64,6 +64,21 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     @Query("SELECT COUNT(ps) FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.building b WHERE b.buildingId = :buildingId AND UPPER(ps.slotStatus) = UPPER(:status)")
     long countByBuildingIdAndSlotStatus(@Param("buildingId") String buildingId, @Param("status") String status);
 
+    /**
+     * Tìm slot trống đầu tiên theo building + vehicleType.
+     * Dùng trong quick guest checkin: staff quét biển số → hệ thống tự assign slot.
+     * Order by floorLevel ASC (ưu tiên tầng thấp), rồi slotName ASC.
+     */
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE b.buildingId = :buildingId " +
+            "AND vt.vehicleTypeId = :vehicleTypeId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "ORDER BY f.floorLevel ASC, ps.slotName ASC")
+    List<ParkingSlot> findAvailableByBuildingAndVehicleType(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId);
+
 
     /**
      * Single round-trip: aggregate slot counts per zone for a building (or all buildings).

@@ -1,0 +1,335 @@
+package fpt.swp391.parkingmanagement.service;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import net.sourceforge.tess4j.Tesseract;
+import net.sourceforge.tess4j.TesseractException;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import fpt.swp391.parkingmanagement.dto.PlateDuplicateInfo;
+import fpt.swp391.parkingmanagement.entity.ParkingSession;
+import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class OcrService {
+
+    // #region agent log
+    private static final java.nio.file.Path DEBUG_LOG = java.nio.file.Path.of(System.getProperty("java.io.tmpdir"), "debug-d41f02.log");
+
+    private static void dlog(String id, String location, String message, String dataJson, String hypothesisId) {
+        try {
+            String payload = String.format(
+                "{\"sessionId\":\"d41f02\",\"id\":\"%s_%d\",\"timestamp\":%d,\"location\":\"%s\",\"message\":\"%s\",\"data\":%s,\"runId\":\"debug-2\",\"hypothesisId\":\"%s\"}\n",
+                id, System.nanoTime(), System.currentTimeMillis(),
+                location.replace("\"","\\\""),
+                message.replace("\"","\\\""),
+                dataJson.replace("\"","\\\""),
+                hypothesisId);
+            java.nio.file.Files.writeString(DEBUG_LOG, payload,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {}
+    }
+    // #endregion
+
+    private final Tesseract tesseract;
+    private final ParkingSessionRepository parkingSessionRepository;
+
+    // Biển số VN có dạng: 30A-123.45 hoặc 30A1-23456 hoặc 51H-999.99
+    // Bắt 2 số + 1-2 chữ + 1-5 số (cho phép có/không dấu "-", ".")
+    private static final Pattern VN_PLATE_PATTERN =
+            Pattern.compile("\\b\\d{2}[A-Z]{1,2}[\\s.\\-]?\\d{3,5}(?:[\\.\\-]?\\d{2})?\\b");
+
+    public OcrResult recognizeFromUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            throw new IllegalArgumentException("imageUrl is required");
+        }
+        try {
+            byte[] imageBytes = downloadToMemory(imageUrl);
+            return recognizeFromStream(new ByteArrayInputStream(imageBytes), "url:" + imageUrl);
+        } catch (IOException e) {
+            log.error("Failed to download image from URL: {}", imageUrl, e);
+            throw new RuntimeException("Cannot download image: " + e.getMessage(), e);
+        }
+    }
+
+    private byte[] downloadToMemory(String imageUrl) throws IOException {
+        URL url = URI.create(imageUrl).toURL();
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(5000);
+        conn.setReadTimeout(10000);
+        conn.setRequestProperty("User-Agent", "ParkingManagementOCR/1.0");
+        conn.setInstanceFollowRedirects(true);
+        conn.connect();
+
+        int code = conn.getResponseCode();
+        if (code >= 400) {
+            conn.disconnect();
+            throw new IOException("HTTP " + code + " when fetching image");
+        }
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (InputStream in = new BufferedInputStream(conn.getInputStream())) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+        } finally {
+            conn.disconnect();
+        }
+        return out.toByteArray();
+    }
+
+    public OcrResult recognizeFromUpload(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            // #region agent log
+            dlog("log_ocr_empty", "OcrService.java:86", "plateImage null or empty",
+                String.format("{\"isNull\":%s,\"isEmpty\":%s}", file == null, file == null || file.isEmpty()), "C");
+            // #endregion
+            throw new IllegalArgumentException("file is required and must not be empty");
+        }
+        // #region agent log
+        try {
+            String ct = file.getContentType();
+            long size = file.getSize();
+            byte[] head = new byte[(int) Math.min(size, 16L)];
+            int n = 0;
+            StringBuilder sb = new StringBuilder();
+            try (InputStream is = file.getInputStream()) {
+                n = is.read(head);
+                for (int i = 0; i < Math.max(n, 0); i++) sb.append(String.format("%02x", head[i] & 0xff));
+            }
+            dlog("log_ocr_meta", "OcrService.java:88", "plateImage metadata",
+                String.format("{\"contentType\":\"%s\",\"size\":%d,\"magicBytesHex\":\"%s\",\"bytesRead\":%d}",
+                    ct == null ? "null" : ct, size, sb.toString(), n), "C");
+        } catch (Exception e) {
+            dlog("log_ocr_meta_err", "OcrService.java:88", "failed to read metadata",
+                String.format("{\"err\":\"%s\"}", e.getMessage() == null ? "" : e.getMessage()), "C");
+        }
+        // #endregion
+        try (InputStream rawStream = file.getInputStream();
+             BufferedInputStream buffered = new BufferedInputStream(rawStream)) {
+            ByteArrayInputStream inMemory = readAllBytes(buffered);
+            return recognizeFromStream(inMemory, "upload");
+        } catch (IOException e) {
+            log.error("Failed to read uploaded file", e);
+            throw new RuntimeException("Cannot read uploaded file: " + e.getMessage(), e);
+        }
+    }
+
+    private OcrResult recognizeFromStream(ByteArrayInputStream imageStream, String source) {
+        long start = System.currentTimeMillis();
+        // #region agent log
+        try {
+            String[] readers = javax.imageio.ImageIO.getReaderFormatNames();
+            StringBuilder rs = new StringBuilder();
+            for (int i = 0; i < readers.length; i++) {
+                if (i > 0) rs.append(",");
+                rs.append(readers[i]);
+            }
+            byte[] head = new byte[16];
+            imageStream.mark(16);
+            int read = imageStream.read(head);
+            imageStream.reset();
+            StringBuilder magic = new StringBuilder();
+            for (int i = 0; i < Math.max(read, 0); i++) magic.append(String.format("%02x", head[i] & 0xff));
+            dlog("log_ocr_readers", "OcrService.java:103", "ImageIO readers and stream magic",
+                String.format("{\"readers\":\"%s\",\"source\":\"%s\",\"magicBytesHex\":\"%s\",\"bytesRead\":%d}",
+                    rs.toString(), source, magic.toString(), read), "A,B");
+        } catch (Exception e) {
+            dlog("log_ocr_readers_err", "OcrService.java:103", "failed to enumerate readers",
+                String.format("{\"err\":\"%s\"}", e.getMessage() == null ? "" : e.getMessage()), "B");
+        }
+        // #endregion
+        try {
+            // Decode through BufferedImage so we get a standard image type that
+            // Tesseract can handle without depending on the raw image format.
+            BufferedImage bufferedImage = ImageIO.read(imageStream);
+            if (bufferedImage == null) {
+                // #region agent log
+                dlog("log_ocr_null", "OcrService.java:105", "ImageIO.read returned null -> JAI missing or format not supported",
+                    String.format("{\"source\":\"%s\"}", source), "A");
+                // #endregion
+                throw new RuntimeException(
+                        "Unsupported Image Format. May need to install JAI Image I/O package. " +
+                                "https://github.com/jai-imageio/jai-imageio-core");
+            }
+            String raw = tesseract.doOCR(bufferedImage);
+            long elapsed = System.currentTimeMillis() - start;
+            log.debug("OCR raw text ({}ms) [{}]: {}", elapsed, source, raw);
+
+            String normalized = normalize(raw);
+            List<String> candidates = extractPlateCandidates(normalized);
+            String plateNumber = pickBest(candidates);
+
+            PlateDuplicateInfo duplicate = null;
+            if (plateNumber != null) {
+                duplicate = findActiveSessionByPlate(plateNumber).orElse(null);
+            }
+
+            // #region agent log
+            try {
+                StringBuilder cands = new StringBuilder();
+                for (int i = 0; i < candidates.size(); i++) {
+                    if (i > 0) cands.append(",");
+                    cands.append(candidates.get(i) == null ? "" : candidates.get(i));
+                }
+                String rawSafe = raw == null ? "" : raw.replace("\"","\\\"").replace("\n","\\n");
+                if (rawSafe.length() > 200) rawSafe = rawSafe.substring(0, 200);
+                dlog("log_ocr_result", "OcrService.java:128", "OCR finished",
+                    String.format("{\"plateNumber\":\"%s\",\"confidence\":%s,\"candidates\":\"%s\",\"rawText\":\"%s\",\"elapsedMs\":%d}",
+                        plateNumber == null ? "" : plateNumber,
+                        String.valueOf(estimateConfidence(raw, candidates)),
+                        cands.toString(),
+                        rawSafe, elapsed), "K");
+            } catch (Exception ignored) {}
+            // #endregion
+
+            return OcrResult.builder()
+                    .rawText(raw)
+                    .normalizedText(normalized)
+                    .plateNumber(plateNumber)
+                    .candidates(candidates)
+                    .confidence(estimateConfidence(raw, candidates))
+                    .duplicateActiveSession(duplicate)
+                    .build();
+        } catch (TesseractException | IOException e) {
+            // #region agent log
+            dlog("log_ocr_err", "OcrService.java:131", "Tesseract OCR threw",
+                String.format("{\"source\":\"%s\",\"exceptionClass\":\"%s\",\"message\":\"%s\"}",
+                    source, e.getClass().getName(),
+                    e.getMessage() == null ? "" : e.getMessage()), "D,E");
+            // #endregion
+            log.error("Tesseract OCR failed (source={})", source, e);
+            throw new RuntimeException("OCR failed: " + e.getMessage(), e);
+        }
+    }
+
+    private ByteArrayInputStream readAllBytes(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) != -1) {
+            out.write(buf, 0, n);
+        }
+        return new ByteArrayInputStream(out.toByteArray());
+    }
+
+    private String normalize(String raw) {
+        if (raw == null) return "";
+        return raw.toUpperCase()
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private List<String> extractPlateCandidates(String text) {
+        List<String> result = new ArrayList<>();
+        Matcher m = VN_PLATE_PATTERN.matcher(text);
+        while (m.find()) {
+            String cleaned = m.group().replaceAll("[\\s]", "").replace('.', '-');
+            if (cleaned.length() >= 6) {
+                result.add(cleaned);
+            }
+        }
+        return result;
+    }
+
+    private String pickBest(List<String> candidates) {
+        if (candidates.isEmpty()) return null;
+        // Ưu tiên candidate dài nhất (thường là biển đầy đủ nhất)
+        return candidates.stream()
+                .max((a, b) -> Integer.compare(a.length(), b.length()))
+                .orElse(null);
+    }
+
+    private double estimateConfidence(String raw, List<String> candidates) {
+        if (raw == null || raw.isBlank()) return 0.0;
+        double base = Math.min(1.0, raw.length() / 30.0);
+        double bonus = candidates.isEmpty() ? 0.0 : 0.3;
+        return Math.min(1.0, base + bonus);
+    }
+
+    public Optional<PlateDuplicateInfo> findActiveSessionByPlate(String plateNumber) {
+        if (plateNumber == null || plateNumber.isBlank()) {
+            return Optional.empty();
+        }
+        return parkingSessionRepository.findActiveByPlateNumber(plateNumber)
+                .map(this::toPlateDuplicateInfo);
+    }
+
+    private PlateDuplicateInfo toPlateDuplicateInfo(ParkingSession ps) {
+        String ticketCode = null;
+        if (ps.getTicket() != null) {
+            ticketCode = ps.getTicket().getTicketCode();
+        }
+        String buildingName = null;
+        String slotName = null;
+        if (ps.getSlot() != null) {
+            slotName = ps.getSlot().getSlotName();
+            if (ps.getSlot().getZone() != null
+                    && ps.getSlot().getZone().getFloor() != null
+                    && ps.getSlot().getZone().getFloor().getBuilding() != null) {
+                buildingName = ps.getSlot().getZone().getFloor().getBuilding().getBuildingName();
+            }
+        }
+        return new PlateDuplicateInfo(
+                ps.getVehicle() != null ? ps.getVehicle().getPlateNumber() : null,
+                ps.getSessionId(),
+                ticketCode,
+                ps.getCheckinTime(),
+                ps.getReservation() == null,
+                buildingName,
+                slotName
+        );
+    }
+
+    public record OcrResult(String rawText, String normalizedText, String plateNumber,
+                            List<String> candidates, double confidence,
+                            PlateDuplicateInfo duplicateActiveSession) {
+        public static Builder builder() {
+            return new Builder();
+        }
+
+        public static final class Builder {
+            private String rawText;
+            private String normalizedText;
+            private String plateNumber;
+            private List<String> candidates;
+            private double confidence;
+            private PlateDuplicateInfo duplicateActiveSession;
+
+            public Builder rawText(String v) { this.rawText = v; return this; }
+            public Builder normalizedText(String v) { this.normalizedText = v; return this; }
+            public Builder plateNumber(String v) { this.plateNumber = v; return this; }
+            public Builder candidates(List<String> v) { this.candidates = v; return this; }
+            public Builder confidence(double v) { this.confidence = v; return this; }
+            public Builder duplicateActiveSession(PlateDuplicateInfo v) { this.duplicateActiveSession = v; return this; }
+
+            public OcrResult build() {
+                return new OcrResult(rawText, normalizedText, plateNumber,
+                        candidates == null ? List.of() : candidates, confidence, duplicateActiveSession);
+            }
+        }
+    }
+}

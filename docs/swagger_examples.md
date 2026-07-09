@@ -92,9 +92,12 @@ Hệ thống:
 
 ## FLOW STAFF - XỬ LÝ XE VÀO/RA
 
-### Check-in xe:
+### Check-in xe (có OCR):
 ```
-POST /api/sessions/checkin
+1. POST /api/ocr/plate/upload  (file ảnh biển số)
+   → Lấy plateNumber + duplicateActiveSession
+2. Nếu duplicateActiveSession != null → xử lý cảnh báo (xem mục OCR)
+3. POST /api/sessions/checkin
 Headers: Authorization: Bearer <staff-token>
 Body: {
   "ticketCode": "TKT-xxx",
@@ -104,9 +107,27 @@ Body: {
 }
 ```
 
-### Check-out xe (CASH):
+### Check-in xe (guest / vãng lai - có OCR):
 ```
-POST /api/sessions/checkout
+1. POST /api/ocr/plate/upload  (file ảnh biển số)
+   → Lấy plateNumber + duplicateActiveSession
+2. Nếu duplicateActiveSession != null → popup cảnh báo (staff xác nhận mới tiếp tục)
+3. POST /api/sessions/guest/checkin
+Headers: Authorization: Bearer <staff-token>
+Body: {
+  "plateNumber": "51A-12345",
+  "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+  "slotId": "slot-id",
+  "vehicleColor": "White"
+}
+```
+
+### Check-out xe (CASH - có OCR):
+```
+1. POST /api/ocr/plate/upload  (file ảnh biển số)
+   → Lấy plateNumber + duplicateActiveSession
+2. Nếu duplicateActiveSession != null VÀ khác session đang checkout → cảnh báo
+3. POST /api/sessions/checkout
 Headers: Authorization: Bearer <staff-token>
 Body: {
   "ticketCode": "TKT-xxx",
@@ -873,6 +894,273 @@ POST `/api/users/me/vehicles`
 
 ---
 
+## 10) OCR APIs — Nhận diện biển số xe
+
+### 10.1 OCR từ file upload (khuyên dùng cho checkin/checkout)
+
+Staff scan ảnh biển số tại bước checkin/checkout. API này tự động kiểm tra xem biển số có đang có session ACTIVE hay không và trả về cảnh báo.
+
+```
+POST /api/ocr/plate/upload
+Headers: Authorization: Bearer <staff-token>
+Content-Type: multipart/form-data
+```
+
+**Body (multipart/form-data):**
+- `file` — Ảnh biển số xe (JPEG, PNG, WebP)
+
+**Response (thành công — có phát hiện biển số trùng ACTIVE):**
+```json
+{
+  "plateNumber": "30A-12345",
+  "candidates": ["30A-12345", "30A-123.45"],
+  "rawText": "30A 12345",
+  "normalizedText": "30A 12345",
+  "confidence": 0.85,
+  "duplicateActiveSession": {
+    "plateNumber": "30A-12345",
+    "sessionId": "abc123-def456",
+    "ticketCode": "G-12345678-ABCD",
+    "checkinTime": "2026-07-04T10:00:00",
+    "isGuest": true,
+    "buildingName": "Main Parking Building",
+    "slotName": "A-001"
+  }
+}
+```
+
+**Response (thành công — không trùng):**
+```json
+{
+  "plateNumber": "51H-99999",
+  "candidates": ["51H-99999"],
+  "rawText": "51H 99999",
+  "normalizedText": "51H 99999",
+  "confidence": 0.92,
+  "duplicateActiveSession": null
+}
+```
+
+**Response (OCR không đọc được biển số):**
+```json
+{
+  "plateNumber": null,
+  "candidates": [],
+  "rawText": "NO TEXT FOUND",
+  "normalizedText": "",
+  "confidence": 0.0,
+  "duplicateActiveSession": null
+}
+```
+
+**Lưu ý:**
+- `confidence < 0.5` → nên fallback nhập biển số bằng tay
+- `duplicateActiveSession != null` → FE hiện popup cảnh báo trước khi tiếp tục checkin/checkout
+- `isGuest: true` → session này là xe vãng lai; `isGuest: false` → xe đặt trước (driver)
+
+---
+
+### 10.2 OCR từ URL
+
+```
+POST /api/ocr/plate
+Headers: Authorization: Bearer <staff-token>
+Content-Type: application/json
+```
+
+**Body:**
+```json
+{
+  "imageUrl": "https://example.com/car-plate.jpg"
+}
+```
+
+**Response:** cùng format với `10.1`
+
+---
+
+### Luồng QUICK CHECKIN (khuyên dùng — không cần nhập tay)
+
+Staff chỉ cần chụp ảnh biển số — hệ thống tự OCR, tự tạo session.
+
+```
+1. Staff chụp ảnh biển số xe (hoặc quét từ camera)
+2. POST /api/sessions/quick-checkin
+   Headers: Authorization: Bearer <staff-token>
+   Content-Type: multipart/form-data
+   Body: {
+     "plateImage": "<file>",
+     "buildingId": "building-id",
+     "mode": "DRIVER"   // hoặc "GUEST"
+   }
+   → Hệ thống OCR biển số → tự tìm reservation / assign slot → tạo session
+   → Response trả về ticketCode (TKT-xxx hoặc G-xxx)
+3. Staff dùng ticketCode để checkout khi xe ra
+```
+
+**DRIVER:** Staff quét xe đã đặt trước. Không cần nhập ticketCode.
+**GUEST:** Staff quét xe vãng lai. Cần truyền thêm `vehicleTypeId`. Không cần nhập slotId.
+
+---
+
+### Luồng OCR kết hợp checkin/checkout (cách cũ)
+
+#### Checkin có OCR — Driver
+```
+1. Staff chụp ảnh biển số xe
+2. POST /api/ocr/plate/upload  → lấy plateNumber + duplicateActiveSession
+3. Nếu duplicateActiveSession != null:
+     - isGuest=true: popup "Biển số đang có session ACTIVE. Tiếp tục?"
+     - isGuest=false: warning nhẹ để staff đối chiếu với reservation
+4. Staff quét ticketCode (từ đặt trước)
+5. POST /api/sessions/checkin với plateNumber đã OCR
+```
+
+#### Checkin có OCR — Guest (vãng lai)
+```
+1. Staff chụp ảnh biển số xe
+2. POST /api/ocr/plate/upload  → lấy plateNumber + duplicateActiveSession
+3. Nếu duplicateActiveSession != null:
+     - Popup "Biển số 30A-12345 đang có session ACTIVE
+        (mã G-xxx, vào lúc 10:00, tầng 1, slot A-001).
+        Vẫn tạo session mới?"
+     - Staff xác nhận → tiếp tục
+4. POST /api/sessions/guest/checkin với plateNumber đã OCR
+```
+
+#### Checkout có OCR
+```
+1. Staff chụp ảnh biển số xe
+2. POST /api/ocr/plate/upload  → lấy plateNumber + duplicateActiveSession
+3. Staff quét ticketCode (mã G-xxx hoặc TKT-xxx)
+4. Nếu duplicateActiveSession != null VÀ sessionId khác session đang checkout:
+     - Popup cảnh báo "Biển số này đang ở session khác"
+5. POST /api/sessions/checkout với plateNumber đã OCR
+```
+
+---
+
+## 11) QUICK CHECKIN — Staff chỉ quét ảnh, không cần nhập tay
+
+**Core idea:** Staff chỉ cần chụp ảnh biển số xe → hệ thống tự OCR → tự tìm reservation (driver) hoặc tự assign slot (guest) → tự tạo session. Không cần nhập `ticketCode`, không cần nhập `slotId`.
+
+---
+
+### 11.1 Quick Check-in (Driver + Guest)
+
+Staff quét ảnh biển số — hệ thống tự nhận diện, tìm reservation / assign slot, tạo session.
+
+```
+POST /api/sessions/quick-checkin
+Headers: Authorization: Bearer <staff-token>
+Content-Type: multipart/form-data
+```
+
+**Body (multipart/form-data):**
+
+| Field | Bắt buộc | Mô tả |
+|---|---|---|
+| `plateImage` | **Có** | Ảnh biển số xe (JPEG/PNG) |
+| `buildingId` | **Có** | Building nơi staff đang làm việc |
+| `vehicleTypeId` | **Có khi mode=GUEST** | Loại xe (MOTORCYCLE/CAR...) |
+| `mode` | Không | `DRIVER` (mặc định) hoặc `GUEST` |
+
+**DRIVER mode — Staff chỉ quét ảnh xe đã đặt trước:**
+- Hệ thống OCR biển số từ ảnh
+- Tự tìm reservation `PENDING`/`APPROVED` theo biển số + buildingId
+- Tự tạo ParkingSession, đánh dấu ticket `USED`, slot `OCCUPIED`
+- Trả về `ticketCode` (TKT-xxx) để checkout
+
+**GUEST mode — Staff quét xe vãng lai (không đặt trước):**
+- Hệ thống OCR biển số từ ảnh
+- Tự tìm slot trống đầu tiên theo `buildingId` + `vehicleTypeId`
+- Tự tạo Vehicle (reuse nếu đã có), tạo Ticket `G-xxx`, tạo ParkingSession
+- Trả về `ticketCode` (G-xxx) để checkout
+
+**Response (thành công — DRIVER):**
+```json
+{
+  "success": true,
+  "data": {
+    "checkinType": "DRIVER",
+    "ticketCode": "TKT-1234567890-456",
+    "sessionId": "abc123-def456",
+    "plateNumber": "30A-12345",
+    "ocrConfidence": 0.85,
+    "vehicleColor": "White",
+    "brand": "Honda",
+    "model": "Future",
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+    "vehicleTypeName": "Motorbike",
+    "buildingId": "building-id",
+    "buildingName": "Main Parking Building",
+    "floorId": "floor-1",
+    "floorName": "Floor 1 - Motorbike",
+    "zoneId": "zone-a",
+    "zoneName": "Zone A",
+    "slotId": "slot-001",
+    "slotName": "A-001",
+    "checkinTime": "2026-07-04T14:05:00",
+    "basePrice": 5000,
+    "hourlyRate": 3000,
+    "estimatedFee": 5000,
+    "duplicateActiveSession": null
+  }
+}
+```
+
+**Response (thành công — GUEST):**
+```json
+{
+  "success": true,
+  "data": {
+    "checkinType": "GUEST",
+    "ticketCode": "G-1751659789123-4827",
+    "sessionId": "xyz789-abc123",
+    "plateNumber": "51H-99999",
+    "ocrConfidence": 0.92,
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+    "vehicleTypeName": "Motorbike",
+    "slotName": "B-003",
+    "checkinTime": "2026-07-04T14:05:00",
+    "basePrice": 5000,
+    "estimatedFee": 5000
+  }
+}
+```
+
+**Lỗi thường gặp:**
+
+| Lỗi | Nguyên nhân | Xử lý |
+|---|---|---|
+| `RESERVATION_NOT_FOUND` | Biển số OCR sai hoặc không có reservation | Staff nhập tay hoặc chuyển GUEST mode |
+| `SLOT_NOT_AVAILABLE` (GUEST) | Không còn slot trống cho loại xe này | Chọn building khác |
+| `OCR_FAILED` | Ảnh mờ/không chụp được biển số | Staff chụp lại ảnh rõ hơn |
+| `SLOT_NOT_RESERVED` | Slot không ở trạng thái RESERVED | Reservation đã bị hủy hoặc expired |
+| `TICKET_ALREADY_USED` | Vé đã được check-in trước đó | Kiểm tra lại mã vé |
+
+**Lưu ý:**
+- `ocrConfidence < 0.3` → hệ thống từ chối, yêu cầu chụp lại
+- `duplicateActiveSession != null` (DRIVER) → cảnh báo trong response, nhưng vẫn tạo được session
+- Staff checkout sau đó: quét ảnh → gọi `/api/ocr/plate/upload` để xác nhận biển số → dùng `ticketCode` trả về để checkout
+
+---
+
+### 11.2 Staff Checkout (sau Quick Checkin)
+
+```
+1. POST /api/ocr/plate/upload  (chụp ảnh biển số khi xe ra)
+   → Kiểm tra plateNumber + duplicateActiveSession
+2. POST /api/sessions/checkout
+   Headers: Authorization: Bearer <staff-token>
+   Body: {
+     "ticketCode": "G-1751659789123-4827",
+     "paymentMethod": "CASH"
+   }
+```
+
+---
+
 # STATUS VALUES
 
 ## Parking Session Status (MỚI)
@@ -958,7 +1246,7 @@ POST `/api/users/me/vehicles`
    Headers: Authorization: Bearer <token>
    ```
 
-## B. Staff check-in và check-out (CASH)
+## B. Staff check-in và check-out có OCR (CASH)
 
 5. **Login staff:**
    ```
@@ -967,7 +1255,17 @@ POST `/api/users/me/vehicles`
    ```
    → Copy staff token
 
-6. **Xác nhận xe vào (check-in):**
+6. **OCR nhận diện biển số (check-in):**
+   ```
+   POST /api/ocr/plate/upload
+   Headers: Authorization: Bearer <staff-token>
+   Content-Type: multipart/form-data
+   Body: file=@plate.jpg
+   ```
+   → Lấy `plateNumber` từ response
+   → Nếu `duplicateActiveSession != null`: xử lý cảnh báo
+
+7. **Xác nhận xe vào (check-in):**
    ```
    POST /api/sessions/checkin
    Headers: Authorization: Bearer <staff-token>
@@ -979,7 +1277,16 @@ POST `/api/users/me/vehicles`
    }
    ```
 
-7. **Xác nhận xe ra (check-out - CASH):**
+8. **OCR nhận diện biển số (check-out):**
+   ```
+   POST /api/ocr/plate/upload
+   Headers: Authorization: Bearer <staff-token>
+   Content-Type: multipart/form-data
+   Body: file=@plate.jpg
+   ```
+   → Kiểm tra `duplicateActiveSession` trước khi checkout
+
+9. **Xác nhận xe ra (check-out - CASH):**
    ```
    POST /api/sessions/checkout
    Headers: Authorization: Bearer <staff-token>
@@ -992,7 +1299,7 @@ POST `/api/users/me/vehicles`
    ```
    → Response sẽ có `totalFee` đã tính, `sessionStatus: "CHECKED_OUT"`
 
-## C. Staff check-in và check-out (VNPay / PayOS / MOMO)
+## C. Staff check-in và check-out có OCR (VNPay / PayOS / MOMO)
 
 5. **Login staff:**
    ```
@@ -1000,7 +1307,15 @@ POST `/api/users/me/vehicles`
    Body: {"email": "staff1@example.com", "password": "123"}
    ```
 
-6. **Xác nhận xe vào (check-in):**
+6. **OCR nhận diện biển số (check-in):**
+   ```
+   POST /api/ocr/plate/upload
+   Headers: Authorization: Bearer <staff-token>
+   Content-Type: multipart/form-data
+   Body: file=@plate.jpg
+   ```
+
+7. **Xác nhận xe vào (check-in):**
    ```
    POST /api/sessions/checkin
    Headers: Authorization: Bearer <staff-token>
@@ -1013,13 +1328,13 @@ POST `/api/users/me/vehicles`
    ```
    → Copy `sessionId`, `sessionStatus: "CHECKED_IN"`
 
-7. **Dự đoán phí:**
+8. **Dự đoán phí:**
    ```
    GET /api/sessions/estimate?ticketCode=<ticketCode>
    Headers: Authorization: Bearer <staff-token>
    ```
 
-8. **Staff tạo payment link:**
+9. **Staff tạo payment link:**
    ```
    POST /api/payments/initiate
    Headers: Authorization: Bearer <staff-token>
@@ -1031,15 +1346,71 @@ POST `/api/users/me/vehicles`
    }
    ```
 
-9. **Driver thanh toán** (mở paymentUrl)
+10. **Driver thanh toán** (mở paymentUrl)
 
-10. **Staff xác nhận xe ra:**
+11. **OCR nhận diện biển số (check-out):**
+    ```
+    POST /api/ocr/plate/upload
+    Headers: Authorization: Bearer <staff-token>
+    Content-Type: multipart/form-data
+    Body: file=@plate.jpg
+    ```
+
+12. **Staff xác nhận xe ra:**
     ```
     PATCH /api/sessions/<sessionId>/confirm-exit?paymentMethod=VNPAY&lostTicket=false
     Headers: Authorization: Bearer <staff-token>
     ```
 
-## D. Manager assign staff
+## D. Guest (vãng lai) có OCR
+
+5. **Login staff:**
+   ```
+   POST /api/auth/login
+   Body: {"email": "staff1@example.com", "password": "123"}
+   ```
+
+6. **OCR nhận diện biển số:**
+   ```
+   POST /api/ocr/plate/upload
+   Headers: Authorization: Bearer <staff-token>
+   Content-Type: multipart/form-data
+   Body: file=@plate.jpg
+   ```
+   → Nếu `duplicateActiveSession != null`: popup cảnh báo, staff xác nhận mới tiếp tục
+
+7. **Xác nhận xe vào (guest check-in):**
+   ```
+   POST /api/sessions/guest/checkin
+   Headers: Authorization: Bearer <staff-token>
+   Body: {
+     "plateNumber": "51A-12345",
+     "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+     "slotId": "slot-id",
+     "vehicleColor": "White"
+   }
+   ```
+   → Response trả về `ticketCode` (mã G-xxx)
+
+8. **OCR nhận diện biển số (check-out):**
+   ```
+   POST /api/ocr/plate/upload
+   Headers: Authorization: Bearer <staff-token>
+   Content-Type: multipart/form-data
+   Body: file=@plate.jpg
+   ```
+
+9. **Xác nhận xe ra (guest check-out):**
+   ```
+   POST /api/sessions/guest/checkout
+   Headers: Authorization: Bearer <staff-token>
+   Body: {
+     "ticketCode": "<G-xxx-từ-bước-7>",
+     "paymentMethod": "CASH"
+   }
+   ```
+
+## F. Manager assign staff
 
 11. **Login manager:**
     ```
