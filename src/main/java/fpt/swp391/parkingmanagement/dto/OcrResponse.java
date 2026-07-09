@@ -7,6 +7,15 @@ public record OcrResponse(
         List<String> candidates,
         String rawText,
         String normalizedText,
-        double confidence
+        double confidence,
+        PlateDuplicateInfo duplicateActiveSession
 ) {
+    public OcrResponse {
+        if (candidates == null) candidates = List.of();
+    }
+
+    public OcrResponse(String plateNumber, List<String> candidates, String rawText,
+                       String normalizedText, double confidence) {
+        this(plateNumber, candidates, rawText, normalizedText, confidence, null);
+    }
 }

@@ -134,7 +134,7 @@ public class FptAiOcrService {
         }
 
         try {
-            // Parse JSON response tay vì response format có thể khác
+            // Parse JSON response tay vì dùng record vì response format có thể khác
             // Response format: {"status": 200, "message": "...", "data": [...]}
 
             // Tìm text trong response

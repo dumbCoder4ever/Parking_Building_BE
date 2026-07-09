@@ -27,7 +27,8 @@ public enum ErrorCode {
     PAYMENT_ALREADY_CONFIRMED("Payment has already been confirmed"),
     BUILDING_NOT_FOUND("Building not found"),
     SLOT_NOT_AVAILABLE("Slot is not available for parking"),
-    GUEST_SESSION_NOT_FOUND("Active guest session not found");
+    GUEST_SESSION_NOT_FOUND("Active guest session not found"),
+    OCR_FAILED("OCR failed to recognize plate number from image");
 
     private final String message;
 
