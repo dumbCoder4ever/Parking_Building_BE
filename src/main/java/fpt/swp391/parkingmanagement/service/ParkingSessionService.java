@@ -18,12 +18,16 @@ import fpt.swp391.parkingmanagement.dto.GuestCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
+import fpt.swp391.parkingmanagement.dto.PlateDuplicateInfo;
+import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
+import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Payment;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
+import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.Ticket;
 import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.entity.Vehicle;
@@ -61,6 +65,7 @@ public class ParkingSessionService {
     private final VehicleRepository vehicleRepository;
     private final PricingService pricingService;
     private final VehicleTypeRepository vehicleTypeRepository;
+    private final FptAiOcrService ocrService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
         String userId = userRepository.findByEmail(staffEmail)
@@ -791,7 +796,269 @@ public class ParkingSessionService {
         return "G-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 9000 + 1000);
     }
 
-    // ======================== END GUEST FLOW ========================
+    // ======================== QUICK CHECKIN FLOW ========================
+    // Staff chỉ cần quét ảnh biển số — hệ thống tự OCR, tìm reservation / assign slot, tạo session.
+
+    /**
+     * Quick checkin DRIVER: OCR biển số → tự tìm reservation PENDING/APPROVED → tạo session.
+     * Staff không cần nhập ticketCode.
+     */
+    @Transactional
+    public QuickCheckinResponse quickDriverCheckin(String staffEmail, QuickCheckinRequest req) {
+        // 1. Staff phải được assign vào building này
+        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
+
+        // 2. OCR biển số
+        FptAiOcrService.OcrResult ocr = ocrService.recognizeFromUpload(req.getPlateImage());
+        String plateNumber = ocr.plateNumber();
+        if (plateNumber == null || ocr.confidence() < 0.3) {
+            throw new BaseAPIException(ErrorCode.OCR_FAILED,
+                    "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
+        }
+
+        // 3. Tìm reservation PENDING/APPROVED theo biển số trong building này
+        List<Reservation> candidates = reservationRepository.findPendingByPlateNumber(plateNumber);
+        Reservation matched = candidates.stream()
+                .filter(r -> {
+                    String bId = r.getSlot() != null && r.getSlot().getZone() != null
+                            && r.getSlot().getZone().getFloor() != null
+                            && r.getSlot().getZone().getFloor().getBuilding() != null
+                            ? r.getSlot().getZone().getFloor().getBuilding().getBuildingId()
+                            : null;
+                    return req.getBuildingId().equals(bId);
+                })
+                .findFirst()
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
+                        "Không tìm thấy reservation nào cho biển số " + plateNumber + " tại building này. "
+                                + "Vui lòng kiểm tra lại biển số hoặc chuyển sang chế độ Guest."));
+
+        // 4. Validate reservation status
+        String status = matched.getReservationStatus();
+        if (!"PENDING".equalsIgnoreCase(status) && !"APPROVED".equalsIgnoreCase(status)) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED,
+                    "Reservation không ở trạng thái PENDING/APPROVED (hiện tại: " + status + ")");
+        }
+
+        ParkingSlot slot = matched.getSlot();
+        if (!"RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
+            throw new BaseAPIException(ErrorCode.SLOT_NOT_RESERVED,
+                    "Slot " + slot.getSlotName() + " không ở trạng thái RESERVED");
+        }
+
+        // 5. Kiểm tra ticket — query ngược từ reservationId (Reservation không có field ticket)
+        Ticket ticket = ticketRepository.findByReservationReservationId(matched.getReservationId())
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND,
+                        "Reservation không có ticket"));
+        if (ticket.getIsUsed()) {
+            throw new BaseAPIException(ErrorCode.TICKET_ALREADY_USED,
+                    "Vé đã được sử dụng trước đó. Mã: " + ticket.getTicketCode());
+        }
+
+        // 6. Tính pricing
+        Vehicle vehicle = matched.getVehicle();
+        VehicleType vehicleType = vehicle != null ? vehicle.getVehicleType() : null;
+        PricingPolicy policy = null;
+        BigDecimal basePrice = BigDecimal.ZERO;
+        BigDecimal hourlyRate = BigDecimal.ZERO;
+        BigDecimal estimatedFee = BigDecimal.ZERO;
+        if (vehicleType != null) {
+            policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+            if (policy != null) {
+                basePrice = policy.getBasePrice();
+                hourlyRate = policy.getHourlyRate();
+                estimatedFee = pricingService.calculateByPolicy(policy, 1);
+            }
+        }
+
+        // 7. Tạo ParkingSession
+        LocalDateTime now = LocalDateTime.now();
+        User staff = userRepository.findByEmail(staffEmail).orElse(null);
+
+        ParkingSession session = new ParkingSession();
+        session.setTicket(ticket);
+        session.setReservation(matched);
+        session.setVehicle(vehicle);
+        session.setSlot(slot);
+        session.setCheckinTime(now);
+        session.setSessionStatus("ACTIVE");
+        session.setPaymentStatus("UNPAID");
+        session.setEstimatedFee(estimatedFee);
+        session.setCreatedBy(staff);
+
+        ParkingSession saved = parkingSessionRepository.save(session);
+
+        // 8. Cập nhật ticket
+        ticket.setIsUsed(true);
+        ticket.setStatus("USED");
+        ticketRepository.save(ticket);
+
+        // 9. Cập nhật reservation
+        matched.setReservationStatus("CHECKED_IN");
+        reservationRepository.save(matched);
+
+        // 10. Cập nhật slot
+        slot.setSlotStatus("OCCUPIED");
+        parkingSlotRepository.save(slot);
+
+        // 11. Build response
+        QuickCheckinResponse resp = new QuickCheckinResponse();
+        resp.setCheckinType("DRIVER");
+        resp.setTicketCode(ticket.getTicketCode());
+        resp.setSessionId(saved.getSessionId());
+        resp.setPlateNumber(plateNumber);
+        resp.setOcrConfidence(ocr.confidence());
+        if (vehicle != null) {
+            resp.setVehicleColor(vehicle.getVehicleColor());
+            resp.setBrand(vehicle.getBrand());
+            resp.setModel(vehicle.getModel());
+        }
+        if (vehicleType != null) {
+            resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
+            resp.setVehicleTypeName(vehicleType.getTypeName());
+        }
+        resp.setCheckinTime(now);
+        resp.setBasePrice(basePrice);
+        resp.setHourlyRate(hourlyRate);
+        resp.setEstimatedFee(estimatedFee);
+
+        applyHierarchyQuick(resp, slot);
+
+        // 12. Kiểm tra duplicate ACTIVE session (cảnh báo)
+        ocrService.findActiveSessionByPlate(plateNumber)
+                .filter(d -> !d.sessionId().equals(saved.getSessionId()))
+                .ifPresent(resp::setDuplicateActiveSession);
+
+        return resp;
+    }
+
+    /**
+     * Quick checkin GUEST: OCR biển số → tự assign slot trống → tạo session.
+     * Staff không cần nhập slotId.
+     */
+    @Transactional
+    public QuickCheckinResponse quickGuestCheckin(String staffEmail, QuickCheckinRequest req) {
+        // 1. Staff phải được assign vào building
+        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
+
+        // 2. Validate vehicleTypeId
+        if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
+            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                    "vehicleTypeId là bắt buộc cho chế độ Guest");
+        }
+        VehicleType vehicleType = vehicleTypeRepository.findById(req.getVehicleTypeId())
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                        "Không tìm thấy loại xe: " + req.getVehicleTypeId()));
+
+        // 3. OCR biển số
+        FptAiOcrService.OcrResult ocr = ocrService.recognizeFromUpload(req.getPlateImage());
+        String plateNumber = ocr.plateNumber();
+        if (plateNumber == null || ocr.confidence() < 0.3) {
+            throw new BaseAPIException(ErrorCode.OCR_FAILED,
+                    "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
+        }
+
+        // 4. Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp)
+        List<ParkingSlot> availableSlots = parkingSlotRepository
+                .findAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId());
+        if (availableSlots.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
+                    "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
+                            + " tại building này.");
+        }
+        ParkingSlot slot = availableSlots.get(0); // đã order floorLevel ASC, slotName ASC
+
+        // 5. Tìm hoặc tạo Vehicle
+        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(plateNumber)
+                .orElseGet(() -> {
+                    Vehicle v = new Vehicle();
+                    v.setPlateNumber(plateNumber.toUpperCase());
+                    v.setVehicleType(vehicleType);
+                    v.setStatus("ACTIVE");
+                    return vehicleRepository.save(v);
+                });
+
+        // 6. Tính pricing
+        PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+        BigDecimal basePrice = policy != null ? policy.getBasePrice() : BigDecimal.ZERO;
+        BigDecimal hourlyRate = policy != null ? policy.getHourlyRate() : BigDecimal.ZERO;
+        BigDecimal estimatedFee = policy != null
+                ? pricingService.calculateByPolicy(policy, 1) : BigDecimal.ZERO;
+
+        LocalDateTime now = LocalDateTime.now();
+        User staff = userRepository.findByEmail(staffEmail).orElse(null);
+
+        // 7. Tạo ParkingSession (không có reservation)
+        ParkingSession session = new ParkingSession();
+        session.setVehicle(vehicle);
+        session.setSlot(slot);
+        session.setCheckinTime(now);
+        session.setSessionStatus("ACTIVE");
+        session.setPaymentStatus("UNPAID");
+        session.setEstimatedFee(estimatedFee);
+        session.setCreatedBy(staff);
+
+        ParkingSession saved = parkingSessionRepository.save(session);
+
+        // 8. Tạo guest ticket G-xxx
+        Ticket guestTicket = new Ticket();
+        guestTicket.setTicketCode(generateGuestTicketCode());
+        guestTicket.setIsUsed(false);
+        guestTicket.setIsLost(false);
+        guestTicket.setStatus("ACTIVE");
+        guestTicket.setIssuedAt(now);
+        Ticket savedTicket = ticketRepository.save(guestTicket);
+
+        saved.setTicket(savedTicket);
+        saved = parkingSessionRepository.save(saved);
+
+        // 9. Cập nhật slot
+        slot.setSlotStatus("OCCUPIED");
+        parkingSlotRepository.save(slot);
+
+        // 10. Build response
+        QuickCheckinResponse resp = new QuickCheckinResponse();
+        resp.setCheckinType("GUEST");
+        resp.setTicketCode(savedTicket.getTicketCode());
+        resp.setSessionId(saved.getSessionId());
+        resp.setPlateNumber(plateNumber);
+        resp.setOcrConfidence(ocr.confidence());
+        resp.setVehicleColor(vehicle.getVehicleColor());
+        resp.setBrand(vehicle.getBrand());
+        resp.setModel(vehicle.getModel());
+        resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
+        resp.setVehicleTypeName(vehicleType.getTypeName());
+        resp.setCheckinTime(now);
+        resp.setBasePrice(basePrice);
+        resp.setHourlyRate(hourlyRate);
+        resp.setEstimatedFee(estimatedFee);
+
+        applyHierarchyQuick(resp, slot);
+
+        return resp;
+    }
+
+    private void applyHierarchyQuick(QuickCheckinResponse resp, ParkingSlot slot) {
+        if (slot == null) return;
+        resp.setSlotId(slot.getSlotId());
+        resp.setSlotName(slot.getSlotName());
+        Zone zone = slot.getZone();
+        if (zone != null) {
+            resp.setZoneId(zone.getZoneId());
+            resp.setZoneName(zone.getZoneName());
+            Floor floor = zone.getFloor();
+            if (floor != null) {
+                resp.setFloorId(floor.getFloorId());
+                resp.setFloorName(floor.getFloorName());
+                Building building = floor.getBuilding();
+                if (building != null) {
+                    resp.setBuildingId(building.getBuildingId());
+                    resp.setBuildingName(building.getBuildingName());
+                }
+            }
+        }
+    }
+
+    // ======================== END QUICK CHECKIN FLOW ========================
 
     private Optional<Payment> findLatestSessionPayment(String sessionId, List<String> statuses) {
         List<String> normalizedStatuses = statuses.stream()
