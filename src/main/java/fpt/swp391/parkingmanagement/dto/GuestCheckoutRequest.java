@@ -6,8 +6,9 @@ import lombok.Data;
 @Data
 public class GuestCheckoutRequest {
 
-    @NotBlank(message = "Ticket code is required")
-    private String ticketCode;
+    /** Set programmatically from OCR result */
+    @NotBlank(message = "Plate number is required")
+    private String plateNumber;
 
     private String paymentMethod;
 

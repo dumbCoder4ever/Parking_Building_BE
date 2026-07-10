@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -91,16 +92,13 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
             + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
-            + "WHERE UPPER(v.plateNumber) = UPPER(:plateNumber) AND ps.sessionStatus = 'ACTIVE' "
-            + "ORDER BY ps.checkinTime DESC limit 1")
-    Optional<ParkingSession> findActiveByPlateNumber(@Param("plateNumber") String plateNumber);
+            + "WHERE UPPER(v.plateNumber) = UPPER(:plateNumber) AND ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE' "
+            + "ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findActiveGuestSessionsByPlateNumber(@Param("plateNumber") String plateNumber, Pageable pageable);
 
-    @Query("SELECT ps FROM ParkingSession ps "
-            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
-            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
-            + "WHERE v.plateNumber = :plateNumber AND ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE' "
-            + "ORDER BY ps.checkinTime DESC limit 1")
-    Optional<ParkingSession> findActiveGuestByPlateNumber(@Param("plateNumber") String plateNumber);
+    default Optional<ParkingSession> findActiveGuestByPlateNumber(String plateNumber) {
+        return findActiveGuestSessionsByPlateNumber(plateNumber, PageRequest.of(0, 1)).stream().findFirst();
+    }
 
     @Query("SELECT ps FROM ParkingSession ps "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
@@ -134,4 +132,16 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus = 'ACTIVE' AND ps.reservation IS NOT NULL")
     long countDistinctDriversCurrentlyParked();
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL")
+    long countGuestSessionsAllTime();
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL")
+    long countDriverSessionsAllTime();
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE'")
+    long countActiveGuestSessions();
+
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL AND ps.sessionStatus = 'ACTIVE'")
+    long countActiveDriverSessions();
 }

@@ -40,7 +40,17 @@ public class GlobalExceptionHandler {
                 status = HttpStatus.INTERNAL_SERVER_ERROR;
                 break;
             case VEHICLE_ALREADY_EXISTS:
+            case GUEST_ALREADY_PARKING:
                 status = HttpStatus.CONFLICT;
+                break;
+            case GUEST_SESSION_NOT_FOUND:
+                status = HttpStatus.NOT_FOUND;
+                break;
+            case OCR_PLATE_NOT_DETECTED:
+                status = HttpStatus.UNPROCESSABLE_ENTITY;
+                break;
+            case OCR_FAILED:
+                status = HttpStatus.SERVICE_UNAVAILABLE;
                 break;
             default:
                 status = HttpStatus.BAD_REQUEST;

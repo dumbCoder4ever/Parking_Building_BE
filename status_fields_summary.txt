@@ -1,0 +1,144 @@
+========================================================
+  TỔNG HỢP CÁC TRƯỜNG "STATUS" TRONG PROJECT
+========================================================
+
+----------------------------------------------------------------
+I. ENUM CÓ FILE RIÊNG (package enums/)
+----------------------------------------------------------------
+
+1. SessionStatus
+   - ACTIVE
+   - PENDING_PAYMENT
+   - PENDING_EXIT
+   - COMPLETED
+   - CANCELLED
+
+2. PaymentStatus
+   - PENDING
+   - PAID
+   - CONFIRMED
+   - FAILED
+   - SUCCESS
+
+3. SessionPaymentStatus
+   - UNPAID
+   - PAID
+   - FAILED
+
+4. PaidStatus
+   - PAID
+   - UNPAID
+
+5. PaidStatusFilter
+   - PAID
+   - UNPAID
+   - AWAITING_CONFIRM
+
+6. ConfirmationStatus
+   - CONFIRMED
+   - FAILED
+
+----------------------------------------------------------------
+II. TRƯỜNG STATUS KIỂU STRING TRONG ENTITY (không dùng enum)
+----------------------------------------------------------------
+
+1. ParkingSlot.slotStatus
+   - AVAILABLE
+   - RESERVED
+   - OCCUPIED
+   - PENDING_EXIT
+   - MAINTENANCE
+   Validate tại: DbSeedRunner, ParkingSessionService, ReservationService, SlotStatusSyncJob
+
+2. ParkingSession.sessionStatus
+   - ACTIVE
+   - PENDING_PAYMENT
+   - PENDING_EXIT
+   - COMPLETED
+   - CANCELLED
+   (Trùng với SessionStatus enum nhưng entity lưu String)
+
+3. ParkingSession.paymentStatus
+   - Dùng các giá trị tương đương PaymentStatus enum (String)
+
+4. Reservation.reservationStatus
+   - PENDING
+   - APPROVED
+   - REJECTED
+   - CANCELLED
+   - EXPIRED
+   - COMPLETED
+   - NO_SHOW
+   - CHECKED_IN
+   - PENDING_PAYMENT
+   Validate tại: ReservationService.MANAGEABLE_RESERVATION_STATUSES
+
+5. Payment.paymentStatus
+   - PENDING
+   - PAID
+   - CONFIRMED
+   - FAILED
+   - SUCCESS
+
+6. User.status
+   - ACTIVE
+   - INACTIVE
+   - BANNED
+   Validate tại: @Pattern trong UpdateUserStatusRequest
+
+7. Vehicle.status
+   - ACTIVE
+   - INACTIVE           (driver được phép)
+   - BLOCKED            (chỉ manager được phép)
+   - DELETED            (khi driver xoá xe)
+   Validate tại: VehicleService.DRIVER_VEHICLE_STATUSES / MANAGER_VEHICLE_STATUSES
+
+8. Building.status
+   - ACTIVE
+   - INACTIVE
+   - MAINTENANCE
+   Validate tại: ManagerBuildingSetupService.BUILDING_FLOOR_STATUSES
+
+9. Floor.status
+   - ACTIVE
+   - INACTIVE
+   - MAINTENANCE
+   Validate tại: ManagerBuildingSetupService.BUILDING_FLOOR_STATUSES
+
+10. Zone.status
+    - ACTIVE
+    - INACTIVE
+    - FULL
+    - MAINTENANCE
+    Validate tại: ManagerBuildingSetupService.ZONE_STATUSES
+
+11. Ticket.status
+    - ACTIVE  (default khi tạo mới)
+    - USED    (sau khi check-in)
+
+12. PricingPolicy.status
+    - ACTIVE
+    - INACTIVE
+    Validate tại: PricingPolicyRepository (auto expire)
+
+13. Incident.status
+    - OPEN   (chỉ thấy hardcode trong DashboardStatsService)
+    Lưu ý: Chưa có validation rõ ràng, enum chưa được định nghĩa
+
+----------------------------------------------------------------
+III. NHẬN XÉT
+----------------------------------------------------------------
+
+- Nhiều trường dùng String thay vì Java enum, dẫn đến validate
+  rải rác ở service / DTO / annotation.
+
+- SessionStatus enum tồn tại nhưng ParkingSession.sessionStatus
+  lưu dạng String, không map trực tiếp sang enum.
+
+- Incident.status chưa có danh sách giá trị hợp lệ được
+  enforce rõ ràng — chỉ thấy giá trị "OPEN" được dùng.
+
+- Nên cân nhắc chuyển các String status thành @Enumerated(EnumType.STRING)
+  để tăng type-safety và tránh lỗi typo.
+
+========================================================
