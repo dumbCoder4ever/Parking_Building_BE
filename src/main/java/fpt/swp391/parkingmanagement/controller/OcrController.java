@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -14,6 +15,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/ocr")
 @RequiredArgsConstructor
 @Slf4j
+@PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+@Tag(name = "ocr-controller")
 public class OcrController {
 
     private final PlateRecognizerService ocrService;
