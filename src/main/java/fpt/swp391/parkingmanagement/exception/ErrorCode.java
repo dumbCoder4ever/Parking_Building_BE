@@ -28,7 +28,9 @@ public enum ErrorCode {
     BUILDING_NOT_FOUND("Building not found"),
     SLOT_NOT_AVAILABLE("Slot is not available for parking"),
     GUEST_SESSION_NOT_FOUND("Active guest session not found"),
-    OCR_FAILED("OCR failed to recognize plate number from image");
+    OCR_FAILED("OCR failed to recognize plate number from image"),
+    PLATE_MISMATCH("Plate number scanned does not match the registered plate for this session"),
+    PLATE_ALREADY_PARKED("This plate number is already registered in an active parking session");
 
     private final String message;
 
