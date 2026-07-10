@@ -1046,7 +1046,7 @@ Staff chỉ cần chụp ảnh biển số — hệ thống tự OCR, tự tạo
 
 ---
 
-### 11.1 Quick Check-in (Driver + Guest)
+### 11.1 Quick Check-in (Driver + Guest) — Staff chỉ quét ảnh
 
 Staff quét ảnh biển số — hệ thống tự nhận diện, tìm reservation / assign slot, tạo session.
 
@@ -1068,11 +1068,13 @@ Content-Type: multipart/form-data
 **DRIVER mode — Staff chỉ quét ảnh xe đã đặt trước:**
 - Hệ thống OCR biển số từ ảnh
 - Tự tìm reservation `PENDING`/`APPROVED` theo biển số + buildingId
+- **Validate: biển số quét phải khớp với biển số đăng ký trong reservation**
 - Tự tạo ParkingSession, đánh dấu ticket `USED`, slot `OCCUPIED`
 - Trả về `ticketCode` (TKT-xxx) để checkout
 
 **GUEST mode — Staff quét xe vãng lai (không đặt trước):**
 - Hệ thống OCR biển số từ ảnh
+- **Kiểm tra: biển số chưa có session ACTIVE nào trong bãi**
 - Tự tìm slot trống đầu tiên theo `buildingId` + `vehicleTypeId`
 - Tự tạo Vehicle (reuse nếu đã có), tạo Ticket `G-xxx`, tạo ParkingSession
 - Trả về `ticketCode` (G-xxx) để checkout
@@ -1134,6 +1136,8 @@ Content-Type: multipart/form-data
 | Lỗi | Nguyên nhân | Xử lý |
 |---|---|---|
 | `RESERVATION_NOT_FOUND` | Biển số OCR sai hoặc không có reservation | Staff nhập tay hoặc chuyển GUEST mode |
+| `PLATE_MISMATCH` | Biển số quét không khớp biển số đăng ký trong reservation | Staff kiểm tra xe thực tế |
+| `PLATE_ALREADY_PARKED` | Biển số đã có session ACTIVE trong bãi (GUEST mode) | Checkout xe đó trước |
 | `SLOT_NOT_AVAILABLE` (GUEST) | Không còn slot trống cho loại xe này | Chọn building khác |
 | `OCR_FAILED` | Ảnh mờ/không chụp được biển số | Staff chụp lại ảnh rõ hơn |
 | `SLOT_NOT_RESERVED` | Slot không ở trạng thái RESERVED | Reservation đã bị hủy hoặc expired |
@@ -1146,7 +1150,7 @@ Content-Type: multipart/form-data
 
 ---
 
-### 11.2 Staff Checkout (sau Quick Checkin)
+### 11.2 Staff Checkout (Driver — sau Quick Checkin)
 
 ```
 1. POST /api/ocr/plate/upload  (chụp ảnh biển số khi xe ra)
@@ -1154,14 +1158,247 @@ Content-Type: multipart/form-data
 2. POST /api/sessions/checkout
    Headers: Authorization: Bearer <staff-token>
    Body: {
-     "ticketCode": "G-1751659789123-4827",
+     "ticketCode": "TKT-1234567890-456",
      "paymentMethod": "CASH"
    }
 ```
 
 ---
 
-# STATUS VALUES
+## 12) GUEST OCR CHECKIN / CHECKOUT — Luồng vãng lai đầy đủ
+
+**Core idea:** Staff chỉ cần quét ảnh biển số khi xe vào/ra. Hệ thống tự OCR, tự validate biển số khớp với session.
+
+---
+
+### 12.1 Guest Check-in OCR (Staff quét ảnh → tự động tạo session)
+
+Staff quét ảnh biển số → hệ thống OCR nhận diện → auto-assign slot trống → tạo session.
+
+```
+POST /api/sessions/guest/checkin/ocr
+Headers: Authorization: Bearer <staff-token>
+Content-Type: multipart/form-data
+```
+
+**Body (multipart/form-data):**
+
+| Field | Bắt buộc | Mô tả |
+|---|---|---|
+| `plateImage` | **Có** | Ảnh biển số xe (JPEG/PNG) |
+| `buildingId` | **Có** | Building nơi staff đang làm việc |
+| `vehicleTypeId` | **Có** | Loại xe (MOTORCYCLE/CAR...) |
+| `vehicleColor` | Không | Màu xe |
+| `brand` | Không | Hãng xe |
+| `model` | Không | Dòng xe |
+| `guestName` | Không | Tên khách |
+| `guestPhone` | Không | SĐT khách |
+| `note` | Không | Ghi chú |
+| `checkinImage` | Không | Ảnh check-in (upload lên Cloudinary) |
+
+**Luồng xử lý phía server:**
+
+```
+1. OCR biển số từ ảnh (confidence < 0.3 → từ chối)
+2. Kiểm tra biển số đã có session ACTIVE trong bãi?
+   → Có → Lỗi PLATE_ALREADY_PARKED (không cho checkin)
+   → Không → Tiếp tục
+3. Tìm slot trống theo buildingId + vehicleTypeId (ưu tiên tầng thấp)
+   → Không có slot → Lỗi SLOT_NOT_AVAILABLE
+4. Tạo/find Vehicle theo biển số
+5. Tạo Ticket G-xxx
+6. Tạo ParkingSession
+7. Cập nhật slot → OCCUPIED
+8. Trả về ticketCode + slot + phí ước tính
+```
+
+**Response (thành công):**
+```json
+{
+  "success": true,
+  "message": "Guest check-in via OCR successful",
+  "data": {
+    "sessionId": "xyz789-abc123",
+    "ticketCode": "G-1751659789123-4827",
+    "guestName": "Nguyen Van A",
+    "guestPhone": "0909123456",
+    "vehiclePlate": "51H-99999",
+    "vehicleColor": "White",
+    "brand": "Honda",
+    "model": "Future",
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+    "vehicleTypeName": "Motorbike",
+    "buildingId": "building-id",
+    "buildingName": "Main Parking Building",
+    "floorId": "floor-1",
+    "floorName": "Floor 1 - Motorbike",
+    "zoneId": "zone-a",
+    "zoneName": "Zone A",
+    "slotId": "slot-003",
+    "slotName": "A-003",
+    "checkinTime": "2026-07-10T22:00:00",
+    "checkinImageUrl": "https://cloudinary.com/...",
+    "estimatedFee": 5000,
+    "basePrice": 5000,
+    "hourlyRate": 3000,
+    "ocrConfidence": 0.92
+  }
+}
+```
+
+**Response (lỗi PLATE_ALREADY_PARKED):**
+```json
+{
+  "success": false,
+  "message": "Biển số 51H-99999 đã đang đỗ trong bãi. Ticket: G-xxx. Vui lòng checkout trước.",
+  "error": {
+    "code": "PLATE_ALREADY_PARKED",
+    "message": "Biển số 51H-99999 đã đang đỗ trong bãi. Ticket: G-xxx. Vui lòng checkout trước."
+  }
+}
+```
+
+**Response (lỗi SLOT_NOT_AVAILABLE):**
+```json
+{
+  "success": false,
+  "message": "Không có slot trống nào cho loại xe Motorbike tại building này.",
+  "error": {
+    "code": "SLOT_NOT_AVAILABLE",
+    "message": "Không có slot trống nào cho loại xe Motorbike tại building này."
+  }
+}
+```
+
+---
+
+### 12.2 Guest Checkout OCR (Staff quét ảnh → validate → checkout)
+
+Staff quét ảnh biển số + nhập ticketCode → hệ thống OCR nhận diện → validate biển số khớp → checkout.
+
+```
+POST /api/sessions/guest/checkout/ocr
+Headers: Authorization: Bearer <staff-token>
+Content-Type: multipart/form-data
+```
+
+**Body (multipart/form-data):**
+
+| Field | Bắt buộc | Mô tả |
+|---|---|---|
+| `plateImage` | **Có** | Ảnh biển số xe lúc xe ra (JPEG/PNG) |
+| `ticketCode` | **Có** | Mã vé G-xxx (từ checkin) |
+| `paymentMethod` | Không | `CASH` (mặc định), `VNPAY`, `PAYOS`, `MOMO` |
+| `checkoutImage` | Không | Ảnh check-out (upload lên Cloudinary) |
+
+**Luồng xử lý phía server:**
+
+```
+1. Tìm session ACTIVE theo ticketCode
+   → Không tìm thấy → Lỗi GUEST_SESSION_NOT_FOUND
+2. Verify đây là guest session (không có reservation)
+   → Có reservation → Lỗi INVALID_REQUEST
+3. OCR biển số từ ảnh (confidence < 0.3 → từ chối)
+4. So sánh biển số quét vs biển số trong session
+   → Không khớp → Lỗi PLATE_MISMATCH ⚠️
+   → Khớp → Tiếp tục
+5. Tính phí thực tế (theo thời gian gửi)
+6. Tạo Payment (CASH/điện tử)
+7. Cập nhật session → COMPLETED, slot → AVAILABLE
+8. Trả về totalFee + thông tin checkout
+```
+
+**Response (thành công):**
+```json
+{
+  "success": true,
+  "message": "Guest checkout via OCR successful",
+  "data": {
+    "sessionId": "xyz789-abc123",
+    "checkoutTime": "2026-07-10T23:30:00",
+    "parkingHours": 1,
+    "parkingMinutes": 90,
+    "basePrice": 5000,
+    "hourlyRate": 3000,
+    "totalFee": 8000,
+    "sessionStatus": "COMPLETED",
+    "paymentStatus": "PAID",
+    "paymentId": "payment-uuid",
+    "paymentMethod": "CASH",
+    "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+    "vehicleTypeName": "Motorbike",
+    "buildingId": "building-id",
+    "buildingName": "Main Parking Building",
+    "slotName": "A-003"
+  }
+}
+```
+
+**Response (lỗi PLATE_MISMATCH — biển số quét không khớp):**
+```json
+{
+  "success": false,
+  "message": "Biển số quét (51H-99999) không khớp với biển số đăng ký (51H-88888). Kiểm tra lại xe hoặc dùng tìm kiếm thủ công.",
+  "error": {
+    "code": "PLATE_MISMATCH",
+    "message": "Biển số quét (51H-99999) không khớp với biển số đăng ký (51H-88888). Kiểm tra lại xe hoặc dùng tìm kiếm thủ công."
+  }
+}
+```
+
+**Response (lỗi GUEST_SESSION_NOT_FOUND):**
+```json
+{
+  "success": false,
+  "message": "Không tìm thấy session ACTIVE cho ticket: G-1751659789123-4827",
+  "error": {
+    "code": "GUEST_SESSION_NOT_FOUND",
+    "message": "Không tìm thấy session ACTIVE cho ticket: G-1751659789123-4827"
+  }
+}
+```
+
+---
+
+### 12.3 Tìm session guest theo biển số
+
+Staff có thể tra cứu session đang hoạt động bằng biển số.
+
+```
+GET /api/sessions/guest/plate/{plateNumber}
+Headers: Authorization: Bearer <staff-token>
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Active guest session found",
+  "data": {
+    "sessionId": "xyz789-abc123",
+    "ticketCode": "G-1751659789123-4827",
+    "vehiclePlate": "51H-99999",
+    "slotName": "A-003",
+    "checkinTime": "2026-07-10T22:00:00",
+    "estimatedFee": 5000
+  }
+}
+```
+
+---
+
+### 12.4 Tìm session guest theo ticket code
+
+Staff tra cứu session bằng mã vé (trước khi checkout).
+
+```
+GET /api/sessions/guest/ticket/{ticketCode}
+Headers: Authorization: Bearer <staff-token>
+```
+
+---
+
+## 13) QUICK CHECKIN — Staff chỉ quét ảnh, không cần nhập tay
 
 ## Parking Session Status (MỚI)
 - `CHECKED_IN` - Xe đã vào bãi, đang đỗ
@@ -1362,53 +1599,84 @@ Content-Type: multipart/form-data
     Headers: Authorization: Bearer <staff-token>
     ```
 
-## D. Guest (vãng lai) có OCR
+## D. Guest (vãng lai) — LUỒNG OCR MỚI (Khuyên dùng)
+
+Staff chỉ quét ảnh biển số → hệ thống tự OCR + validate + checkout.
+
+### D1: Check-in bằng OCR
 
 5. **Login staff:**
    ```
    POST /api/auth/login
    Body: {"email": "staff1@example.com", "password": "123"}
    ```
+   → Copy staff token
 
-6. **OCR nhận diện biển số:**
+6. **Guest Check-in OCR:**
    ```
-   POST /api/ocr/plate/upload
+   POST /api/sessions/guest/checkin/ocr
    Headers: Authorization: Bearer <staff-token>
    Content-Type: multipart/form-data
-   Body: file=@plate.jpg
-   ```
-   → Nếu `duplicateActiveSession != null`: popup cảnh báo, staff xác nhận mới tiếp tục
-
-7. **Xác nhận xe vào (guest check-in):**
-   ```
-   POST /api/sessions/guest/checkin
-   Headers: Authorization: Bearer <staff-token>
    Body: {
-     "plateNumber": "51A-12345",
+     "plateImage": "<file biển số>",
+     "buildingId": "building-id",
      "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
-     "slotId": "slot-id",
-     "vehicleColor": "White"
+     "vehicleColor": "White",
+     "guestName": "Nguyen Van A",
+     "guestPhone": "0909123456"
    }
    ```
-   → Response trả về `ticketCode` (mã G-xxx)
+   → Hệ thống tự OCR biển số → check PLATE_ALREADY_PARKED → assign slot → tạo session
+   → Response trả về `ticketCode` (G-xxx) + slot + phí ước tính
+   → Copy `ticketCode` để checkout
 
-8. **OCR nhận diện biển số (check-out):**
+### D2: Checkout bằng OCR
+
+7. **Guest Checkout OCR:**
    ```
-   POST /api/ocr/plate/upload
+   POST /api/sessions/guest/checkout/ocr
    Headers: Authorization: Bearer <staff-token>
    Content-Type: multipart/form-data
-   Body: file=@plate.jpg
-   ```
-
-9. **Xác nhận xe ra (guest check-out):**
-   ```
-   POST /api/sessions/guest/checkout
-   Headers: Authorization: Bearer <staff-token>
    Body: {
-     "ticketCode": "<G-xxx-từ-bước-7>",
+     "plateImage": "<file biển số khi xe ra>",
+     "ticketCode": "G-1751659789123-4827",
      "paymentMethod": "CASH"
    }
    ```
+   → Hệ thống OCR biển số → so sánh với session → PLATE_MISMATCH nếu không khớp
+   → Tính phí thực tế + thanh toán
+   → Response: totalFee + checkoutTime + COMPLETED
+
+### D3: Tra cứu trước khi checkout
+
+7a. **Tra cứu session đang hoạt động:**
+   ```
+   GET /api/sessions/guest/plate/51H-99999
+   Headers: Authorization: Bearer <staff-token>
+   ```
+
+7b. **Tra cứu session theo ticket code:**
+   ```
+   GET /api/sessions/guest/ticket/G-1751659789123-4827
+   Headers: Authorization: Bearer <staff-token>
+   ```
+
+### D4: Guest Quick Check-in (mode=GUEST)
+
+Thay vì endpoint riêng, staff dùng Quick Checkin với `mode=GUEST`:
+
+```
+POST /api/sessions/quick-checkin
+Headers: Authorization: Bearer <staff-token>
+Content-Type: multipart/form-data
+Body: {
+  "plateImage": "<file biển số>",
+  "buildingId": "building-id",
+  "vehicleTypeId": "33333333-3333-3333-3333-333333333331",
+  "mode": "GUEST"
+}
+```
+→ Tự OCR + tự assign slot + tạo Ticket G-xxx
 
 ## F. Manager assign staff
 
