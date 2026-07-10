@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,8 +15,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
+import fpt.swp391.parkingmanagement.dto.GuestCheckinOcrRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
+import fpt.swp391.parkingmanagement.dto.GuestCheckoutOcrRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
 import fpt.swp391.parkingmanagement.service.CloudinaryService;
 import fpt.swp391.parkingmanagement.service.ParkingSessionService;
@@ -63,7 +66,7 @@ public class GuestSessionController {
         req.setGuestPhone(guestPhone);
         req.setNote(note);
         if (checkinImage != null && !checkinImage.isEmpty()) {
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(checkinImage));
+            req.setCheckinImageUrl(cloudinaryService.uploadParkingImageSafe(checkinImage));
         }
 
         GuestCheckinResponse resp = parkingSessionService.guestCheckin(auth.getName(), req);
@@ -86,7 +89,7 @@ public class GuestSessionController {
         req.setTicketCode(ticketCode);
         req.setPaymentMethod(paymentMethod);
         if (checkoutImage != null && !checkoutImage.isEmpty()) {
-            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImage(checkoutImage));
+            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImageSafe(checkoutImage));
         }
 
         CheckoutResponse resp = parkingSessionService.guestCheckout(auth.getName(), req);
@@ -130,5 +133,46 @@ public class GuestSessionController {
 
         GuestCheckinResponse resp = parkingSessionService.getGuestSessionByTicketCode(ticketCode);
         return ResponseEntity.ok(ApiResponse.ok("Guest session found", resp));
+    }
+
+    // ======================== OCR-BASED ENDPOINTS ========================
+
+    @Operation(
+        summary = "Guest Check-in bằng OCR (quét biển số)",
+        description = "Staff chỉ cần quét ảnh biển số xe. Hệ thống tự nhận diện biển số → auto-assign slot trống → tạo session. "
+                    + "Nếu biển số đã đang đỗ trong bãi → báo lỗi PLATE_ALREADY_PARKED. "
+                    + "Nếu không có slot trống → báo lỗi SLOT_NOT_AVAILABLE."
+    )
+    @PostMapping(value = "/checkin/ocr", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<GuestCheckinResponse>> guestCheckinOcr(
+            @ModelAttribute GuestCheckinOcrRequest req,
+            Authentication auth) {
+
+        if (req.getCheckinImage() != null && !req.getCheckinImage().isEmpty()) {
+            req.setCheckinImageUrl(cloudinaryService.uploadParkingImageSafe(req.getCheckinImage()));
+        }
+
+        GuestCheckinResponse resp = parkingSessionService.guestCheckinOcr(auth.getName(), req);
+        return ResponseEntity.ok(ApiResponse.ok("Guest check-in via OCR successful", resp));
+    }
+
+    @Operation(
+        summary = "Guest Check-out bằng OCR (quét biển số)",
+        description = "Staff quét ảnh biển số xe lúc ra + nhập ticketCode. "
+                    + "Hệ thống tự nhận diện biển số → validate khớp với session → checkout. "
+                    + "Nếu biển số quét không khớp → báo lỗi PLATE_MISMATCH. "
+                    + "Thanh toán CASH mặc định, hỗ trợ VNPAY/PAYOS/MOMO."
+    )
+    @PostMapping(value = "/checkout/ocr", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<CheckoutResponse>> guestCheckoutOcr(
+            @ModelAttribute GuestCheckoutOcrRequest req,
+            Authentication auth) {
+
+        if (req.getCheckoutImage() != null && !req.getCheckoutImage().isEmpty()) {
+            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImageSafe(req.getCheckoutImage()));
+        }
+
+        CheckoutResponse resp = parkingSessionService.guestCheckoutOcr(auth.getName(), req);
+        return ResponseEntity.ok(ApiResponse.ok("Guest checkout via OCR successful", resp));
     }
 }

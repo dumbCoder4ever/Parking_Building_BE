@@ -35,4 +35,6 @@ public class GuestCheckinResponse {
     private BigDecimal estimatedFee;
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
+
+    private Double ocrConfidence;
 }

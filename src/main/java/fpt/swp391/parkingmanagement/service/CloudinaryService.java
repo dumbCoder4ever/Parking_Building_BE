@@ -22,6 +22,19 @@ public class CloudinaryService {
         return uploadToFolder(file, "parking-management/sessions", "Parking image");
     }
 
+    /**
+     * Upload an image but swallow the exception if Cloudinary is not configured.
+     * Returns null when credentials are missing — callers must handle null safely.
+     */
+    public String uploadParkingImageSafe(MultipartFile file) {
+        if (file == null || file.isEmpty()) return null;
+        try {
+            return uploadParkingImage(file);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     private String uploadToFolder(MultipartFile file, String folder, String label) {
         if (file == null || file.isEmpty()) {
             throw new RuntimeException(label + " file is empty");
