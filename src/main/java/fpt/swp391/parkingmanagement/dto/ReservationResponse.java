@@ -25,6 +25,7 @@ public class ReservationResponse {
     private String vehicleColor;
     private String vehicleBrand;
     private String vehicleModel;
+    private String vehicleImageUrl;
 
     // Slot info
     private String buildingId;

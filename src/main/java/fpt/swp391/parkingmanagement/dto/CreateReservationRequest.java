@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.multipart.MultipartFile;
 
 @Data
 public class CreateReservationRequest {
@@ -27,5 +29,9 @@ public class CreateReservationRequest {
     private String slotId;
 
     @NotNull(message = "Reservation start time is required")
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
     private LocalDateTime reservationStart;
+
+    /** Optional vehicle photo uploaded when driver registers the vehicle for reservation. */
+    private MultipartFile image;
 }
