@@ -9,7 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Schema(description = "Quick checkin: staff chỉ cần quét ảnh biển số. Hệ thống tự nhận diện biển số, tìm reservation (driver) hoặc auto-assign slot (guest), rồi tạo session.")
 public class QuickCheckinRequest {
 
-    @Schema(description = "Ảnh biển số xe. Staff chụp ảnh biển số → upload lên. BẮT BUỘC.")
+    @Schema(description = "Ảnh biển số xe. Staff chụp ảnh biển số → upload lên. BẮT BUỘC. Hệ thống OCR tự nhận diện biển số, tìm reservation (driver) hoặc auto-assign slot (guest), rồi tạo session.")
     private MultipartFile plateImage;
 
     @Schema(description = "Building ID nơi staff đang làm việc. BẮT BUỘC. Hệ thống dùng để auto-assign slot (guest) và validate reservation (driver).")

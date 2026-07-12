@@ -23,8 +23,8 @@ import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.service.CloudinaryService;
-import fpt.swp391.parkingmanagement.service.OcrService;
-import fpt.swp391.parkingmanagement.service.OcrService.OcrResult;
+import fpt.swp391.parkingmanagement.service.PlateRecognizerService;
+import fpt.swp391.parkingmanagement.service.PlateRecognizerService.OcrResult;
 import fpt.swp391.parkingmanagement.service.ParkingSessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -39,7 +39,7 @@ public class GuestSessionController {
 
     private final ParkingSessionService parkingSessionService;
     private final CloudinaryService cloudinaryService;
-    private final OcrService ocrService;
+    private final PlateRecognizerService ocrService;
 
     @Operation(
         summary = "Guest Check-in",
