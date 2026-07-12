@@ -333,6 +333,130 @@ GET `/api/reservations/me`
 
 ---
 
+### 3.2.1 Khảo sát availability (Flow mới — 2 endpoint dùng cho màn tìm chỗ)
+
+> 2 endpoint FE cần call để hiển thị màn availability. Đã thay thế các endpoint cũ `/api/slots/availability` và `/api/buildings/{id}` để giảm payload và round-trip.
+
+**Bước 1 — Lấy danh sách bãi xe đang có chỗ trống**
+
+```
+GET /api/buildings/available
+```
+
+**Headers:** `Authorization: Bearer <driver-token>`
+
+**Query params (tất cả optional):**
+- `vehicleTypeId` — lọc theo loại xe (vd `CAR`, `MOTORBIKE`)
+- `name` — partial match tên bãi
+- `address` — partial match địa chỉ
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Available buildings retrieved successfully",
+  "data": [
+    {
+      "buildingId": "BLD-001",
+      "name": "Bãi xe Trung Tâm",
+      "address": "12 Lê Lợi, Q1",
+      "contactNumber": "0901234567",
+      "operatingStartTime": "06:00",
+      "operatingEndTime": "23:00",
+      "operatingHoursDisplay": "06:00 - 23:00",
+      "parkingRules": "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.",
+      "totalSlots": 50,
+      "availableSlots": 12,
+      "vehicleTypes": ["Car", "Motorbike"],
+      "pricingByType": [
+        {
+          "policyId": "PP-001",
+          "vehicleTypeId": "VT-CAR",
+          "vehicleTypeName": "Car",
+          "pricingType": "HOURLY",
+          "basePrice": 5000,
+          "hourlyRate": 5000,
+          "maxHours": 24
+        }
+      ]
+    }
+  ]
+}
+```
+
+> FE render card/list bãi xe với `totalSlots` / `availableSlots` / `vehicleTypes`. Mỗi card không cần gọi thêm API nào khác để hiện pricing.
+
+---
+
+**Bước 2 — Lấy grid slot của một zone (khi user chọn bãi + zone)**
+
+> Sau khi biết bãi xe có chỗ trống, FE cần 1 zone id để gọi endpoint này. Zone id có thể lấy từ nguồn khác (vd cache từ màn manager setup, hoặc từ 1 lookup nhẹ khác — chưa có API list zone public ở flow này).
+
+```
+GET /api/zones/{zoneId}/slots
+```
+
+**Headers:** `Authorization: Bearer <driver-token>`
+
+**Path params:**
+- `zoneId` — id của zone
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Zone slots retrieved successfully",
+  "data": {
+    "buildingId": "BLD-001",
+    "buildingName": "Bãi xe Trung Tâm",
+    "zoneId": "Z-001",
+    "zoneName": "Zone A",
+    "zoneStatus": "ACTIVE",
+    "floorId": "FL-001",
+    "floorName": "Tầng 1",
+    "floorLevel": 1,
+    "floorVehicleTypeId": "VT-CAR",
+    "floorVehicleTypeName": "Car",
+    "totalSlots": 20,
+    "availableSlots": 15,
+    "slots": [
+      {
+        "slotId": "SL-001",
+        "slotName": "A-001",
+        "slotStatus": "AVAILABLE",
+        "vehicleTypeId": "VT-CAR",
+        "vehicleTypeName": "Car",
+        "availableCount": 1,
+        "basePrice": 5000,
+        "hourlyRate": 5000,
+        "maxHours": 24,
+        "reservedByUserId": null,
+        "reservedByUsername": null,
+        "reservedByVehicleId": null
+      },
+      {
+        "slotId": "SL-002",
+        "slotName": "A-002",
+        "slotStatus": "OCCUPIED",
+        "vehicleTypeId": "VT-CAR",
+        "vehicleTypeName": "Car",
+        "availableCount": 0,
+        "basePrice": 5000,
+        "hourlyRate": 5000,
+        "maxHours": 24,
+        "reservedByUserId": "USR-99",
+        "reservedByUsername": "driver01",
+        "reservedByVehicleId": "VEH-12"
+      }
+    ]
+  }
+}
+```
+
+> FE dùng `slots[]` render lưới slot. Slot `AVAILABLE` cho phép click chọn; `OCCUPIED` không cho chọn. Field `reservedByUsername` chỉ hiện cho STAFF/MANAGER/ADMIN (driver khác không nên thấy — backend sẽ mask ở bản sau).
+
+---
+
 ### 3.3 Xem slot còn trống
 GET `/api/slots/availability`
 

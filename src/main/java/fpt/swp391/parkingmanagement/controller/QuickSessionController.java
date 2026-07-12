@@ -16,10 +16,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-
 @RestController
 @RequestMapping("/api/sessions")
 @RequiredArgsConstructor
@@ -37,27 +33,6 @@ public class QuickSessionController {
     public ResponseEntity<ApiResponse<QuickCheckinResponse>> quickCheckin(
             @ModelAttribute QuickCheckinRequest req,
             Authentication auth) {
-
-        // #region agent log
-        try {
-            String cwd = System.getProperty("user.dir");
-            String tmp = System.getProperty("java.io.tmpdir");
-            boolean plateEmpty = req.getPlateImage() == null || req.getPlateImage().isEmpty();
-            String logPath = tmp + "debug-d41f02.log";
-            String payload = String.format(
-                "{\"sessionId\":\"d41f02\",\"id\":\"log_ctrl_entry_%d\",\"timestamp\":%d,\"location\":\"QuickSessionController.java:38\",\"message\":\"controller entered\",\"data\":{\"cwd\":\"%s\",\"tmp\":\"%s\",\"logPath\":\"%s\",\"plateImageEmpty\":%s,\"buildingId\":\"%s\",\"mode\":\"%s\",\"email\":\"%s\"},\"runId\":\"debug-2\",\"hypothesisId\":\"F,G,H\"}\n",
-                System.nanoTime(), System.currentTimeMillis(),
-                cwd == null ? "" : cwd.replace("\"","\\\""),
-                tmp == null ? "" : tmp.replace("\"","\\\""),
-                logPath.replace("\"","\\\""),
-                plateEmpty,
-                req.getBuildingId() == null ? "" : req.getBuildingId(),
-                req.getMode() == null ? "" : req.getMode().name(),
-                auth.getName() == null ? "" : auth.getName());
-            Files.writeString(Path.of(logPath), payload,
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ignored) {}
-        // #endregion
 
         String email = auth.getName();
         QuickCheckinRequest.QuickMode mode = req.getMode() != null
