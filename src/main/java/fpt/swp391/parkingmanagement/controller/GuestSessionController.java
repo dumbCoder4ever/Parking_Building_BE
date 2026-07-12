@@ -173,6 +173,8 @@ public class GuestSessionController {
 
         CheckoutResponse resp = parkingSessionService.guestCheckoutOcr(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok("Guest checkout via OCR successful", resp));
+    }
+
     private String detectPlateOrThrow(MultipartFile plateImage) {
         if (plateImage == null || plateImage.isEmpty()) {
             throw new BaseAPIException(ErrorCode.BAD_REQUEST, "Plate image is required");

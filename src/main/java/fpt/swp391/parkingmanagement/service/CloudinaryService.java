@@ -45,6 +45,8 @@ public class CloudinaryService {
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
     private boolean isConfigured() {
         return cloudName != null && !cloudName.isBlank()
                 && apiKey != null && !apiKey.isBlank()
