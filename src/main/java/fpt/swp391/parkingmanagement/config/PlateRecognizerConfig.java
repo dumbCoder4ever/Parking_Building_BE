@@ -3,18 +3,25 @@ package fpt.swp391.parkingmanagement.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+
+import java.time.Duration;
 
 @Configuration
 public class PlateRecognizerConfig {
 
-    @Value("${platerecognizer.api.url:https://api.platerecognizer.com/v1/plate-reader/}")
-    private String apiUrl;
+    @Value("${plate-recognizer.timeout-seconds:30}")
+    private int timeoutSeconds;
 
     @Bean
     public WebClient plateRecognizerWebClient() {
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(Duration.ofSeconds(timeoutSeconds));
+
         return WebClient.builder()
-                .baseUrl(apiUrl)
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
     }
 }
