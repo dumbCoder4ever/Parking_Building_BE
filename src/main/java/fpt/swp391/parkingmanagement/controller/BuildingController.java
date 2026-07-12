@@ -11,40 +11,45 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
-import fpt.swp391.parkingmanagement.dto.BuildingDetailDto;
-import fpt.swp391.parkingmanagement.dto.BuildingFloorsDto;
-import fpt.swp391.parkingmanagement.dto.BuildingInfoDto;
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
 import fpt.swp391.parkingmanagement.service.BuildingService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
 /**
  * =============================================================================
- * BUILDING AVAILABILITY APIs — 3-level progressive loading
+ * BUILDING AVAILABILITY APIs — 2 endpoints for the availability screen
  * =============================================================================
  *
- * UX Flow:
- *   Step 1: GET /buildings/available      → list buildings with slot counts
- *   Step 2a: GET /buildings/{id}/info     → building info + pricing + slots (fast, loads first)
- *   Step 2b: GET /buildings/{id}/floors  → floors + zones (loads second)
- *   Step 3: GET /zones/{id}/slots         → slot grid with pricing + reservation info
+ * Kept intentionally minimal so FE can map directly:
+ *   GET /buildings/available  → list buildings that have free slots
+ *   GET /zones/{zoneId}/slots → slot grid for a zone
  */
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
+@Tag(name = "building-discovery", description = "Availability flow for drivers/operators. Two endpoints: (1) list available buildings, (2) get slot grid for a zone.")
 public class BuildingController {
 
     private final BuildingService buildingService;
 
     // =========================================================================
-    // STEP 1 — List available buildings (minimal data, fast)
+    // (1) List available buildings (minimal data, fast)
     // =========================================================================
     @GetMapping("/buildings/available")
     @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
+    @Operation(
+            summary = "List available buildings",
+            description = "Returns a lightweight list of buildings that currently have at least one free slot for the given vehicle type. Each entry exposes aggregate slot counts (free / total) so the UI can render a quick picker before drilling into a zone.")
     public ResponseEntity<ApiResponse<List<BuildingSummaryDto>>> getAvailableBuildings(
+            @Parameter(description = "Filter by vehicle type id (e.g. CAR, MOTORBIKE). Optional.")
             @RequestParam(required = false) String vehicleTypeId,
+            @Parameter(description = "Partial match on building name. Optional.")
             @RequestParam(required = false) String name,
+            @Parameter(description = "Partial match on address. Optional.")
             @RequestParam(required = false) String address) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Available buildings retrieved successfully",
@@ -52,50 +57,15 @@ public class BuildingController {
     }
 
     // =========================================================================
-    // STEP 2a — Building info: pricing + slot counts (no floors)
-    // =========================================================================
-    @GetMapping("/buildings/{buildingId}/info")
-    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<BuildingInfoDto>> getBuildingInfo(
-            @PathVariable String buildingId,
-            @RequestParam(required = false) String vehicleTypeId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Building info retrieved successfully",
-                buildingService.getBuildingInfo(buildingId, vehicleTypeId)));
-    }
-
-    // =========================================================================
-    // STEP 2b — Building floors: floors + zones with slot counts (no building info)
-    // =========================================================================
-    @GetMapping("/buildings/{buildingId}/floors")
-    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<BuildingFloorsDto>> getBuildingFloors(
-            @PathVariable String buildingId,
-            @RequestParam(required = false) String vehicleTypeId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Building floors retrieved successfully",
-                buildingService.getBuildingFloors(buildingId, vehicleTypeId)));
-    }
-
-    // =========================================================================
-    // LEGACY — Full building detail (kept for backward compatibility)
-    // =========================================================================
-    @GetMapping("/buildings/{buildingId}/detail")
-    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<BuildingDetailDto>> getBuildingDetail(
-            @PathVariable String buildingId,
-            @RequestParam(required = false) String vehicleTypeId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Building detail retrieved successfully",
-                buildingService.getBuildingDetail(buildingId, vehicleTypeId)));
-    }
-
-    // =========================================================================
-    // STEP 3 — Zone slots: full slot grid with pricing + reservation info
+    // (2) Zone slots: full slot grid with pricing + reservation info
     // =========================================================================
     @GetMapping("/zones/{zoneId}/slots")
     @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<ZoneSlotsDto>> getZoneSlots(@PathVariable String zoneId) {
+    @Operation(
+            summary = "Get zone slot grid",
+            description = "Returns the full slot grid for a zone, each slot enriched with vehicle-type, status, pricing, and an optional reservation hint (who is occupying / until when). Drives the slot-picker UI.")
+    public ResponseEntity<ApiResponse<ZoneSlotsDto>> getZoneSlots(
+            @Parameter(description = "Zone id") @PathVariable String zoneId) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Zone slots retrieved successfully",
                 buildingService.getZoneSlots(zoneId)));
