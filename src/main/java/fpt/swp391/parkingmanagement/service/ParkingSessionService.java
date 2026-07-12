@@ -730,10 +730,8 @@ public class ParkingSessionService {
         // 1. OCR biển số
         PlateRecognizerService.OcrResult ocr;
         try {
-            ocr = ocrService.recognizeFromUpload(
-                    req.getPlateImage().getBytes(),
-                    req.getPlateImage().getOriginalFilename());
-        } catch (java.io.IOException e) {
+            ocr = ocrService.recognizeFromUpload(req.getPlateImage());
+        } catch (Exception e) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
                     "Không thể đọc ảnh biển số: " + e.getMessage());
         }
@@ -745,7 +743,7 @@ public class ParkingSessionService {
         final String finalPlateNumber = plateNumber.toUpperCase();
 
         // 2. Kiểm tra biển số đã có session ACTIVE chưa (không phân biệt driver/guest)
-        Optional<ParkingSession> existingSession = parkingSessionRepository.findActiveByPlateNumber(finalPlateNumber);
+        Optional<ParkingSession> existingSession = parkingSessionRepository.findActiveGuestByPlateNumber(finalPlateNumber);
         if (existingSession.isPresent()) {
             ParkingSession dup = existingSession.get();
             String dupTicket = dup.getTicket() != null ? dup.getTicket().getTicketCode() : "N/A";
@@ -876,10 +874,8 @@ public class ParkingSessionService {
         // 4. OCR biển số lúc xe ra
         PlateRecognizerService.OcrResult ocr;
         try {
-            ocr = ocrService.recognizeFromUpload(
-                    req.getPlateImage().getBytes(),
-                    req.getPlateImage().getOriginalFilename());
-        } catch (java.io.IOException e) {
+            ocr = ocrService.recognizeFromUpload(req.getPlateImage());
+        } catch (Exception e) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
                     "Không thể đọc ảnh biển số: " + e.getMessage());
         }
@@ -1100,23 +1096,8 @@ public class ParkingSessionService {
         // 1. Staff phải được assign vào building này
         checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
 
-<<<<<<< Updated upstream
-        // 2. OCR biển số
-        PlateRecognizerService.OcrResult ocr;
-        try {
-            ocr = ocrService.recognizeFromUpload(req.getPlateImage().getBytes(), req.getPlateImage().getOriginalFilename());
-        } catch (java.io.IOException e) {
-            throw new BaseAPIException(ErrorCode.OCR_FAILED, "Không thể đọc ảnh biển số: " + e.getMessage());
-        }
-        String plateNumber = ocr.plateNumber();
-        if (plateNumber == null || ocr.confidence() < 0.3) {
-            throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
-        }
-=======
-        // 2. Resolve plate number bằng OCR
+// 2. Resolve plate number bằng OCR
         String plateNumber = resolvePlateNumber(req);
->>>>>>> Stashed changes
 
         // 3. Tìm reservation PENDING/APPROVED theo biển số trong building này
         String normalizedPlate = plateNumber.toUpperCase();
@@ -1258,22 +1239,8 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
                         "Không tìm thấy loại xe: " + req.getVehicleTypeId()));
 
-        // 3. OCR biển số
-<<<<<<< Updated upstream
-        PlateRecognizerService.OcrResult ocr;
-        try {
-            ocr = ocrService.recognizeFromUpload(req.getPlateImage().getBytes(), req.getPlateImage().getOriginalFilename());
-        } catch (java.io.IOException e) {
-            throw new BaseAPIException(ErrorCode.OCR_FAILED, "Không thể đọc ảnh biển số: " + e.getMessage());
-        }
-        String plateNumber = ocr.plateNumber();
-        if (plateNumber == null || ocr.confidence() < 0.3) {
-            throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
-        }
-=======
+        // 3. Resolve plate number bằng OCR
         String plateNumber = resolvePlateNumber(req);
->>>>>>> Stashed changes
 
         // 4. Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp)
         List<ParkingSlot> availableSlots = parkingSlotRepository

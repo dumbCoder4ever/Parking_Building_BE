@@ -43,7 +43,7 @@ public class GuestSessionController {
 
     @Operation(
         summary = "Guest Check-in",
-        description = "Staff chụp/upload ảnh biển số xe khách vãng lai. Hệ thống dùng Tesseract OCR đọc biển số, "
+        description = "Staff chụp/upload ảnh biển số xe khách vãng lai. Hệ thống dùng Plate Recognizer OCR đọc biển số, "
                     + "tạo ParkingSession và gán slot. Chỉ cần gửi multipart/form-data với plateImage và slotId."
     )
     @PostMapping(value = "/checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -60,9 +60,6 @@ public class GuestSessionController {
         req.setPlateNumber(plateNumber);
         req.setSlotId(slotId);
         req.setNote(note);
-        if (checkinImage != null && !checkinImage.isEmpty()) {
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImageSafe(checkinImage));
-        }
         req.setCheckinImageUrl(imageUrl);
 
         GuestCheckinResponse resp = parkingSessionService.guestCheckin(auth.getName(), req);
@@ -86,9 +83,6 @@ public class GuestSessionController {
         GuestCheckoutRequest req = new GuestCheckoutRequest();
         req.setPlateNumber(plateNumber);
         req.setPaymentMethod(paymentMethod);
-        if (checkoutImage != null && !checkoutImage.isEmpty()) {
-            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImageSafe(checkoutImage));
-        }
         req.setCheckoutImageUrl(imageUrl);
 
         CheckoutResponse resp = parkingSessionService.guestCheckout(auth.getName(), req);
