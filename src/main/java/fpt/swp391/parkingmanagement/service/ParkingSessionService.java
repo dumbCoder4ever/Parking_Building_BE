@@ -154,10 +154,6 @@ public class ParkingSessionService {
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setCheckinImageUrl(req.getCheckinImageUrl());
-        if (req.getCheckinImageUrl() != null && vehicle != null) {
-            vehicle.setImageUrl(req.getCheckinImageUrl());
-            vehicleRepository.save(vehicle);
-        }
         User staff = userRepository.findByEmail(staffEmail).orElse(null);
         session.setCreatedBy(staff);
 
@@ -236,11 +232,6 @@ public class ParkingSessionService {
         session.setParkingDuration(hours);
         session.setSessionStatus("COMPLETED");
         session.setCheckoutImageUrl(req.getCheckoutImageUrl());
-        if (req.getCheckoutImageUrl() != null && session.getVehicle() != null) {
-            Vehicle checkoutVehicle = session.getVehicle();
-            checkoutVehicle.setImageUrl(req.getCheckoutImageUrl());
-            vehicleRepository.save(checkoutVehicle);
-        }
 
         // Update reservation to COMPLETED after successful checkout
         if (session.getReservation() != null) {
@@ -549,11 +540,8 @@ public class ParkingSessionService {
 
         if (vehicle.getVehicleType() == null) {
             vehicle.setVehicleType(vehicleType);
+            vehicleRepository.save(vehicle);
         }
-        if (req.getCheckinImageUrl() != null) {
-            vehicle.setImageUrl(req.getCheckinImageUrl());
-        }
-        vehicleRepository.save(vehicle);
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -662,10 +650,6 @@ public class ParkingSessionService {
         session.setParkingDuration(hours);
         session.setSessionStatus("COMPLETED");
         session.setCheckoutImageUrl(req.getCheckoutImageUrl());
-        if (req.getCheckoutImageUrl() != null && session.getVehicle() != null) {
-            session.getVehicle().setImageUrl(req.getCheckoutImageUrl());
-            vehicleRepository.save(session.getVehicle());
-        }
 
         Payment savedPayment = null;
         if (electronicPayment) {
@@ -779,7 +763,6 @@ public class ParkingSessionService {
         if (req.getVehicleColor() != null) vehicle.setVehicleColor(req.getVehicleColor());
         if (req.getBrand() != null) vehicle.setBrand(req.getBrand());
         if (req.getModel() != null) vehicle.setModel(req.getModel());
-        if (req.getCheckinImageUrl() != null) vehicle.setImageUrl(req.getCheckinImageUrl());
         vehicleRepository.save(vehicle);
 
         // 6. Tính pricing

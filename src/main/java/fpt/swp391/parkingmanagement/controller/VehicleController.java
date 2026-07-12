@@ -3,12 +3,13 @@ package fpt.swp391.parkingmanagement.controller;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -21,7 +22,6 @@ import fpt.swp391.parkingmanagement.dto.CreateVehicleRequest;
 import fpt.swp391.parkingmanagement.dto.CreateVehicleTypeRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateVehicleRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateVehicleTypeRequest;
-import fpt.swp391.parkingmanagement.dto.UpdateVehicleStatusRequest;
 import fpt.swp391.parkingmanagement.dto.VehicleResponse;
 import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
 import fpt.swp391.parkingmanagement.service.VehicleService;
@@ -99,12 +99,24 @@ public class VehicleController {
                 vehicleService.getMyVehicles(auth.getName())));
     }
 
-    @Operation(summary = "Register a vehicle")
-    @PostMapping("/me")
+    @Operation(
+            summary = "Register a vehicle",
+            description = "Driver registers a vehicle. Use multipart with optional field `image` to upload a vehicle photo, or JSON without photo.")
+    @PostMapping(value = "/me", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<VehicleResponse>> createMyVehicle(
+    public ResponseEntity<ApiResponse<VehicleResponse>> createMyVehicleJson(
             Authentication auth,
             @Valid @RequestBody CreateVehicleRequest request) {
+        VehicleResponse response = vehicleService.createMyVehicle(auth.getName(), request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Vehicle registered successfully", response));
+    }
+
+    @PostMapping(value = "/me", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<VehicleResponse>> createMyVehicleMultipart(
+            Authentication auth,
+            @Valid @ModelAttribute CreateVehicleRequest request) {
         VehicleResponse response = vehicleService.createMyVehicle(auth.getName(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Vehicle registered successfully", response));
@@ -121,13 +133,26 @@ public class VehicleController {
                 vehicleService.getMyVehicle(auth.getName(), vehicleId)));
     }
 
-    @Operation(summary = "Update my vehicle")
-    @PutMapping("/me/{vehicleId}")
+    @Operation(
+            summary = "Update my vehicle",
+            description = "Update vehicle details. Use multipart with optional field `image` to replace the vehicle photo, or JSON without photo.")
+    @PutMapping(value = "/me/{vehicleId}", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicle(
+    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicleJson(
             Authentication auth,
             @PathVariable String vehicleId,
             @Valid @RequestBody UpdateVehicleRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Vehicle updated successfully",
+                vehicleService.updateMyVehicle(auth.getName(), vehicleId, request)));
+    }
+
+    @PutMapping(value = "/me/{vehicleId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicleMultipart(
+            Authentication auth,
+            @PathVariable String vehicleId,
+            @Valid @ModelAttribute UpdateVehicleRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Vehicle updated successfully",
                 vehicleService.updateMyVehicle(auth.getName(), vehicleId, request)));

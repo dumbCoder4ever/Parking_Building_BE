@@ -34,6 +34,10 @@ public class CloudinaryService {
         return uploadToFolder(file, "parking-management/sessions", "Parking image");
     }
 
+    public String uploadVehicleImage(MultipartFile file) {
+        return uploadToFolder(file, "parking-management/vehicles", "Vehicle image");
+    }
+
     /**
      * Upload an image but swallow the exception if Cloudinary is not configured.
      * Returns null when credentials are missing — callers must handle null safely.

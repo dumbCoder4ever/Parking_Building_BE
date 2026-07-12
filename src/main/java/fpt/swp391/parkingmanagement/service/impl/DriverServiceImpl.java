@@ -5,6 +5,7 @@ import fpt.swp391.parkingmanagement.entity.*;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.*;
+import fpt.swp391.parkingmanagement.service.CloudinaryService;
 import fpt.swp391.parkingmanagement.service.DriverService;
 import fpt.swp391.parkingmanagement.service.PricingService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class DriverServiceImpl implements DriverService {
     private final PaymentRepository paymentRepository;
     private final PricingPolicyRepository pricingPolicyRepository;
     private final PricingService pricingService;
+    private final CloudinaryService cloudinaryService;
 
     @Override
     public DriverProfileResponse getDriverProfile(String email) {
@@ -117,6 +119,10 @@ public class DriverServiceImpl implements DriverService {
             vehicle.setVehicleType(vehicleType);
         }
 
+        if (request.getImage() != null && !request.getImage().isEmpty()) {
+            vehicle.setImageUrl(cloudinaryService.uploadVehicleImage(request.getImage()));
+        }
+
         Vehicle saved = vehicleRepository.save(vehicle);
         return VehicleResponse.from(saved);
     }
@@ -156,6 +162,9 @@ public class DriverServiceImpl implements DriverService {
             VehicleType vehicleType = vehicleTypeRepository.findById(request.getVehicleTypeId())
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND));
             vehicle.setVehicleType(vehicleType);
+        }
+        if (request.getImage() != null && !request.getImage().isEmpty()) {
+            vehicle.setImageUrl(cloudinaryService.uploadVehicleImage(request.getImage()));
         }
 
         Vehicle saved = vehicleRepository.save(vehicle);

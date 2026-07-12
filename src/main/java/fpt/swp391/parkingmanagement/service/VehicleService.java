@@ -43,6 +43,7 @@ public class VehicleService {
     private final ParkingSessionRepository parkingSessionRepository;
     private final FloorRepository floorRepository;
     private final PricingPolicyRepository pricingPolicyRepository;
+    private final CloudinaryService cloudinaryService;
 
     @Transactional(readOnly = true)
     public List<VehicleTypeOptionResponse> getVehicleTypeOptions() {
@@ -126,6 +127,10 @@ public class VehicleService {
         vehicle.setModel(normalizeText(request.getModel()));
         vehicle.setStatus("ACTIVE");
 
+        if (request.getImage() != null && !request.getImage().isEmpty()) {
+            vehicle.setImageUrl(cloudinaryService.uploadVehicleImage(request.getImage()));
+        }
+
         return VehicleResponse.from(vehicleRepository.save(vehicle));
     }
 
@@ -154,6 +159,9 @@ public class VehicleService {
         }
         if (request.getModel() != null) {
             vehicle.setModel(normalizeText(request.getModel()));
+        }
+        if (request.getImage() != null && !request.getImage().isEmpty()) {
+            vehicle.setImageUrl(cloudinaryService.uploadVehicleImage(request.getImage()));
         }
         return VehicleResponse.from(vehicleRepository.save(vehicle));
     }
