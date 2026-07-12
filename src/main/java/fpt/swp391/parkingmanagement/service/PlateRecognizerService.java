@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +33,24 @@ public class PlateRecognizerService {
     private final WebClient plateRecognizerWebClient;
     private final ParkingSessionRepository parkingSessionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @PostConstruct
+    public void init() {
+        String masked = apiKey == null ? "<null>"
+                : apiKey.isEmpty() ? "<empty>"
+                : apiKey.length() >= 8 ? apiKey.substring(0, 8) + "***" : "***";
+        // #region agent log
+        try {
+            java.nio.file.Files.write(java.nio.file.Paths.get("c:/Users/Admin/Downloads/BE/debug-72f91e.log"),
+                    java.util.Collections.singletonList(String.format(
+                            "{\"sessionId\":\"72f91e\",\"location\":\"PlateRecognizerService.init\",\"message\":\"loaded config\",\"data\":{\"apiKeyMasked\":\"%s\",\"apiKeyLength\":%d,\"apiUrl\":\"%s\"},\"timestamp\":%d,\"hypothesisId\":\"H1\"}\n",
+                            masked, apiKey == null ? -1 : apiKey.length(),
+                            apiUrl.replace("\\", "\\\\"), System.currentTimeMillis())),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {}
+        // #endregion
+        log.info("PlateRecognizer config loaded: apiKey={}, apiUrl={}", masked, apiUrl);
+    }
 
     @Value("${plate-recognizer.api-key:}")
     private String apiKey;
@@ -111,12 +130,67 @@ public class PlateRecognizerService {
             partHeaders.setContentType(mediaType);
             parts.add("upload", new org.springframework.http.HttpEntity<>(resource, partHeaders));
 
+            String maskedKey = apiKey != null && apiKey.length() >= 8
+                    ? apiKey.substring(0, 8) + "***" : "***";
+            String authHeaderPreview = "Token " + maskedKey;
+
+            // #region agent log
+            StringBuilder probe = new StringBuilder();
+            probe.append("{\"sessionId\":\"72f91e\",\"location\":\"PlateRecognizerService.upload.beforeCall\",\"message\":\"about to POST\",\"data\":");
+            probe.append("{\"apiUrl\":\"").append(apiUrl.replace("\\", "\\\\").replace("\"", "\\\"")).append("\",");
+            probe.append("\"authHeader\":\"").append(authHeaderPreview).append("\",");
+            probe.append("\"fileName\":\"").append(filename.replace("\"", "\\\"")).append("\",");
+            probe.append("\"fileSize\":").append(fileBytes.length).append(",");
+            probe.append("\"contentType\":\"").append(mediaType.toString()).append("\"},");
+            probe.append("\"timestamp\":").append(System.currentTimeMillis()).append(",\"hypothesisId\":\"H2\"}\n");
+            try {
+                java.nio.file.Files.write(java.nio.file.Paths.get("c:/Users/Admin/Downloads/BE/debug-72f91e.log"),
+                        java.util.Collections.singletonList(probe.toString()),
+                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            } catch (Exception ignored) {}
+            // #endregion
+
             String responseJson = plateRecognizerWebClient.post()
                     .uri(apiUrl)
                     .header("Authorization", "Token " + apiKey)
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(BodyInserters.fromMultipartData(parts))
                     .retrieve()
+                    .onStatus(org.springframework.http.HttpStatusCode::isError, clientResponse -> {
+                        // #region agent log
+                        StringBuilder errLog = new StringBuilder();
+                        errLog.append("{\"sessionId\":\"72f91e\",\"location\":\"PlateRecognizerService.upload.errorStatus\",\"message\":\"HTTP error status\",\"data\":");
+                        errLog.append("{\"statusCode\":").append(clientResponse.statusCode().value()).append(",");
+                        errLog.append("\"reasonPhrase\":\"").append(clientResponse.statusCode().toString()).append("\"},");
+                        errLog.append("\"timestamp\":").append(System.currentTimeMillis()).append(",\"hypothesisId\":\"H4\"}\n");
+                        try {
+                            java.nio.file.Files.write(java.nio.file.Paths.get("c:/Users/Admin/Downloads/BE/debug-72f91e.log"),
+                                    java.util.Collections.singletonList(errLog.toString()),
+                                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                        } catch (Exception ignored) {}
+                        // #endregion
+                        return clientResponse.bodyToMono(String.class)
+                                .defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    // #region agent log
+                                    StringBuilder bodyLog = new StringBuilder();
+                                    bodyLog.append("{\"sessionId\":\"72f91e\",\"location\":\"PlateRecognizerService.upload.errorBody\",\"message\":\"error response body\",\"data\":");
+                                    bodyLog.append("{\"bodyPreview\":\"").append(body.substring(0, Math.min(500, body.length())).replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")).append("\"},");
+                                    bodyLog.append("\"timestamp\":").append(System.currentTimeMillis()).append(",\"hypothesisId\":\"H5\"}\n");
+                                    try {
+                                        java.nio.file.Files.write(java.nio.file.Paths.get("c:/Users/Admin/Downloads/BE/debug-72f91e.log"),
+                                                java.util.Collections.singletonList(bodyLog.toString()),
+                                                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                                    } catch (Exception ignored) {}
+                                    // #endregion
+                                    return reactor.core.publisher.Mono.error(new org.springframework.web.reactive.function.client.WebClientResponseException(
+                                            clientResponse.statusCode().value(),
+                                            clientResponse.statusCode().toString(),
+                                            clientResponse.headers().asHttpHeaders(),
+                                            body.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                            java.nio.charset.StandardCharsets.UTF_8));
+                                });
+                    })
                     .bodyToMono(String.class)
                     .block();
 
