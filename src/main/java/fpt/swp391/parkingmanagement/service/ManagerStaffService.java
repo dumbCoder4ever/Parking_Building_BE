@@ -68,14 +68,14 @@ public class ManagerStaffService {
         Building building = findBuilding(buildingId);
         User staff = findStaff(userId);
 
-        if (buildingStaffRepository.existsByBuildingBuildingIdAndUserUserId(buildingId, userId)) {
-            throw new DuplicateResourceException("Staff is already assigned to this building");
-        }
-
-        BuildingStaff assignment = new BuildingStaff();
-        assignment.setBuilding(building);
-        assignment.setUser(staff);
-        return toAssignmentResponse(buildingStaffRepository.save(assignment), building);
+        return buildingStaffRepository.findByBuildingBuildingIdAndUserUserId(buildingId, userId)
+                .map(existing -> toAssignmentResponse(existing, building))
+                .orElseGet(() -> {
+                    BuildingStaff assignment = new BuildingStaff();
+                    assignment.setBuilding(building);
+                    assignment.setUser(staff);
+                    return toAssignmentResponse(buildingStaffRepository.save(assignment), building);
+                });
     }
 
     @Transactional
@@ -88,8 +88,11 @@ public class ManagerStaffService {
             buildings.add(findBuilding(buildingId));
         }
 
-        buildingStaffRepository.findByUserUserIdOrderByAssignedAtDesc(userId)
-                .forEach(existing -> buildingStaffRepository.delete(existing));
+        List<BuildingStaff> existing = buildingStaffRepository.findByUserUserIdOrderByAssignedAtDesc(userId);
+        if (!existing.isEmpty()) {
+            buildingStaffRepository.deleteAll(existing);
+            buildingStaffRepository.flush(); // ensure deletes hit DB before re-insert (uq_building_staff)
+        }
 
         List<StaffAssignmentResponse> responses = new ArrayList<>();
         for (Building building : buildings) {

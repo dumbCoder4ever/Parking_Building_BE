@@ -101,6 +101,20 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     }
 
     @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.vehicle gv "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
+            + "LEFT JOIN FETCH ps.ticket "
+            + "LEFT JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE ps.sessionStatus = 'ACTIVE' "
+            + "AND (UPPER(gv.plateNumber) = UPPER(:plateNumber) OR UPPER(rv.plateNumber) = UPPER(:plateNumber)) "
+            + "ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findActiveSessionsByPlateNumber(@Param("plateNumber") String plateNumber, Pageable pageable);
+
+    default Optional<ParkingSession> findActiveByPlateNumber(String plateNumber) {
+        return findActiveSessionsByPlateNumber(plateNumber, PageRequest.of(0, 1)).stream().findFirst();
+    }
+
+    @Query("SELECT ps FROM ParkingSession ps "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
             + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
             + "WHERE ps.sessionId = :sessionId AND ps.reservation IS NULL")

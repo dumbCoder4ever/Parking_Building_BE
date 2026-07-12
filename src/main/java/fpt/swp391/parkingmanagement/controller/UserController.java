@@ -57,21 +57,40 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok("Vehicles retrieved successfully", vehicles));
     }
 
-    @PostMapping("/users/me/vehicles")
+    @PostMapping(value = "/users/me/vehicles", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasRole('DRIVER')")
-    public ResponseEntity<ApiResponse<VehicleResponse>> addMyVehicle(
+    public ResponseEntity<ApiResponse<VehicleResponse>> addMyVehicleJson(
             Authentication auth,
             @Valid @RequestBody VehicleRequest request) {
         VehicleResponse vehicle = driverService.addVehicle(auth.getName(), request);
         return ResponseEntity.ok(ApiResponse.ok("Vehicle added successfully", vehicle));
     }
 
-    @PutMapping("/users/me/vehicles/{vehicleId}")
+    @PostMapping(value = "/users/me/vehicles", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('DRIVER')")
-    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicle(
+    public ResponseEntity<ApiResponse<VehicleResponse>> addMyVehicleMultipart(
+            Authentication auth,
+            @Valid @ModelAttribute VehicleRequest request) {
+        VehicleResponse vehicle = driverService.addVehicle(auth.getName(), request);
+        return ResponseEntity.ok(ApiResponse.ok("Vehicle added successfully", vehicle));
+    }
+
+    @PutMapping(value = "/users/me/vehicles/{vehicleId}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('DRIVER')")
+    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicleJson(
             Authentication auth,
             @PathVariable String vehicleId,
             @Valid @RequestBody VehicleRequest request) {
+        VehicleResponse vehicle = driverService.updateVehicle(auth.getName(), vehicleId, request);
+        return ResponseEntity.ok(ApiResponse.ok("Vehicle updated successfully", vehicle));
+    }
+
+    @PutMapping(value = "/users/me/vehicles/{vehicleId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('DRIVER')")
+    public ResponseEntity<ApiResponse<VehicleResponse>> updateMyVehicleMultipart(
+            Authentication auth,
+            @PathVariable String vehicleId,
+            @Valid @ModelAttribute VehicleRequest request) {
         VehicleResponse vehicle = driverService.updateVehicle(auth.getName(), vehicleId, request);
         return ResponseEntity.ok(ApiResponse.ok("Vehicle updated successfully", vehicle));
     }

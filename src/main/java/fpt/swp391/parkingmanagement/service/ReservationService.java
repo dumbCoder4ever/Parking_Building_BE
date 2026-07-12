@@ -81,6 +81,7 @@ public class ReservationService {
     private final PricingService pricingService;
     private final PricingPolicyRepository pricingPolicyRepository;
     private final ParkingSessionRepository parkingSessionRepository;
+    private final CloudinaryService cloudinaryService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -98,7 +99,8 @@ public class ReservationService {
             BuildingStaffRepository buildingStaffRepository,
             PricingService pricingService,
             PricingPolicyRepository pricingPolicyRepository,
-            ParkingSessionRepository parkingSessionRepository) {
+            ParkingSessionRepository parkingSessionRepository,
+            CloudinaryService cloudinaryService) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -114,6 +116,7 @@ public class ReservationService {
         this.pricingService = pricingService;
         this.pricingPolicyRepository = pricingPolicyRepository;
         this.parkingSessionRepository = parkingSessionRepository;
+        this.cloudinaryService = cloudinaryService;
     }
 
     @Transactional(readOnly = true)
@@ -700,6 +703,7 @@ public class ReservationService {
                     existing.setVehicleColor(req.getVehicleColor());
                     existing.setBrand(req.getBrand());
                     existing.setModel(req.getModel());
+                    applyVehicleImage(existing, req);
                     return vehicleRepository.save(existing);
                 })
                 .orElseGet(() -> {
@@ -711,8 +715,15 @@ public class ReservationService {
                     v.setVehicleType(vt);
                     v.setUser(user);
                     v.setStatus("ACTIVE");
+                    applyVehicleImage(v, req);
                     return vehicleRepository.save(v);
                 });
+    }
+
+    private void applyVehicleImage(Vehicle vehicle, CreateReservationRequest req) {
+        if (req.getImage() != null && !req.getImage().isEmpty()) {
+            vehicle.setImageUrl(cloudinaryService.uploadVehicleImage(req.getImage()));
+        }
     }
 
     private ReservationResponse toReservationResponse(Reservation reservation) {
@@ -789,6 +800,7 @@ public class ReservationService {
             resp.setVehicleColor(vehicle.getVehicleColor());
             resp.setVehicleBrand(vehicle.getBrand());
             resp.setVehicleModel(vehicle.getModel());
+            resp.setVehicleImageUrl(vehicle.getImageUrl());
 
             // Pricing by vehicle type
             if (vehicle.getVehicleType() != null) {

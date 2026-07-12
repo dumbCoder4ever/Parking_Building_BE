@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
+import org.springframework.web.multipart.MultipartFile;
 
 @Data
 public class CreateVehicleRequest {
@@ -15,4 +16,7 @@ public class CreateVehicleRequest {
     private String vehicleColor;
     private String brand;
     private String model;
+
+    /** Optional vehicle photo uploaded by driver (multipart). */
+    private MultipartFile image;
 }

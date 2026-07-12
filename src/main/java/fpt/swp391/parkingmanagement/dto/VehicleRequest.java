@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.web.multipart.MultipartFile;
 
 @Data
 @Builder
@@ -25,4 +26,7 @@ public class VehicleRequest {
     private String brand;
 
     private String model;
+
+    /** Optional vehicle photo uploaded by driver (multipart). */
+    private MultipartFile image;
 }
