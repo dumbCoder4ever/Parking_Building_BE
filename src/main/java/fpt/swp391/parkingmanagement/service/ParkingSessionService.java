@@ -1072,6 +1072,26 @@ public class ParkingSessionService {
     // Staff chỉ cần quét ảnh biển số — hệ thống tự OCR, tìm reservation / assign slot, tạo session.
 
     /**
+     * Resolve plate number bằng OCR từ ảnh upload.
+     * Throw BaseAPIException(OCR_FAILED) nếu ảnh rỗng hoặc không nhận diện được biển số.
+     */
+    private String resolvePlateNumber(QuickCheckinRequest req) {
+        if (req.getPlateImage() == null || req.getPlateImage().isEmpty()) {
+            throw new BaseAPIException(ErrorCode.OCR_FAILED,
+                    "Cần cung cấp ảnh biển số (plateImage).");
+        }
+
+        PlateRecognizerService.OcrResult ocr = ocrService.recognizeFromUpload(req.getPlateImage());
+        String plateNumber = ocr.plateNumber();
+        if (plateNumber == null || ocr.confidence() < 0.3) {
+            throw new BaseAPIException(ErrorCode.OCR_FAILED,
+                    "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại rõ nét hơn.");
+        }
+        log.info("Quick checkin: OCR detected '{}' (confidence {})", plateNumber, ocr.confidence());
+        return plateNumber;
+    }
+
+    /**
      * Quick checkin DRIVER: OCR biển số → tự tìm reservation PENDING/APPROVED → tạo session.
      * Staff không cần nhập ticketCode.
      */
@@ -1080,6 +1100,7 @@ public class ParkingSessionService {
         // 1. Staff phải được assign vào building này
         checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
 
+<<<<<<< Updated upstream
         // 2. OCR biển số
         PlateRecognizerService.OcrResult ocr;
         try {
@@ -1092,6 +1113,10 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
                     "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
         }
+=======
+        // 2. Resolve plate number bằng OCR
+        String plateNumber = resolvePlateNumber(req);
+>>>>>>> Stashed changes
 
         // 3. Tìm reservation PENDING/APPROVED theo biển số trong building này
         String normalizedPlate = plateNumber.toUpperCase();
@@ -1195,7 +1220,7 @@ public class ParkingSessionService {
         resp.setTicketCode(ticket.getTicketCode());
         resp.setSessionId(saved.getSessionId());
         resp.setPlateNumber(plateNumber);
-        resp.setOcrConfidence(ocr.confidence());
+        resp.setOcrConfidence(1.0);
         if (vehicle != null) {
             resp.setVehicleColor(vehicle.getVehicleColor());
             resp.setBrand(vehicle.getBrand());
@@ -1234,6 +1259,7 @@ public class ParkingSessionService {
                         "Không tìm thấy loại xe: " + req.getVehicleTypeId()));
 
         // 3. OCR biển số
+<<<<<<< Updated upstream
         PlateRecognizerService.OcrResult ocr;
         try {
             ocr = ocrService.recognizeFromUpload(req.getPlateImage().getBytes(), req.getPlateImage().getOriginalFilename());
@@ -1245,6 +1271,9 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
                     "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
         }
+=======
+        String plateNumber = resolvePlateNumber(req);
+>>>>>>> Stashed changes
 
         // 4. Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp)
         List<ParkingSlot> availableSlots = parkingSlotRepository
@@ -1310,7 +1339,7 @@ public class ParkingSessionService {
         resp.setTicketCode(savedTicket.getTicketCode());
         resp.setSessionId(saved.getSessionId());
         resp.setPlateNumber(plateNumber);
-        resp.setOcrConfidence(ocr.confidence());
+        resp.setOcrConfidence(1.0);
         resp.setVehicleColor(vehicle.getVehicleColor());
         resp.setBrand(vehicle.getBrand());
         resp.setModel(vehicle.getModel());
