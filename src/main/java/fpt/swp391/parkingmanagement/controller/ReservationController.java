@@ -2,10 +2,12 @@ package fpt.swp391.parkingmanagement.controller;
 
 import java.util.List;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,7 +35,7 @@ import lombok.RequiredArgsConstructor;
  * FLOW 1 — USER ĐẶT TRƯỚC SLOT:
  * Bước 1: User login
  * Bước 2: Xem slot còn trống (floor -> vehicle type -> zone -> slot)
- * Bước 3: Nhập thông tin xe (biển số, màu, hãng, model, loại xe)
+ * Bước 3: Nhập thông tin xe (biển số, màu, hãng, model, loại xe) + upload ảnh xe (optional)
  * Bước 4: Chọn thời gian gửi (start -> end)
  * Bước 5: Tạo Reservation -> Slot: AVAILABLE -> RESERVED
  * Bước 6: Sinh Ticket (ticket_code)
@@ -56,11 +58,6 @@ public class ReservationController {
     // FLOW 1: USER ĐẶT TRƯỚC SLOT
     // =========================================================================
 
-    /**
-     * @deprecated Use GET /api/buildings/available + GET /api/buildings/{id}/detail + GET /api/zones/{id}/slots
-     *             instead for better UX and query performance.
-     */
-    @Deprecated
     @GetMapping("/slots/availability")
     @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<SlotAvailabilityDto>>> getAvailableSlots(
@@ -71,10 +68,20 @@ public class ReservationController {
                 reservationService.getAvailability(buildingId, vehicleTypeId)));
     }
 
-    @PostMapping("/reservations")
+    @PostMapping(value = "/reservations", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('DRIVER','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<ReservationResponse>> createReservation(
+    public ResponseEntity<ApiResponse<ReservationResponse>> createReservationJson(
             @Valid @RequestBody CreateReservationRequest req,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservation created successfully. Please show your ticket when checking in.",
+                reservationService.createReservation(auth.getName(), req)));
+    }
+
+    @PostMapping(value = "/reservations", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('DRIVER','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<ReservationResponse>> createReservationMultipart(
+            @Valid @ModelAttribute CreateReservationRequest req,
             Authentication auth) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Reservation created successfully. Please show your ticket when checking in.",
