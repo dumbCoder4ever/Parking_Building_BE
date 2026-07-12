@@ -31,14 +31,8 @@ public enum ErrorCode {
     GUEST_ALREADY_PARKING("This vehicle is already checked in as a guest"),
     OCR_PLATE_NOT_DETECTED("Could not detect a license plate in the image"),
     OCR_FAILED("OCR failed to recognize plate number from image"),
-<<<<<<< Updated upstream
-    PLATE_MISMATCH("Plate number scanned does not match the registered plate for this session"),
-    PLATE_ALREADY_PARKED("This plate number is already registered in an active parking session");
-
-=======
     PLATE_ALREADY_PARKED("This plate number is already parked in the building"),
     PLATE_MISMATCH("Scanned plate number does not match the registered plate number");
->>>>>>> Stashed changes
 
     private final String message;
 
