@@ -3,6 +3,7 @@ package fpt.swp391.parkingmanagement.controller;
 import fpt.swp391.parkingmanagement.dto.OcrRequest;
 import fpt.swp391.parkingmanagement.dto.OcrResponse;
 import fpt.swp391.parkingmanagement.service.PlateRecognizerService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -33,7 +34,7 @@ public class OcrController {
         log.info("PlateRecognizer detect from upload: {} ({} bytes)",
                 file.getOriginalFilename(), file.getSize());
         try {
-            PlateRecognizerService.OcrResult result = ocrService.recognizeFromUpload(file.getBytes(), file.getOriginalFilename());
+            PlateRecognizerService.OcrResult result = ocrService.recognizeFromUpload(file);
             return ResponseEntity.ok(toResponse(result));
         } catch (Exception e) {
             log.error("Failed to process upload", e);

@@ -49,8 +49,8 @@ CLOUDINARY_CLOUD_NAME=<your_cloud_name>
 CLOUDINARY_API_KEY=<your_api_key>
 CLOUDINARY_API_SECRET=<your_api_secret>
 
-# FPT.AI OCR
-FPT_AI_API_KEY=c0WXiFmRoccngoLy80ndy0JzAhcidoDK
+# Plate Recognizer OCR
+PLATE_RECOGNIZER_API_KEY=<YOUR_PLATE_RECOGNIZER_API_KEY>
 
 # Server
 PORT=8080
