@@ -16,7 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/ocr")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+@PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN','DRIVER')")
 @Tag(name = "ocr-controller")
 public class OcrController {
 
