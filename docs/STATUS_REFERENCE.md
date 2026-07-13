@@ -279,10 +279,11 @@ PENDING_EXIT ──exit confirm──► AVAILABLE
 
 | Giá trị thực tế dùng | Mô tả |
 |---|---|
-| `ACTIVE` | Đã check-in |
+| `PENDING_PAYMENT` | Sau khi check-in, chờ thanh toán (default sau checkin) |
+| `ACTIVE` | Sau khi payment success webhook chuyển từ PENDING_PAYMENT |
 | `COMPLETED` | Đã checkout |
 
-> Không thấy set `PENDING_PAYMENT`, `PENDING_EXIT`, `CANCELLED` ở session trong code thực tế.
+> Cập nhật theo refactor proposal: checkin set `PENDING_PAYMENT`, payment webhook set `ACTIVE`.
 
 ---
 

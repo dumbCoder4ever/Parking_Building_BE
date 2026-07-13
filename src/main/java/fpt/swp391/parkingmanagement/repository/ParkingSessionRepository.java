@@ -17,6 +17,8 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     List<ParkingSession> findByVehicleVehicleId(String vehicleId);
     Optional<ParkingSession> findByTicketTicketIdAndSessionStatus(String ticketId, String sessionStatus);
 
+    Optional<ParkingSession> findByTicketTicketIdAndSessionStatusIn(String ticketId, Collection<String> sessionStatuses);
+
     boolean existsByVehicleVehicleIdAndSessionStatus(String vehicleId, String sessionStatus);
 
     boolean existsByReservationReservationIdAndSessionStatus(String reservationId, String sessionStatus);
@@ -31,7 +33,7 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'COMPLETED'")
     int countCompletedByUserId(@Param("userId") String userId);
 
-    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'ACTIVE'")
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     int countActiveByUserId(@Param("userId") String userId);
 
     @Query("SELECT COALESCE(SUM(TIMESTAMPDIFF(MINUTE, ps.checkinTime, ps.checkoutTime)), 0) FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId AND ps.sessionStatus = 'COMPLETED'")
@@ -40,10 +42,10 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps JOIN ps.reservation r WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLastByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus = 'ACTIVE' ORDER BY ps.checkinTime DESC limit 1")
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findActiveByUserId(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus = 'ACTIVE' ORDER BY ps.checkinTime DESC")
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC")
     List<ParkingSession> findAllActiveByUserId(@Param("userId") String userId);
 
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId ORDER BY ps.checkinTime DESC")
@@ -52,7 +54,7 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketCode = :ticketCode")
     Optional<ParkingSession> findByTicketCode(@Param("ticketCode") String ticketCode);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketId = :ticketId AND ps.sessionStatus = 'ACTIVE'")
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     Optional<ParkingSession> findCurrentSessionByUser(@Param("ticketId") String ticketId);
 
     @Query("SELECT ps FROM ParkingSession ps "
@@ -65,7 +67,7 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     Optional<ParkingSession> findCurrentBySlotId(@Param("slotId") String slotId);
 
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
-            + "AND ps.sessionStatus = 'ACTIVE' ORDER BY ps.checkinTime DESC limit 1")
+            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findActiveByVehicleId(@Param("vehicleId") String vehicleId);
 
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
@@ -92,7 +94,7 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
             + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
-            + "WHERE UPPER(v.plateNumber) = UPPER(:plateNumber) AND ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE' "
+            + "WHERE UPPER(v.plateNumber) = UPPER(:plateNumber) AND ps.reservation IS NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
             + "ORDER BY ps.checkinTime DESC")
     List<ParkingSession> findActiveGuestSessionsByPlateNumber(@Param("plateNumber") String plateNumber, Pageable pageable);
 
@@ -144,7 +146,7 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT COALESCE(AVG(ps.totalFee), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0")
     Double avgFeeCompleted();
 
-    @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus = 'ACTIVE' AND ps.reservation IS NOT NULL")
+    @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') AND ps.reservation IS NOT NULL")
     long countDistinctDriversCurrentlyParked();
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL")
@@ -153,9 +155,9 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL")
     long countDriverSessionsAllTime();
 
-    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL AND ps.sessionStatus = 'ACTIVE'")
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     long countActiveGuestSessions();
 
-    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL AND ps.sessionStatus = 'ACTIVE'")
+    @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     long countActiveDriverSessions();
 }
