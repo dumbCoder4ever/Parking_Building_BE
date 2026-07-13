@@ -17,7 +17,6 @@ import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
-import fpt.swp391.parkingmanagement.util.PlateNormalizer;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -260,33 +259,24 @@ public class PlateRecognizerService {
                 return buildEmptyResult();
             }
 
-            String normalizedBestPlate = PlateNormalizer.normalize(bestPlate);
-            List<String> normalizedCandidates = new ArrayList<>(allCandidates.size());
-            for (String c : allCandidates) {
-                String n = PlateNormalizer.normalize(c);
-                if (!n.isEmpty() && !normalizedCandidates.contains(n)) {
-                    normalizedCandidates.add(n);
-                }
-            }
-
             long elapsed = System.currentTimeMillis() - start;
             log.info("Plate Recognizer OCR result ({}ms) [{}]: plate={}, confidence={}, candidates={}",
-                    elapsed, source, normalizedBestPlate, bestConfidence, normalizedCandidates);
+                    elapsed, source, bestPlate, bestConfidence, allCandidates);
 
             // Check duplicate active session
             PlateDuplicateInfo duplicate = null;
-            Optional<PlateDuplicateInfo> dupOpt = findActiveSessionByPlate(normalizedBestPlate);
+            Optional<PlateDuplicateInfo> dupOpt = findActiveSessionByPlate(bestPlate);
             if (dupOpt.isPresent()) {
                 duplicate = dupOpt.get();
                 log.info("Found duplicate active session for plate {}: sessionId={}",
-                        normalizedBestPlate, duplicate.sessionId());
+                        bestPlate, duplicate.sessionId());
             }
 
             return new OcrResult(
-                    normalizedBestPlate,
-                    normalizedBestPlate,
-                    normalizedBestPlate,
-                    normalizedCandidates,
+                    bestPlate,
+                    bestPlate,
+                    bestPlate,
+                    allCandidates,
                     bestConfidence,
                     duplicate
             );

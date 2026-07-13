@@ -47,7 +47,6 @@ import fpt.swp391.parkingmanagement.repository.ZoneRepository;
 import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.service.PricingService;
-import fpt.swp391.parkingmanagement.util.PlateNormalizer;
 import fpt.swp391.parkingmanagement.dto.PricingPolicySummaryDto;
 import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
 import fpt.swp391.parkingmanagement.repository.ZoneSlotCount;
@@ -705,7 +704,7 @@ public class ReservationService {
                 })
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
-                    v.setPlateNumber(PlateNormalizer.normalize(req.getPlateNumber()));
+                    v.setPlateNumber(req.getPlateNumber().trim().toUpperCase());
                     v.setVehicleColor(req.getVehicleColor());
                     v.setBrand(req.getBrand());
                     v.setModel(req.getModel());

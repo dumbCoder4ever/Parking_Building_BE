@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
-import fpt.swp391.parkingmanagement.dto.BuildingFloorsResponse;
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
 import fpt.swp391.parkingmanagement.service.BuildingService;
@@ -22,13 +21,12 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * =============================================================================
- * BUILDING AVAILABILITY APIs — endpoints for the availability screen
+ * BUILDING AVAILABILITY APIs — 2 endpoints for the availability screen
  * =============================================================================
  *
- * Mappings:
- *   GET /buildings/available        → list buildings that have free slots
- *   GET /buildings/{id}/floors      → floors + zones + slot counts for one building
- *   GET /zones/{zoneId}/slots       → slot grid for a zone
+ * Kept intentionally minimal so FE can map directly:
+ *   GET /buildings/available  → list buildings that have free slots
+ *   GET /zones/{zoneId}/slots → slot grid for a zone
  */
 @RestController
 @RequestMapping("/api")
@@ -56,21 +54,6 @@ public class BuildingController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Available buildings retrieved successfully",
                 buildingService.listAvailableBuildings(vehicleTypeId, name, address)));
-    }
-
-    // =========================================================================
-    // (3) List floors of a building (with zones + slot counts)
-    // =========================================================================
-    @GetMapping("/buildings/{id}/floors")
-    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
-    @Operation(
-            summary = "List floors of a building",
-            description = "Returns the ordered list of floors for a building, each with its zones and aggregate slot counts (free/reserved/occupied). Used by the availability drill-down UI.")
-    public ResponseEntity<ApiResponse<BuildingFloorsResponse>> getBuildingFloors(
-            @Parameter(description = "Building id") @PathVariable("id") String buildingId) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                "Building floors retrieved successfully",
-                buildingService.listFloorsOfBuilding(buildingId)));
     }
 
     // =========================================================================

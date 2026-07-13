@@ -2,13 +2,16 @@ package fpt.swp391.parkingmanagement.controller;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
 import fpt.swp391.parkingmanagement.dto.CheckinRequest;
-import fpt.swp391.parkingmanagement.dto.CheckinResponse;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
+import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
+import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
+import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
+import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.service.CloudinaryService;
 import fpt.swp391.parkingmanagement.service.ParkingSessionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,33 +38,65 @@ public class ParkingSessionController {
 
     private final ParkingSessionService parkingSessionService;
     private final CloudinaryService cloudinaryService;
+    private final TicketRepository ticketRepository;
 
     /**
-     * Unified check-in endpoint (theo script §3, §8).
+     * Unified check-in endpoint.
      *
-     * <p>Staff gửi duy nhất 1 multipart request gồm:</p>
-     * <ul>
-     *   <li>{@code plateImage} — ảnh biển số (BẮT BUỘC, backend sẽ OCR)</li>
-     *   <li>{@code buildingId} — building staff đang làm việc (BẮT BUỘC)</li>
-     *   <li>{@code vehicleTypeId} — BẮT BUỘC nếu là Guest (BE tự quyết)</li>
-     *   <li>Optional: vehicleColor, brand, model, guestName, guestPhone, note</li>
-     * </ul>
-     *
-     * <p>Backend tự:</p>
-     * <ol>
-     *   <li>OCR biển số</li>
-     *   <li>Check duplicate ACTIVE/PENDING_PAYMENT (cả DRIVER & GUEST)</li>
-     *   <li>Tìm reservation PENDING/APPROVED theo plate → DRIVER; ngược lại GUEST</li>
-     *   <li>Tạo ParkingSession với sessionStatus = PENDING_PAYMENT</li>
-     * </ol>
+     * <p>Legacy path: client gửi {@code ticketCode} + {@code plateNumber} → checkin() manual driver.</p>
+     * <p>OCR path: client gửi {@code plateImage} + {@code mode} (DRIVER|GUEST) + building/vehicleTypeId →
+     * quickDriverCheckin() hoặc quickGuestCheckin().</p>
      */
-    @Operation(summary = "Unified Staff Check-in (OCR-driven)",
-            description = "Staff upload ảnh biển số + buildingId. BE tự OCR, tự phân biệt Driver/Guest, tự chống duplicate, tự tạo ParkingSession.")
+    @Operation(summary = "Unified Staff Check-in",
+            description = "Staff check-in hợp nhất: ticket thủ công (ticketCode + plateNumber) HOẶC OCR (plateImage + mode).")
     @PostMapping(value = "/sessions/checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse<CheckinResponse>> checkin(
-            @ModelAttribute CheckinRequest req,
+    public ResponseEntity<ApiResponse<?>> checkin(
+            @RequestParam(required = false) String ticketCode,
+            @RequestParam(required = false) String plateNumber,
+            @RequestParam(required = false) String vehicleColor,
+            @RequestParam(required = false) String vehicleTypeId,
+            @RequestParam(required = false) String buildingId,
+            @RequestParam(required = false) String guestName,
+            @RequestParam(required = false) String guestPhone,
+            @RequestParam(required = false) String note,
+            @RequestParam(required = false) String mode,
+            @RequestParam(required = false) MultipartFile checkinImage,
+            @RequestParam(required = false) MultipartFile plateImage,
             Authentication auth) {
-        CheckinResponse resp = parkingSessionService.unifiedCheckin(auth.getName(), req);
+
+        boolean ocrMode = (plateImage != null && !plateImage.isEmpty())
+                || (mode != null && !mode.isBlank());
+        if (ocrMode) {
+            QuickCheckinRequest req = new QuickCheckinRequest();
+            req.setPlateImage(plateImage != null ? plateImage : checkinImage);
+            req.setBuildingId(buildingId);
+            req.setVehicleTypeId(vehicleTypeId);
+            if (mode != null) {
+                try {
+                    req.setMode(QuickCheckinRequest.QuickMode.valueOf(mode.toUpperCase()));
+                } catch (IllegalArgumentException ignored) {
+                    req.setMode(QuickCheckinRequest.QuickMode.DRIVER);
+                }
+            }
+            QuickCheckinResponse result;
+            if (req.getMode() == QuickCheckinRequest.QuickMode.GUEST) {
+                result = parkingSessionService.quickGuestCheckin(auth.getName(), req);
+            } else {
+                result = parkingSessionService.quickDriverCheckin(auth.getName(), req);
+            }
+            return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));
+        }
+
+        CheckinRequest req = new CheckinRequest();
+        req.setTicketCode(ticketCode);
+        req.setPlateNumber(plateNumber);
+        req.setVehicleColor(vehicleColor);
+        req.setVehicleTypeId(vehicleTypeId);
+        MultipartFile imageToUpload = checkinImage != null ? checkinImage : plateImage;
+        if (imageToUpload != null && !imageToUpload.isEmpty()) {
+            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
+        }
+        ParkingSessionResponse resp = parkingSessionService.checkin(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok("Check-in successful", resp));
     }
 
