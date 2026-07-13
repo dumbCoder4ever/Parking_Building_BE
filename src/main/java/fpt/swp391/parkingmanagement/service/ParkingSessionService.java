@@ -352,6 +352,26 @@ public class ParkingSessionService {
         return resp;
     }
 
+    /**
+     * Tìm {@code sessionId} của phiên ACTIVE ứng với {@code ticketCode}.
+     * Trả về empty nếu không tìm thấy ticket hoặc session không ở trạng thái ACTIVE.
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> findSessionIdByTicketCode(String ticketCode) {
+        if (ticketCode == null || ticketCode.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<ParkingSession> sessionOpt = parkingSessionRepository.findByTicketCode(ticketCode);
+        if (sessionOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        ParkingSession session = sessionOpt.get();
+        if (!"ACTIVE".equalsIgnoreCase(session.getSessionStatus())) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(session.getSessionId());
+    }
+
     @Transactional
     public CheckoutResponse confirmExitAndCheckout(String staffEmail, String sessionId, String paymentMethod) {
         ParkingSession session = parkingSessionRepository.findById(sessionId)

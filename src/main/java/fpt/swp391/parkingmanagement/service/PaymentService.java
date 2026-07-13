@@ -160,6 +160,10 @@ public class PaymentService {
         ParkingSession session = parkingSessionRepository.findById(payment.getSession().getSessionId())
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
         session.setPaymentStatus("PAID");
+        // Move session from PENDING_PAYMENT to ACTIVE once payment is confirmed.
+        if ("PENDING_PAYMENT".equalsIgnoreCase(session.getSessionStatus())) {
+            session.setSessionStatus("ACTIVE");
+        }
         parkingSessionRepository.save(session);
 
         User driver = session.getReservation() != null ? session.getReservation().getUser() : null;
