@@ -16,34 +16,36 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * @deprecated dùng {@code POST /api/sessions/checkin} (ParkingSessionController) với {@code plateImage} + {@code mode}.
+ * Giữ tạm để FE chuyển đổi dần. Sẽ bị xóa khi FE đã migrate hết.
+ */
+@Deprecated
 @RestController
 @RequestMapping("/api/sessions")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-@Tag(name = "Quick Checkin", description = "Staff quét ảnh biển số — hệ thống tự OCR, tìm reservation / assign slot, tạo session. Không cần nhập tay.")
+@Tag(name = "Quick Checkin (Deprecated)", description = "Sẽ bị xóa. Dùng POST /api/sessions/checkin với mode=DRIVER|GUEST + plateImage.")
 public class QuickSessionController {
 
     private final ParkingSessionService parkingSessionService;
 
-    @Operation(summary = "Quick Check-in (Driver + Guest)",
-            description = "Staff quét ảnh biển số → hệ thống tự nhận diện biển số bằng OCR. "
-                    + "Nếu mode=DRIVER: tự tìm reservation PENDING/APPROVED theo biển số và tạo session. "
-                    + "Nếu mode=GUEST: tự assign slot trống và tạo session vãng lai.")
+    @Operation(summary = "Quick Check-in (Driver + Guest) — DEPRECATED",
+            description = "Endpoint cũ. Dùng POST /api/sessions/checkin với plateImage + mode=DRIVER|GUEST thay thế.")
     @PostMapping(value = "/quick-checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<QuickCheckinResponse>> quickCheckin(
             @ModelAttribute QuickCheckinRequest req,
             Authentication auth) {
 
-        String email = auth.getName();
         QuickCheckinRequest.QuickMode mode = req.getMode() != null
                 ? req.getMode()
                 : QuickCheckinRequest.QuickMode.DRIVER;
 
         QuickCheckinResponse result;
         if (mode == QuickCheckinRequest.QuickMode.GUEST) {
-            result = parkingSessionService.quickGuestCheckin(email, req);
+            result = parkingSessionService.quickGuestCheckin(auth.getName(), req);
         } else {
-            result = parkingSessionService.quickDriverCheckin(email, req);
+            result = parkingSessionService.quickDriverCheckin(auth.getName(), req);
         }
 
         return ResponseEntity.ok(ApiResponse.ok(result));

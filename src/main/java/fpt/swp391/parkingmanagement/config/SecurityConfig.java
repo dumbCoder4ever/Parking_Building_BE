@@ -67,7 +67,6 @@ public class SecurityConfig {
                                 "/api/payments/vnpay/**",
                                 "/api/payments/payos/**"
                         ).permitAll()
-                        .requestMatchers("/api/ocr/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/manager/**").hasAnyRole("MANAGER", "ADMIN")
                         .requestMatchers("/api/test/admin-check").hasRole("ADMIN")
