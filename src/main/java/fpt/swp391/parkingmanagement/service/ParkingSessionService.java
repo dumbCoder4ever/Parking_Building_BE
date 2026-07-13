@@ -198,7 +198,8 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
         Optional<ParkingSession> optSession = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE");
+                .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
+                        java.util.List.of("ACTIVE", "PENDING_PAYMENT"));
 
         ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
@@ -305,7 +306,8 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
         Optional<ParkingSession> optSession = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE");
+                .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
+                        java.util.List.of("ACTIVE", "PENDING_PAYMENT"));
 
         ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
@@ -366,7 +368,8 @@ public class ParkingSessionService {
             return Optional.empty();
         }
         ParkingSession session = sessionOpt.get();
-        if (!"ACTIVE".equalsIgnoreCase(session.getSessionStatus())) {
+        String currentStatus = session.getSessionStatus();
+        if (!"ACTIVE".equalsIgnoreCase(currentStatus) && !"PENDING_PAYMENT".equalsIgnoreCase(currentStatus)) {
             return Optional.empty();
         }
         return Optional.ofNullable(session.getSessionId());
@@ -380,7 +383,8 @@ public class ParkingSessionService {
         String buildingId = resolveBuildingId(session.getSlot());
         checkStaffBuildingAssignment(staffEmail, buildingId);
 
-        if (!"ACTIVE".equalsIgnoreCase(session.getSessionStatus())) {
+        String currentStatus = session.getSessionStatus();
+        if (!"ACTIVE".equalsIgnoreCase(currentStatus) && !"PENDING_PAYMENT".equalsIgnoreCase(currentStatus)) {
             throw new BaseAPIException(ErrorCode.SESSION_NOT_FOUND, "Session is not active");
         }
 
@@ -413,7 +417,9 @@ public class ParkingSessionService {
 
         session.setTotalFee(total);
         session.setParkingDuration(hours);
-        session.setSessionStatus("ACTIVE");
+        if ("PENDING_PAYMENT".equalsIgnoreCase(session.getSessionStatus())) {
+            session.setSessionStatus("ACTIVE");
+        }
 
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
@@ -878,7 +884,8 @@ public class ParkingSessionService {
 
         // 2. Tìm session ACTIVE theo ticket
         ParkingSession session = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE")
+                .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
+                        java.util.List.of("ACTIVE", "PENDING_PAYMENT"))
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
                         "Không tìm thấy session ACTIVE cho ticket: " + req.getTicketCode()));
 
