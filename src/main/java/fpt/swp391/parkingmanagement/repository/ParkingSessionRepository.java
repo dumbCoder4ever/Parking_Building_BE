@@ -103,15 +103,17 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     }
 
     @Query("SELECT ps FROM ParkingSession ps "
-            + "JOIN FETCH ps.vehicle v "
+            + "LEFT JOIN FETCH ps.vehicle gv "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
             + "LEFT JOIN FETCH ps.ticket "
-            + "WHERE UPPER(v.plateNumber) = UPPER(:plateNumber) "
-            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
+            + "LEFT JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
+            + "AND (UPPER(gv.plateNumber) = UPPER(:plateNumber) OR UPPER(rv.plateNumber) = UPPER(:plateNumber)) "
             + "ORDER BY ps.checkinTime DESC")
-    List<ParkingSession> findInProgressSessionsByPlateNumber(@Param("plateNumber") String plateNumber, Pageable pageable);
+    List<ParkingSession> findActiveSessionsByPlateNumber(@Param("plateNumber") String plateNumber, Pageable pageable);
 
     default Optional<ParkingSession> findActiveByPlateNumber(String plateNumber) {
-        return findInProgressSessionsByPlateNumber(plateNumber, PageRequest.of(0, 1)).stream().findFirst();
+        return findActiveSessionsByPlateNumber(plateNumber, PageRequest.of(0, 1)).stream().findFirst();
     }
 
     @Query("SELECT ps FROM ParkingSession ps "
