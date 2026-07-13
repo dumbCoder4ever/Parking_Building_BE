@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import fpt.swp391.parkingmanagement.dto.BuildingFloorsResponse;
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
 import fpt.swp391.parkingmanagement.dto.PricingPolicySummaryDto;
 import fpt.swp391.parkingmanagement.dto.SlotDetailDto;
@@ -18,9 +19,11 @@ import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
+import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.entity.Zone;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
+import fpt.swp391.parkingmanagement.repository.FloorRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
@@ -35,17 +38,20 @@ public class BuildingService {
     private final ZoneRepository zoneRepository;
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
+    private final FloorRepository floorRepository;
     private final PricingService pricingService;
 
     public BuildingService(BuildingRepository buildingRepository,
                           ZoneRepository zoneRepository,
                           ParkingSlotRepository parkingSlotRepository,
                           ReservationRepository reservationRepository,
+                          FloorRepository floorRepository,
                           PricingService pricingService) {
         this.buildingRepository = buildingRepository;
         this.zoneRepository = zoneRepository;
         this.parkingSlotRepository = parkingSlotRepository;
         this.reservationRepository = reservationRepository;
+        this.floorRepository = floorRepository;
         this.pricingService = pricingService;
     }
 
@@ -237,6 +243,85 @@ public class BuildingService {
                 .totalSlots(total)
                 .availableSlots(available)
                 .slots(slotDtos)
+                .build();
+    }
+
+    // =============================================================================
+    // GET /api/buildings/{id}/floors
+    // Returns: building header + ordered floors, each with zones and slot counts.
+    // Queries: 1 (building) + 1 (floors with EntityGraph) + 1 (aggregate slot counts per zone)
+    // =============================================================================
+    public BuildingFloorsResponse listFloorsOfBuilding(String buildingId) {
+        Building building = buildingRepository.findByBuildingId(buildingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Building not found: " + buildingId));
+
+        List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId);
+        if (floors.isEmpty()) {
+            return BuildingFloorsResponse.builder()
+                    .buildingId(building.getBuildingId())
+                    .buildingName(building.getBuildingName())
+                    .address(building.getAddress())
+                    .buildingStatus(building.getStatus())
+                    .totalSlots(0)
+                    .availableSlots(0)
+                    .floors(List.of())
+                    .build();
+        }
+
+        List<ZoneSlotCount> zoneCounts = parkingSlotRepository.aggregateSlotCounts(buildingId, null);
+
+        Map<String, List<ZoneSlotCount>> countsByFloor = zoneCounts.stream()
+                .collect(Collectors.groupingBy(ZoneSlotCount::getFloorId));
+
+        List<BuildingFloorsResponse.FloorWithZones> floorDtos = floors.stream()
+                .map(floor -> {
+                    VehicleType vt = floor.getVehicleType();
+                    List<ZoneSlotCount> floorZoneCounts = countsByFloor.getOrDefault(floor.getFloorId(), List.of());
+
+                    List<BuildingFloorsResponse.ZoneSlotSummary> zoneSummaries = floorZoneCounts.stream()
+                            .map(zc -> BuildingFloorsResponse.ZoneSlotSummary.builder()
+                                    .zoneId(zc.getZoneId())
+                                    .zoneName(zc.getZoneName())
+                                    .zoneStatus(zc.getZoneStatus())
+                                    .totalSlots(zc.getTotalSlots() != null ? zc.getTotalSlots() : 0L)
+                                    .availableSlots(zc.getAvailableSlots() != null ? zc.getAvailableSlots() : 0L)
+                                    .reservedSlots(zc.getReservedSlots() != null ? zc.getReservedSlots() : 0L)
+                                    .occupiedSlots(zc.getOccupiedSlots() != null ? zc.getOccupiedSlots() : 0L)
+                                    .build())
+                            .toList();
+
+                    long floorTotal = floorZoneCounts.stream()
+                            .mapToLong(zc -> zc.getTotalSlots() != null ? zc.getTotalSlots() : 0L)
+                            .sum();
+                    long floorAvailable = floorZoneCounts.stream()
+                            .mapToLong(zc -> zc.getAvailableSlots() != null ? zc.getAvailableSlots() : 0L)
+                            .sum();
+
+                    return BuildingFloorsResponse.FloorWithZones.builder()
+                            .floorId(floor.getFloorId())
+                            .floorName(floor.getFloorName())
+                            .floorLevel(floor.getFloorLevel())
+                            .floorStatus(floor.getStatus())
+                            .vehicleTypeId(vt != null ? vt.getVehicleTypeId() : null)
+                            .vehicleTypeName(vt != null ? vt.getTypeName() : null)
+                            .totalSlots(floorTotal)
+                            .availableSlots(floorAvailable)
+                            .zones(zoneSummaries)
+                            .build();
+                })
+                .toList();
+
+        long totalSlots = floorDtos.stream().mapToLong(BuildingFloorsResponse.FloorWithZones::getTotalSlots).sum();
+        long availableSlots = floorDtos.stream().mapToLong(BuildingFloorsResponse.FloorWithZones::getAvailableSlots).sum();
+
+        return BuildingFloorsResponse.builder()
+                .buildingId(building.getBuildingId())
+                .buildingName(building.getBuildingName())
+                .address(building.getAddress())
+                .buildingStatus(building.getStatus())
+                .totalSlots(totalSlots)
+                .availableSlots(availableSlots)
+                .floors(floorDtos)
                 .build();
     }
 }
