@@ -57,6 +57,7 @@ public class ReservationResponse {
     private BigDecimal totalFee;
     private String checkinImageUrl;
     private String checkoutImageUrl;
+    /** Tổng thời gian đỗ (phút). */
     private Integer parkingDuration;
     private String paymentStatus;
 }

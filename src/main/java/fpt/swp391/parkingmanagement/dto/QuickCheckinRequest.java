@@ -23,4 +23,7 @@ public class QuickCheckinRequest {
     private String guestName;
     private String guestPhone;
     private String note;
+
+    /** Set programmatically after Cloudinary upload — not sent by client */
+    private String checkinImageUrl;
 }

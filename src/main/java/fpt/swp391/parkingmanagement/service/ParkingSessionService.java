@@ -158,6 +158,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
+        session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
@@ -184,6 +185,7 @@ public class ParkingSessionService {
         resp.setVehiclePlate(vehicle != null ? vehicle.getPlateNumber() : null);
         resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
@@ -238,7 +240,7 @@ public class ParkingSessionService {
         boolean electronicPayment = "VNPAY".equals(paymentMethod) || "PAYOS".equals(paymentMethod) || "MOMO".equals(paymentMethod);
 
         session.setTotalFee(total);
-        session.setParkingDuration(hours);
+        session.setParkingDuration((int) minutes);
         session.setSessionStatus("COMPLETED");
         session.setCheckoutImageUrl(req.getCheckoutImageUrl());
 
@@ -277,8 +279,10 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
+        resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
+        resp.setParkingDuration((int) minutes);
         resp.setParkingHours(hours);
         resp.setParkingMinutes((int) minutes);
         resp.setBasePrice(basePrice);
@@ -422,7 +426,7 @@ public class ParkingSessionService {
         boolean electronicPayment = "VNPAY".equals(method) || "PAYOS".equals(method) || "MOMO".equals(method);
 
         session.setTotalFee(total);
-        session.setParkingDuration(hours);
+        session.setParkingDuration((int) minutes);
         session.setCheckoutImageUrl(checkoutImageUrl);
         if (checkoutImageUrl != null && session.getVehicle() != null) {
             Vehicle checkoutVehicle = session.getVehicle();
@@ -466,8 +470,10 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
+        resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
+        resp.setParkingDuration((int) minutes);
         resp.setParkingHours(hours);
         resp.setParkingMinutes((int) minutes);
         resp.setBasePrice(basePrice);
@@ -596,6 +602,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
+        session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
@@ -627,6 +634,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
@@ -687,7 +695,7 @@ public class ParkingSessionService {
 
         session.setCheckoutTime(now);
         session.setTotalFee(total);
-        session.setParkingDuration(hours);
+        session.setParkingDuration((int) minutes);
         session.setSessionStatus("COMPLETED");
         session.setCheckoutImageUrl(req.getCheckoutImageUrl());
 
@@ -721,8 +729,10 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
+        resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
+        resp.setParkingDuration((int) minutes);
         resp.setParkingHours(hours);
         resp.setParkingMinutes((int) minutes);
         resp.setBasePrice(basePrice);
@@ -820,6 +830,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
+        session.setParkingDuration(0);
         session.setSessionStatus("ACTIVE");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
@@ -861,6 +872,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
@@ -945,7 +957,7 @@ public class ParkingSessionService {
 
         session.setCheckoutTime(now);
         session.setTotalFee(total);
-        session.setParkingDuration(hours);
+        session.setParkingDuration((int) minutes);
         session.setSessionStatus("COMPLETED");
         session.setCheckoutImageUrl(checkoutImageUrl);
 
@@ -978,8 +990,10 @@ public class ParkingSessionService {
 
         CheckoutResponse resp = new CheckoutResponse();
         resp.setSessionId(saved.getSessionId());
+        resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckoutTime(saved.getCheckoutTime());
         resp.setTotalFee(saved.getTotalFee());
+        resp.setParkingDuration((int) minutes);
         resp.setParkingHours(hours);
         resp.setParkingMinutes((int) minutes);
         resp.setBasePrice(basePrice);
@@ -1044,6 +1058,7 @@ public class ParkingSessionService {
         resp.setGuestPhone(ps.getGuestPhone());
         resp.setCheckinTime(ps.getCheckinTime());
         resp.setCheckinImageUrl(ps.getCheckinImageUrl());
+        resp.setParkingDuration(resolveParkingDurationMinutes(ps));
         resp.setEstimatedFee(ps.getEstimatedFee());
 
         if (vehicleType != null) {
@@ -1201,9 +1216,12 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
+        session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
+        session.setNote(req.getNote());
+        session.setCheckinImageUrl(req.getCheckinImageUrl());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
@@ -1238,6 +1256,8 @@ public class ParkingSessionService {
             resp.setVehicleTypeName(vehicleType.getTypeName());
         }
         resp.setCheckinTime(now);
+        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setParkingDuration(0);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
         resp.setEstimatedFee(estimatedFee);
@@ -1328,9 +1348,14 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
+        session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
+        session.setGuestName(req.getGuestName());
+        session.setGuestPhone(req.getGuestPhone());
+        session.setNote(req.getNote());
+        session.setCheckinImageUrl(req.getCheckinImageUrl());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
@@ -1364,6 +1389,8 @@ public class ParkingSessionService {
         resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(now);
+        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setParkingDuration(0);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
         resp.setEstimatedFee(estimatedFee);
@@ -1458,6 +1485,20 @@ public class ParkingSessionService {
     }
 
     // ======================== END QUICK CHECKIN FLOW ========================
+
+    /** Thời gian đỗ (phút): dùng giá trị đã lưu nếu đã checkout, còn không thì tính tới hiện tại. */
+    private Integer resolveParkingDurationMinutes(ParkingSession session) {
+        if (session.getCheckinTime() == null) {
+            return session.getParkingDuration() != null ? session.getParkingDuration() : 0;
+        }
+        if (session.getCheckoutTime() != null) {
+            return (int) Duration.between(session.getCheckinTime(), session.getCheckoutTime()).toMinutes();
+        }
+        if (session.getParkingDuration() != null && session.getParkingDuration() > 0) {
+            return session.getParkingDuration();
+        }
+        return (int) Duration.between(session.getCheckinTime(), LocalDateTime.now()).toMinutes();
+    }
 
     private Optional<Payment> findLatestSessionPayment(String sessionId, List<String> statuses) {
         List<String> normalizedStatuses = statuses.stream()
