@@ -5,7 +5,6 @@ import fpt.swp391.parkingmanagement.dto.CheckinRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.EstimateResponse;
-import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
@@ -14,6 +13,7 @@ import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.service.CloudinaryService;
 import fpt.swp391.parkingmanagement.service.ParkingSessionService;
+import fpt.swp391.parkingmanagement.service.PlateRecognizerService;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -21,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,14 +39,14 @@ public class ParkingSessionController {
     private final CloudinaryService cloudinaryService;
     private final TicketRepository ticketRepository;
 
-    /**
-     * Unified check-in endpoint.
-     *
-     * <p>Legacy path: client gửi {@code ticketCode} + {@code plateNumber} → checkin() manual driver.</p>
-     * <p>OCR path: client gửi {@code plateImage} + {@code buildingId} → auto-detect DRIVER/GUEST.</p>
-     */
     @Operation(summary = "Unified Staff Check-in",
-            description = "Staff check-in hợp nhất: ticket thủ công (ticketCode + plateNumber) HOẶC OCR (plateImage + buildingId, auto-detect DRIVER/GUEST).")
+            description = """
+                    Staff check-in hợp nhất. Gửi multipart/form-data.
+                    - Test nhanh: gửi `ticketCode` + `plateNumber` hoặc `checkinImage`.
+                    - Nếu gửi `plateImage` + `buildingId` thì dùng OCR quick auto check-in: DRIVER nếu đã có reservation, GUEST nếu vãng lai.
+                    - GUEST có thể bổ sung `vehicleTypeId`, `guestName`, `guestPhone`, `note`.
+                    Lưu ý: authentication header bắt buộc.
+                    """)
     @PostMapping(value = "/sessions/checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<?>> checkin(
             @RequestParam(required = false) String ticketCode,
@@ -62,29 +61,28 @@ public class ParkingSessionController {
             @RequestParam(required = false) MultipartFile plateImage,
             Authentication auth) {
 
-        // [DEBUG] Log entry point
-        System.out.println("[DEBUG-6b654b] CONTROLLER checkin - auth: " + (auth != null ? auth.getName() : "NULL") 
-                + ", ticketCode: " + ticketCode + ", buildingId: " + buildingId
-                + ", hasPlateImage: " + (plateImage != null && !plateImage.isEmpty()));
-        
-        // ========== OCR MODE: Staff upload ảnh plate → AUTO DETECT DRIVER/GUEST ==========
         if (plateImage != null && !plateImage.isEmpty() && buildingId != null && !buildingId.isBlank()) {
             QuickCheckinRequest req = new QuickCheckinRequest();
             req.setPlateImage(plateImage);
             req.setBuildingId(buildingId);
             req.setVehicleTypeId(vehicleTypeId);
+            req.setVehicleColor(vehicleColor);
+            req.setGuestName(guestName);
+            req.setGuestPhone(guestPhone);
+            req.setNote(note);
 
-            // AUTO DETECT: Tự động detect DRIVER (plate có reservation) hoặc GUEST (plate không có reservation)
             QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
             return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));
         }
 
-        // ========== LEGACY MODE: Manual checkin với ticketCode + plateNumber ==========
         CheckinRequest req = new CheckinRequest();
         req.setTicketCode(ticketCode);
         req.setPlateNumber(plateNumber);
         req.setVehicleColor(vehicleColor);
         req.setVehicleTypeId(vehicleTypeId);
+        req.setGuestName(guestName);
+        req.setGuestPhone(guestPhone);
+        req.setNote(note);
         MultipartFile imageToUpload = checkinImage != null ? checkinImage : plateImage;
         if (imageToUpload != null && !imageToUpload.isEmpty()) {
             req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
@@ -93,24 +91,54 @@ public class ParkingSessionController {
         return ResponseEntity.ok(ApiResponse.ok("Check-in successful", resp));
     }
 
-    /**
-     * Driver checkout: chỉ xác nhận xe ra sau khi đã thanh toán (PAID).
-     * Không tạo Payment record — payment xử lý qua /payments trước.
-     *
-     * @deprecated dùng {@link #driverCheckout} thay thế.
-     */
-    @Deprecated
-    @Operation(summary = "Staff Check-out (legacy, dùng cho cả driver & guest)",
-            description = "DEPRECATED: dùng /sessions/driver/checkout hoặc /sessions/guest/checkout. Sẽ bị xóa khi FE migrate xong.")
+    @Operation(summary = "Unified Staff Check-out",
+            description = """
+                    Staff checkout thống nhất, gửi multipart/form-data.
+                    - Bắt buộc có `ticketCode`.
+                    - `paymentMethod`: CASH, VNPAY, PAYOS, MOMO.
+                    - Có thể bổ sung `checkoutImage`.
+                    - Nếu gửi kèm `plateImage` thì hệ thống OCR biển số và so khớp với session trước khi checkout.
+                    Lưu ý: authentication header bắt buộc.
+                    """)
     @PostMapping(value = "/sessions/checkout", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CheckoutResponse>> checkout(
-            @RequestParam String ticketCode,
+            @RequestParam(required = false) String ticketCode,
+            @RequestParam(required = false) MultipartFile plateImage,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) MultipartFile checkoutImage,
             Authentication auth) {
-        CheckoutResponse resp = parkingSessionService.checkout(auth.getName(),
-                buildCheckoutRequest(ticketCode, paymentMethod, checkoutImage));
-        return ResponseEntity.ok(ApiResponse.ok("Checkout successful", resp));
+
+        CheckoutRequest checkoutRequest = buildCheckoutRequest(ticketCode, paymentMethod, checkoutImage);
+
+        if (ticketCode != null && !ticketCode.isBlank() && plateImage != null && !plateImage.isEmpty()) {
+            String plateNumber = recognizePlateOrThrow(plateImage);
+            CheckoutResponse resp = parkingSessionService.guestCheckoutOcr(auth.getName(), checkoutRequest, plateNumber);
+            return ResponseEntity.ok(ApiResponse.ok("Checkout successful", resp));
+        }
+
+        if (ticketCode != null && !ticketCode.isBlank()) {
+            CheckoutResponse resp = parkingSessionService.checkout(auth.getName(), checkoutRequest);
+            return ResponseEntity.ok(ApiResponse.ok("Checkout successful", resp));
+        }
+
+        throw new BaseAPIException(ErrorCode.BAD_REQUEST, "ticketCode or ticketCode + plateImage is required");
+    }
+
+    private String recognizePlateOrThrow(MultipartFile plateImage) {
+        if (plateImage == null || plateImage.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST, "Plate image is required");
+        }
+        try {
+            PlateRecognizerService.OcrResult result = parkingSessionService.recognizePlate(plateImage);
+            if (result.plateNumber() == null || result.plateNumber().isBlank()) {
+                throw new BaseAPIException(ErrorCode.OCR_PLATE_NOT_DETECTED);
+            }
+            return result.plateNumber().toUpperCase();
+        } catch (BaseAPIException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            throw new BaseAPIException(ErrorCode.OCR_FAILED, ex.getMessage());
+        }
     }
 
     private CheckoutRequest buildCheckoutRequest(
@@ -124,12 +152,14 @@ public class ParkingSessionController {
         return req;
     }
 
-    /**
-     * Driver checkout: chỉ xác nhận xe ra sau khi đã thanh toán (PAID).
-     * Không tạo Payment record — payment xử lý qua /payments trước.
-     */
     @Operation(summary = "Driver Check-out (sau khi thanh toán)",
-            description = "Staff xác nhận xe ra cho driver đã thanh toán (VNPay/PayOS/MOMO). Yêu cầu session.paymentStatus=PAID. Không tạo Payment.")
+            description = """
+                    Staff xác nhận xe ra cho driver đã thanh toán VNPay/PayOS/MOMO.
+                    - Bắt buộc: `ticketCode`.
+                    - Yêu cầu session.paymentStatus=PAID. Không tạo Payment.
+                    - Có thể gửi `checkoutImage` ghi nhận ảnh xe ra.
+                    Lưu ý: authentication header bắt buộc.
+                    """)
     @PostMapping(value = "/sessions/driver/checkout", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CheckoutResponse>> driverCheckout(
             @RequestParam String ticketCode,
@@ -143,32 +173,12 @@ public class ParkingSessionController {
         return ResponseEntity.ok(ApiResponse.ok("Driver checkout successful", resp));
     }
 
-    /**
-     * Guest checkout: tính phí + xử lý payment (CASH tạo Payment PAID, electronic yêu cầu PAID trước).
-     *
-     * <p>Path mới: {@code /api/sessions/guest/checkout/v2} — đặt {@code /v2} để khỏi trùng với
-     * {@code GuestSessionController#guestCheckout} đang giữ ở path cũ (backward-compat cho FE).</p>
-     */
-    @Operation(summary = "Guest Check-out (tính phí + xử lý payment)",
-            description = "Staff checkout khách vãng lai. Với CASH: tạo Payment(PAID) inline. Với VNPay/PayOS/MOMO: yêu cầu đã có paymentStatus=PAID.")
-    @PostMapping(value = "/sessions/guest/checkout/v2", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<ApiResponse<CheckoutResponse>> guestCheckoutV2(
-            @RequestParam String plateNumber,
-            @RequestParam(required = false) String paymentMethod,
-            @RequestParam(required = false) MultipartFile checkoutImage,
-            Authentication auth) {
-        GuestCheckoutRequest req = new GuestCheckoutRequest();
-        req.setPlateNumber(plateNumber != null ? plateNumber.toUpperCase() : null);
-        req.setPaymentMethod(paymentMethod);
-        if (checkoutImage != null && !checkoutImage.isEmpty()) {
-            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImage(checkoutImage));
-        }
-        CheckoutResponse resp = parkingSessionService.guestCheckout(auth.getName(), req);
-        return ResponseEntity.ok(ApiResponse.ok("Guest checkout successful", resp));
-    }
-
     @Operation(summary = "Estimate fee for a session",
-            description = "Driver/Staff xem chi tiết phí trước khi tạo payment.")
+            description = """
+                    Xem chi tiết phí trước khi checkout.
+                    - Driver/Staff/Manager/Admin đều gọi được.
+                    - Bắt buộc có `ticketCode`.
+                    """)
     @GetMapping("/sessions/estimate")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN','DRIVER')")
     public ResponseEntity<ApiResponse<EstimateResponse>> estimateFee(
@@ -179,7 +189,12 @@ public class ParkingSessionController {
     }
 
     @Operation(summary = "Staff checkout after electronic payment",
-            description = "Sau khi driver hoàn tất VNPay/PayOS/MOMO (session.paymentStatus = PAID), staff gọi để release slot.")
+            description = """
+                    Dùng khi driver đã thanh toán VNPay/PayOS/MOMO và session.paymentStatus = PAID.
+                    - Staff gọi để release slot sau khi kiểm tra payment thành công.
+                    - Có thể gửi `paymentMethod` và `checkoutImage`.
+                    Lưu ý: authentication header bắt buộc.
+                    """)
     @PatchMapping(value = "/sessions/{sessionId}/confirm-exit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<CheckoutResponse>> confirmExit(

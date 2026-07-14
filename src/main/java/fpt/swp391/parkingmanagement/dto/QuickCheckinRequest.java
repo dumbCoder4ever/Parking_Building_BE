@@ -18,4 +18,9 @@ public class QuickCheckinRequest {
 
     @Schema(description = "Loại xe cho guest checkin (khi không tìm thấy reservation). BẮT BUỘC nếu plate không có reservation.")
     private String vehicleTypeId;
+
+    private String vehicleColor;
+    private String guestName;
+    private String guestPhone;
+    private String note;
 }
