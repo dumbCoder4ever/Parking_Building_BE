@@ -62,8 +62,7 @@ public class ReservationService {
     private static final Set<String> ACTIVE_ZONE_STATUSES = Set.of("ACTIVE", "FULL");
     private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "CHECKED_IN");
     private static final Set<String> MANAGEABLE_RESERVATION_STATUSES = Set.of(
-            "PENDING", "APPROVED", "REJECTED", "CANCELLED", "EXPIRED", 
-            "COMPLETED", "NO_SHOW", "CHECKED_IN", "PENDING_PAYMENT"
+            "PENDING", "CHECKED_IN", "CANCELLED", "EXPIRED", "COMPLETED"
     );
 
     private final ParkingSlotRepository parkingSlotRepository;
@@ -512,33 +511,22 @@ public class ReservationService {
 
         String oldStatus = reservation.getReservationStatus();
         String normalizedStatus = validateReservationStatus(status);
+        if ("APPROVED".equalsIgnoreCase(normalizedStatus) || "REJECTED".equalsIgnoreCase(normalizedStatus)) {
+            throw new RuntimeException("Invalid reservation status. Approval flow was removed. Allowed values: " + String.join(", ", MANAGEABLE_RESERVATION_STATUSES));
+        }
         reservation.setReservationStatus(normalizedStatus);
         reservation.setNote(normalizeText(note));
 
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
-            if ("APPROVED".equals(normalizedStatus)) {
-                slot.setSlotStatus("RESERVED");
-            } else if ("REJECTED".equals(normalizedStatus) || "CANCELLED".equals(normalizedStatus)) {
+            if ("CANCELLED".equals(normalizedStatus) || "EXPIRED".equals(normalizedStatus) || "COMPLETED".equals(normalizedStatus)) {
                 slot.setSlotStatus("AVAILABLE");
-            } else if ("COMPLETED".equals(normalizedStatus) || "EXPIRED".equals(normalizedStatus)) {
-                slot.setSlotStatus("AVAILABLE");
+                parkingSlotRepository.save(slot);
             }
-            parkingSlotRepository.save(slot);
         }
 
         Reservation saved = reservationRepository.save(reservation);
         Ticket ticket = ticketRepository.findByReservationReservationId(saved.getReservationId()).orElse(null);
-
-        // Set ticket expiredAt when reservation is approved
-        if (ticket != null && "APPROVED".equals(normalizedStatus)) {
-            Integer gracePeriodMinutes = saved.getGracePeriodMinutes();
-            int grace = gracePeriodMinutes != null ? gracePeriodMinutes : 15;
-            if (saved.getReservationEnd() != null) {
-                ticket.setExpiredAt(saved.getReservationEnd().plusMinutes(grace));
-                ticketRepository.save(ticket);
-            }
-        }
 
         ReservationResponse response = toReservationResponse(saved, ticket);
 
@@ -582,28 +570,9 @@ public class ReservationService {
     public int autoExpireReservations() {
         LocalDateTime now = LocalDateTime.now();
 
-        // PENDING reservations -> CANCELLED (staff không approve kịp)
         List<Reservation> expiredPending = reservationRepository.findExpiredPendingReservations(now);
-        int cancelledCount = 0;
-        for (Reservation reservation : expiredPending) {
-            ParkingSlot slot = reservation.getSlot();
-            if (slot != null) {
-                reservation.setReservationStatus("CANCELLED");
-                reservation.setNote("Auto-cancelled: staff did not approve before grace period");
-                reservationRepository.save(reservation);
-
-                slot.setSlotStatus("AVAILABLE");
-                parkingSlotRepository.save(slot);
-
-                sendAutoExpireNotification(reservation, "CANCELLED");
-                cancelledCount++;
-            }
-        }
-
-        // APPROVED reservations -> EXPIRED (driver không check-in kịp)
-        List<Reservation> expiredApproved = reservationRepository.findExpiredApprovedReservations(now);
         int expiredCount = 0;
-        for (Reservation reservation : expiredApproved) {
+        for (Reservation reservation : expiredPending) {
             ParkingSlot slot = reservation.getSlot();
             if (slot != null) {
                 reservation.setReservationStatus("EXPIRED");
@@ -618,7 +587,7 @@ public class ReservationService {
             }
         }
 
-        return cancelledCount + expiredCount;
+        return expiredCount;
     }
 
     private void sendAutoExpireNotification(Reservation reservation, String newStatus) {
@@ -772,7 +741,6 @@ public class ReservationService {
         resp.setReservationStatus(reservation.getReservationStatus());
         resp.setReservationNote(reservation.getNote());
         resp.setReservationStart(reservation.getReservationStart());
-        resp.setReservationEnd(reservation.getReservationEnd());
         resp.setCreatedAt(reservation.getCreatedAt());
 
         // User info
@@ -850,7 +818,6 @@ public class ReservationService {
                 .reservationCode(reservation != null ? reservation.getReservationCode() : null)
                 .reservationStatus(reservation != null ? reservation.getReservationStatus() : null)
                 .reservationStart(reservation != null ? reservation.getReservationStart() : null)
-                .reservationEnd(reservation != null ? reservation.getReservationEnd() : null)
                 .ticketCode(ticket != null ? ticket.getTicketCode() : null)
                 .ticketUsed(ticket != null ? ticket.getIsUsed() : null)
                 .vehicleId(reservation != null && reservation.getVehicle() != null ? reservation.getVehicle().getVehicleId() : null)

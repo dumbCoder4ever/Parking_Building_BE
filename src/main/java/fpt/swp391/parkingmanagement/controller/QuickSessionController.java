@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * @deprecated dùng {@code POST /api/sessions/checkin} (ParkingSessionController) với {@code plateImage} + {@code mode}.
+ * @deprecated dùng {@code POST /api/sessions/checkin} (ParkingSessionController) với {@code plateImage}.
  * Giữ tạm để FE chuyển đổi dần. Sẽ bị xóa khi FE đã migrate hết.
  */
 @Deprecated
@@ -25,29 +25,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/sessions")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-@Tag(name = "Quick Checkin (Deprecated)", description = "Sẽ bị xóa. Dùng POST /api/sessions/checkin với mode=DRIVER|GUEST + plateImage.")
+@Tag(name = "Quick Checkin (Deprecated)", description = "Sẽ bị xóa. Dùng POST /api/sessions/checkin với plateImage.")
 public class QuickSessionController {
 
     private final ParkingSessionService parkingSessionService;
 
     @Operation(summary = "Quick Check-in (Driver + Guest) — DEPRECATED",
-            description = "Endpoint cũ. Dùng POST /api/sessions/checkin với plateImage + mode=DRIVER|GUEST thay thế.")
+            description = "Endpoint cũ. Dùng POST /api/sessions/checkin với plateImage thay thế.")
     @PostMapping(value = "/quick-checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<QuickCheckinResponse>> quickCheckin(
             @ModelAttribute QuickCheckinRequest req,
             Authentication auth) {
 
-        QuickCheckinRequest.QuickMode mode = req.getMode() != null
-                ? req.getMode()
-                : QuickCheckinRequest.QuickMode.DRIVER;
-
-        QuickCheckinResponse result;
-        if (mode == QuickCheckinRequest.QuickMode.GUEST) {
-            result = parkingSessionService.quickGuestCheckin(auth.getName(), req);
-        } else {
-            result = parkingSessionService.quickDriverCheckin(auth.getName(), req);
-        }
-
+        // AUTO DETECT: Tự động detect DRIVER/GUEST dựa trên biển số
+        QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 }

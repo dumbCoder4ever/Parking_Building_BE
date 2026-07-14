@@ -186,7 +186,6 @@ public class ReservationControllerIntegrationTest {
         req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
         req.setSlotId(testSlot.getSlotId());
         req.setReservationStart(LocalDateTime.now().plusHours(1));
-        req.setReservationEnd(LocalDateTime.now().plusHours(3));
 
         String json = objectMapper.writeValueAsString(req);
 
@@ -211,7 +210,6 @@ public class ReservationControllerIntegrationTest {
         req.setPlateNumber("AUTO-CANCEL-PENDING");
         req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
         req.setReservationStart(LocalDateTime.now().minusHours(3));
-        req.setReservationEnd(LocalDateTime.now().minusHours(1)); // Đã hết hạn
 
         var response = reservationService.createReservation(testUser.getEmail(), req);
         String reservationCode = response.getReservationCode();
@@ -244,7 +242,6 @@ public class ReservationControllerIntegrationTest {
         req.setPlateNumber("AUTO-EXPIRE-APPROVED");
         req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
         req.setReservationStart(LocalDateTime.now().minusHours(3));
-        req.setReservationEnd(LocalDateTime.now().minusHours(1)); // Đã hết hạn
 
         var response = reservationService.createReservation(testUser.getEmail(), req);
         String reservationCode = response.getReservationCode();
@@ -285,7 +282,6 @@ public class ReservationControllerIntegrationTest {
         req.setPlateNumber("ACTIVE-RESERVATION");
         req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
         req.setReservationStart(LocalDateTime.now().plusHours(1));
-        req.setReservationEnd(LocalDateTime.now().plusHours(3));
 
         reservationService.createReservation(testUser.getEmail(), req);
 
@@ -306,7 +302,6 @@ public class ReservationControllerIntegrationTest {
         req.setPlateNumber("CANCELLED-TEST");
         req.setVehicleTypeId(motorbikeType.getVehicleTypeId());
         req.setReservationStart(LocalDateTime.now().minusHours(3));
-        req.setReservationEnd(LocalDateTime.now().minusHours(1));
 
         var response = reservationService.createReservation(testUser.getEmail(), req);
 

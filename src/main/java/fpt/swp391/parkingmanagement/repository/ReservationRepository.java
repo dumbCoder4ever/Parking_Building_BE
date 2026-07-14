@@ -34,6 +34,13 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             Collection<String> slotIds, Collection<String> statuses);
 
     /**
+     * FIX N+1: Chỉ lấy slotIds của reservations active - tránh load toàn bộ Reservation.
+     * Dùng trong SlotStatusSyncJob để check orphaned slots.
+     */
+    @Query("SELECT DISTINCT r.slot.slotId FROM Reservation r WHERE r.slot IS NOT NULL AND r.reservationStatus IN :statuses")
+    List<String> findActiveSlotIdsByStatuses(@Param("statuses") Collection<String> statuses);
+
+    /**
      * Batch-load active reservations for all zones in 1 query.
      * Dùng trong getAvailability() để loại bỏ N+1 reservation lookup.
      */
@@ -57,45 +64,30 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "ORDER BY r.createdAt DESC")
     List<Reservation> findByUserUserIdOrderByCreatedAtDesc(@Param("userId") String userId);
 
-    @Query("SELECT r FROM Reservation r WHERE r.user.userId = :userId " +
-           "AND r.reservationStatus IN :statuses " +
-           "AND r.reservationStart < :endTime AND r.reservationEnd > :startTime")
-    List<Reservation> findOverlappingReservations(
-            @Param("userId") String userId,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime,
-            @Param("statuses") Collection<String> statuses);
-
-    // Check overlap by vehicle type (1 user can have 1 CAR and 1 BIKE reservation at same time)
-    @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +
-           "WHERE r.user.userId = :userId " +
-           "AND vt.typeName = :vehicleTypeName " +
-           "AND r.reservationStatus IN :statuses " +
-           "AND r.reservationStart < :endTime AND r.reservationEnd > :startTime")
-    List<Reservation> findOverlappingReservationsByVehicleType(
-            @Param("userId") String userId,
-            @Param("vehicleTypeName") String vehicleTypeName,
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime,
-            @Param("statuses") Collection<String> statuses);
+    // NOTE: findOverlappingReservations và findOverlappingReservationsByVehicleType đã xóa
+    // vì không còn reservationEnd nữa - logic overlap đã thay đổi
 
     @Query(value = "SELECT r.* FROM reservations r " +
            "JOIN parking_slots ps ON r.slot_id = ps.slot_id " +
            "WHERE r.reservation_status IN ('PENDING', 'APPROVED') " +
            "AND ps.slot_status = 'RESERVED' " +
-           "AND DATE_ADD(r.reservation_end, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
+           // Expire reservations: reservationStart + gracePeriod <= now
+           "AND DATE_ADD(r.reservation_start, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
            nativeQuery = true)
     List<Reservation> findExpiredReservations(@Param("currentTime") LocalDateTime currentTime);
 
     @Query(value = "SELECT r.* FROM reservations r " +
            "WHERE r.reservation_status = 'PENDING' " +
-           "AND DATE_ADD(r.reservation_end, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
+           // Expire PENDING reservations: reservationStart + gracePeriod <= now
+           // (Driver has gracePeriod minutes after reservationStart to checkin)
+           "AND DATE_ADD(r.reservation_start, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
            nativeQuery = true)
     List<Reservation> findExpiredPendingReservations(@Param("currentTime") LocalDateTime currentTime);
 
     @Query(value = "SELECT r.* FROM reservations r " +
            "WHERE r.reservation_status = 'APPROVED' " +
-           "AND DATE_ADD(r.reservation_end, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
+           // APPROVED reservations expire: reservationStart + gracePeriod <= now
+           "AND DATE_ADD(r.reservation_start, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
            nativeQuery = true)
     List<Reservation> findExpiredApprovedReservations(@Param("currentTime") LocalDateTime currentTime);
 
@@ -172,6 +164,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "AND r.reservationStatus IN ('PENDING', 'APPROVED') " +
            "ORDER BY r.createdAt DESC")
     List<Reservation> findPendingByPlateNumber(@Param("plateNumber") String plateNumber);
+
+    /**
+     * Tìm tất cả reservation ACTIVE (chưa COMPLETED/CANCELLED/EXPIRED) theo biển số.
+     * Dùng để ngăn chặn guest checkin khi driver đã checkin rồi (reservation status = CHECKED_IN).
+     * 
+     * NOTE: Sử dụng findPendingByPlateNumber và lọc thêm CHECKED_IN trong service
+     * vì JPA không hỗ trợ đầy đủ path traversal trên tất cả các query patterns.
+     */
+    List<Reservation> findByVehiclePlateNumberIgnoreCase(String plateNumber);
 
     // Check active reservations by vehicle type (không dùng time range nữa)
     @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +

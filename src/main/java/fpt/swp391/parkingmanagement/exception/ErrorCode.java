@@ -32,7 +32,8 @@ public enum ErrorCode {
     PLATE_MISMATCH("Plate number scanned does not match the registered plate for this session"),
     PLATE_ALREADY_PARKED("This plate number is already registered in an active parking session"),
     GUEST_ALREADY_PARKING("This vehicle is already checked in as a guest"),
-    OCR_PLATE_NOT_DETECTED("Could not detect a license plate in the image");
+    OCR_PLATE_NOT_DETECTED("Could not detect a license plate in the image"),
+    RESERVATION_EXISTS_FOR_PLATE("This plate number already has an active reservation");
 
     private final String message;
 

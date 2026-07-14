@@ -43,7 +43,7 @@ public class Reservation {
 
     private LocalDateTime reservationStart;
 
-    private LocalDateTime reservationEnd;
+    // reservationEnd removed - driver can checkout anytime, payment calculated by actual parking time
 
     @Column(name = "grace_period_minutes")
     private Integer gracePeriodMinutes = 15;
