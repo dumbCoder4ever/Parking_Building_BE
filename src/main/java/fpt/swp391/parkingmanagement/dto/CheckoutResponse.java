@@ -16,6 +16,7 @@ public class CheckoutResponse {
     private String zoneName;
     private String slotId;
     private String slotName;
+    private LocalDateTime checkinTime;
     private LocalDateTime checkoutTime;
     private BigDecimal totalFee;
     private String paymentId;
@@ -25,6 +26,8 @@ public class CheckoutResponse {
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
     
+    /** Tổng thời gian đỗ (phút), từ check-in đến check-out. */
+    private Integer parkingDuration;
     private int parkingHours;
     private int parkingMinutes;
     

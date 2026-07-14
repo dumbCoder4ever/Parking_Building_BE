@@ -22,6 +22,9 @@ public class ParkingSessionResponse {
     private String vehicleTypeName;
     private LocalDateTime checkinTime;
     private String checkinImageUrl;
+
+    /** Thời gian đỗ (phút). Check-in mới = 0. */
+    private Integer parkingDuration;
     
     private BigDecimal estimatedFee;
     private BigDecimal basePrice;
