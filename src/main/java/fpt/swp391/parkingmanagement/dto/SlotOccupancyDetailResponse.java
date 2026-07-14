@@ -41,7 +41,6 @@ public class SlotOccupancyDetailResponse {
     private String reservationCode;
     private String reservationStatus;
     private LocalDateTime reservationStart;
-    private LocalDateTime reservationEnd;
 
     private String ticketCode;
 

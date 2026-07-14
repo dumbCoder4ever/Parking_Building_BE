@@ -586,8 +586,7 @@ public class ManagerBuildingSetupService {
             builder.reservationId(reservation.getReservationId())
                     .reservationCode(reservation.getReservationCode())
                     .reservationStatus(reservation.getReservationStatus())
-                    .reservationStart(reservation.getReservationStart())
-                    .reservationEnd(reservation.getReservationEnd());
+                    .reservationStart(reservation.getReservationStart());
 
             User driver = reservation.getUser();
             if (driver != null) {

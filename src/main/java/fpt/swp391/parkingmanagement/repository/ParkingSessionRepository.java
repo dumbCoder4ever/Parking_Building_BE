@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -65,6 +66,15 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
             + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT', 'PENDING_EXIT') "
             + "ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findCurrentBySlotId(@Param("slotId") String slotId);
+
+    /**
+     * FIX N+1: Batch-load slot IDs có active session trong 1 query.
+     * Trước đây gọi findCurrentBySlotId trong loop → mỗi slot 1 query.
+     */
+    @Query("SELECT DISTINCT ps.slot.slotId FROM ParkingSession ps WHERE ps.slot.slotId IN :slotIds AND ps.sessionStatus IN :statuses")
+    Set<String> findSlotIdsBySlotIdInAndSessionStatusIn(
+            @Param("slotIds") Collection<String> slotIds,
+            @Param("statuses") Collection<String> statuses);
 
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
             + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")

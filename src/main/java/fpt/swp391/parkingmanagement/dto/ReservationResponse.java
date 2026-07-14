@@ -12,7 +12,6 @@ public class ReservationResponse {
     private String reservationStatus;
     private String reservationNote;
     private LocalDateTime reservationStart;
-    private LocalDateTime reservationEnd;
     private LocalDateTime createdAt;
 
     // User info
