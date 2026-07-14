@@ -70,6 +70,9 @@ public class ParkingSessionController {
             req.setGuestName(guestName);
             req.setGuestPhone(guestPhone);
             req.setNote(note);
+            MultipartFile imageToUpload = checkinImage != null && !checkinImage.isEmpty()
+                    ? checkinImage : plateImage;
+            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
 
             QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
             return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));

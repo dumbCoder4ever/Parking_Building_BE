@@ -3,6 +3,7 @@ package fpt.swp391.parkingmanagement.controller;
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
+import fpt.swp391.parkingmanagement.service.CloudinaryService;
 import fpt.swp391.parkingmanagement.service.ParkingSessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class QuickSessionController {
 
     private final ParkingSessionService parkingSessionService;
+    private final CloudinaryService cloudinaryService;
 
     @Operation(summary = "Quick Check-in (Driver + Guest) — DEPRECATED",
             description = "Endpoint cũ. Dùng POST /api/sessions/checkin với plateImage thay thế.")
@@ -36,6 +38,10 @@ public class QuickSessionController {
     public ResponseEntity<ApiResponse<QuickCheckinResponse>> quickCheckin(
             @ModelAttribute QuickCheckinRequest req,
             Authentication auth) {
+
+        if (req.getPlateImage() != null && !req.getPlateImage().isEmpty()) {
+            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(req.getPlateImage()));
+        }
 
         // AUTO DETECT: Tự động detect DRIVER/GUEST dựa trên biển số
         QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);

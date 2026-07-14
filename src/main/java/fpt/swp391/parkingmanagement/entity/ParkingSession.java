@@ -52,6 +52,7 @@ public class ParkingSession {
 
     private BigDecimal totalFee;
 
+    /** Tổng thời gian đỗ (phút). */
     private Integer parkingDuration;
 
     @Column(name = "payment_status", length = 30)
