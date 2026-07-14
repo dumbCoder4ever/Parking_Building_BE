@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import fpt.swp391.parkingmanagement.dto.CheckinRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
@@ -874,8 +875,19 @@ public class ParkingSessionService {
 
     @Transactional
     public CheckoutResponse guestCheckoutOcr(String staffEmail, GuestCheckoutOcrRequest req) {
+        PlateRecognizerService.OcrResult ocr = recognizePlate(req.getPlateImage());
+        return guestCheckoutOcr(staffEmail, req.getTicketCode(), req.getCheckoutImageUrl(), req.getPaymentMethod(), ocr.plateNumber().toUpperCase());
+    }
+
+    @Transactional
+    public CheckoutResponse guestCheckoutOcr(String staffEmail, CheckoutRequest checkoutRequest, String scannedPlate) {
+        return guestCheckoutOcr(staffEmail, checkoutRequest.getTicketCode(), checkoutRequest.getCheckoutImageUrl(), checkoutRequest.getPaymentMethod(), scannedPlate);
+    }
+
+    @Transactional
+    public CheckoutResponse guestCheckoutOcr(String staffEmail, String ticketCode, String checkoutImageUrl, String paymentMethod, String scannedPlate) {
         // 1. Validate ticket tồn tại
-        Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
+        Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
         // 2. Tìm session ACTIVE theo ticket
@@ -883,7 +895,7 @@ public class ParkingSessionService {
                 .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
                         java.util.List.of("ACTIVE", "PENDING_PAYMENT"))
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
-                        "Không tìm thấy session ACTIVE cho ticket: " + req.getTicketCode()));
+                        "Không tìm thấy session ACTIVE cho ticket: " + ticketCode));
 
         // 3. Verify đây là guest session (không có reservation)
         if (session.getReservation() != null) {
@@ -894,22 +906,7 @@ public class ParkingSessionService {
         String buildingId = resolveBuildingId(session.getSlot());
         checkStaffBuildingAssignment(staffEmail, buildingId);
 
-        // 4. OCR biển số lúc xe ra
-        PlateRecognizerService.OcrResult ocr;
-        try {
-            ocr = ocrService.recognizeFromUpload(req.getPlateImage());
-        } catch (Exception e) {
-            throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "Không thể đọc ảnh biển số: " + e.getMessage());
-        }
-        String scannedPlate = ocr.plateNumber();
-        if (scannedPlate == null || ocr.confidence() < 0.3) {
-            throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại hoặc nhập tay.");
-        }
-        scannedPlate = scannedPlate.toUpperCase();
-
-        // 5. Validate: biển số quét phải khớp với biển số trong session
+        // 4. Validate: biển số quét phải khớp với biển số trong session
         Vehicle sessionVehicle = session.getVehicle();
         if (sessionVehicle == null) {
             throw new BaseAPIException(ErrorCode.VEHICLE_NOT_FOUND,
@@ -943,14 +940,14 @@ public class ParkingSessionService {
             }
         }
 
-        String paymentMethod = req.getPaymentMethod() != null ? req.getPaymentMethod() : "CASH";
-        boolean electronicPayment = "VNPAY".equals(paymentMethod) || "PAYOS".equals(paymentMethod) || "MOMO".equals(paymentMethod);
+        String resolvedPaymentMethod = paymentMethod != null ? paymentMethod : "CASH";
+        boolean electronicPayment = "VNPAY".equals(resolvedPaymentMethod) || "PAYOS".equals(resolvedPaymentMethod) || "MOMO".equals(resolvedPaymentMethod);
 
         session.setCheckoutTime(now);
         session.setTotalFee(total);
         session.setParkingDuration(hours);
         session.setSessionStatus("COMPLETED");
-        session.setCheckoutImageUrl(req.getCheckoutImageUrl());
+        session.setCheckoutImageUrl(checkoutImageUrl);
 
         Payment savedPayment = null;
         if (electronicPayment) {
@@ -965,7 +962,7 @@ public class ParkingSessionService {
             session.setPaymentStatus("PAID");
             Payment payment = new Payment();
             payment.setSession(session);
-            payment.setPaymentMethod(paymentMethod);
+            payment.setPaymentMethod(resolvedPaymentMethod);
             payment.setAmount(total);
             payment.setPaymentStatus("PAID");
             savedPayment = paymentRepository.save(payment);
@@ -1094,20 +1091,24 @@ public class ParkingSessionService {
      * Resolve plate number bằng OCR từ ảnh upload.
      * Throw BaseAPIException(OCR_FAILED) nếu ảnh rỗng hoặc không nhận diện được biển số.
      */
-    private String resolvePlateNumber(QuickCheckinRequest req) {
-        if (req.getPlateImage() == null || req.getPlateImage().isEmpty()) {
+    public PlateRecognizerService.OcrResult recognizePlate(MultipartFile plateImage) {
+        if (plateImage == null || plateImage.isEmpty()) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
                     "Cần cung cấp ảnh biển số (plateImage).");
         }
 
-        PlateRecognizerService.OcrResult ocr = ocrService.recognizeFromUpload(req.getPlateImage());
+        PlateRecognizerService.OcrResult ocr = ocrService.recognizeFromUpload(plateImage);
         String plateNumber = ocr.plateNumber();
         if (plateNumber == null || ocr.confidence() < 0.3) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
                     "Không nhận diện được biển số từ ảnh. Vui lòng chụp lại rõ nét hơn.");
         }
         log.info("Quick checkin: OCR detected '{}' (confidence {})", plateNumber, ocr.confidence());
-        return plateNumber;
+        return ocr;
+    }
+
+    private String resolvePlateNumber(QuickCheckinRequest req) {
+        return recognizePlate(req.getPlateImage()).plateNumber();
     }
 
     /**
