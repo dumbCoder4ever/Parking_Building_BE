@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
+import fpt.swp391.parkingmanagement.dto.FloorDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
 import fpt.swp391.parkingmanagement.service.BuildingService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -69,5 +70,20 @@ public class BuildingController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Zone slots retrieved successfully",
                 buildingService.getZoneSlots(zoneId)));
+    }
+
+    // =========================================================================
+    // (3) Building floors: lightweight floor + zone summary for availability drill-down
+    // =========================================================================
+    @GetMapping("/buildings/{buildingId}/floors")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
+    @Operation(
+            summary = "List floors for a building",
+            description = "Returns floors with vehicle type and per-zone slot summaries so the UI can expand a building before selecting a zone.")
+    public ResponseEntity<ApiResponse<List<FloorDto>>> getBuildingFloors(
+            @Parameter(description = "Building id") @PathVariable String buildingId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Building floors retrieved successfully",
+                buildingService.listFloorsOfBuilding(buildingId)));
     }
 }

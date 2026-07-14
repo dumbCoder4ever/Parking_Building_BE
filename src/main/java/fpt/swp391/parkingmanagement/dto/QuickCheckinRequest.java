@@ -16,16 +16,6 @@ public class QuickCheckinRequest {
     @NotBlank(message = "buildingId is required")
     private String buildingId;
 
-    @Schema(description = "Loại xe cho guest checkin. BẮT BUỘC nếu mode=GUEST, không cần nếu mode=DRIVER.")
+    @Schema(description = "Loại xe cho guest checkin (khi không tìm thấy reservation). BẮT BUỘC nếu plate không có reservation.")
     private String vehicleTypeId;
-
-    @Schema(description = "Chế độ checkin: DRIVER = tìm reservation theo biển số (mặc định), GUEST = tạo session vãng lai (auto-assign slot). Mặc định: DRIVER.")
-    private QuickMode mode = QuickMode.DRIVER;
-
-    public enum QuickMode {
-        @Schema(description = "Tự động tìm reservation PENDING/APPROVED theo biển số. Nếu không có reservation → trả lỗi.")
-        DRIVER,
-        @Schema(description = "Tạo session vãng lai. Hệ thống tự assign slot trống theo buildingId + vehicleTypeId. Nếu không có slot → trả lỗi.")
-        GUEST
-    }
 }

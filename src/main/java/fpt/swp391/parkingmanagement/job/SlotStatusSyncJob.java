@@ -13,8 +13,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
 
 @Slf4j
 @Component
@@ -25,6 +27,8 @@ public class SlotStatusSyncJob {
     private final ReservationRepository reservationRepository;
     private final ParkingSessionRepository parkingSessionRepository;
 
+    private static final List<String> ACTIVE_RESERVATION_STATUSES = List.of("PENDING", "APPROVED");
+
     @Scheduled(fixedRate = 30000)
     @Transactional
     public void syncSlotStatusWithReservations() {
@@ -32,38 +36,31 @@ public class SlotStatusSyncJob {
         try {
             // Find all RESERVED slots
             List<ParkingSlot> reservedSlots = parkingSlotRepository.findBySlotStatusIgnoreCase("RESERVED");
-
-            // Get all active reservation slot IDs
-            List<Reservation> activeReservations = reservationRepository.findAll().stream()
-                    .filter(r -> "PENDING".equals(r.getReservationStatus()) || "APPROVED".equals(r.getReservationStatus()))
+            if (reservedSlots.isEmpty()) {
+                return;
+            }
+            
+            // FIX N+1: Batch-load active reservations chỉ lấy slotId thay vì load toàn bộ Reservation entity
+            List<String> reservedSlotIds = reservedSlots.stream()
+                    .map(ParkingSlot::getSlotId)
                     .toList();
             
-            Set<String> activeSlotIds = activeReservations.stream()
-                    .filter(r -> r.getSlot() != null && r.getSlot().getSlotId() != null)
-                    .map(r -> r.getSlot().getSlotId())
-                    .collect(Collectors.toSet());
-
+            // Chỉ lấy projection slotId thay vì load full Reservation (tránh load relations không cần)
+            List<String> activeSlotIds = reservationRepository.findActiveSlotIdsByStatuses(ACTIVE_RESERVATION_STATUSES);
+            
+            // Chuyển thành Set để lookup O(1)
+            Set<String> activeSlotIdSet = Set.copyOf(activeSlotIds);
+            
             int fixedCount = 0;
             for (ParkingSlot slot : reservedSlots) {
                 String slotId = slot.getSlotId();
                 
-                // Check if slot still has an active reservation
-                boolean hasActiveReservation = activeSlotIds.contains(slotId);
-                
-                // Check if there's a valid active reservation for this slot
-                if (!hasActiveReservation) {
-                    // Check by querying directly
-                    var activeResForSlot = reservationRepository
-                            .findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
-                                    slotId, List.of("PENDING", "APPROVED"));
-                    
-                    if (activeResForSlot.isEmpty()) {
-                        // No active reservation found - slot should be AVAILABLE
-                        slot.setSlotStatus("AVAILABLE");
-                        parkingSlotRepository.save(slot);
-                        fixedCount++;
-                        log.info("Fixed orphaned slot: {} (was RESERVED but no active reservation)", slot.getSlotName());
-                    }
+                // Nếu slot RESERVED không có reservation active -> orphaned
+                if (!activeSlotIdSet.contains(slotId)) {
+                    slot.setSlotStatus("AVAILABLE");
+                    parkingSlotRepository.save(slot);
+                    fixedCount++;
+                    log.info("Fixed orphaned slot: {} (was RESERVED but no active reservation)", slot.getSlotName());
                 }
             }
 
@@ -72,13 +69,26 @@ public class SlotStatusSyncJob {
             }
 
             // Fix OCCUPIED slots that have no active session (orphaned check-in state)
+            // FIX N+1: Batch-load active sessions cho tất cả OCCUPIED slots trong 1 query
             List<ParkingSlot> occupiedSlots = parkingSlotRepository.findBySlotStatusIgnoreCase("OCCUPIED");
+            if (occupiedSlots.isEmpty()) {
+                return;
+            }
+            
+            List<String> occupiedSlotIds = occupiedSlots.stream()
+                    .map(ParkingSlot::getSlotId)
+                    .toList();
+            Set<String> occupiedSlotIdSet = Set.copyOf(occupiedSlotIds);
+            
+            // Lấy tất cả active sessions cho các slot này trong 1 query
+            Set<String> slotsWithActiveSession = parkingSessionRepository
+                    .findSlotIdsBySlotIdInAndSessionStatusIn(
+                            occupiedSlotIds,
+                            List.of("ACTIVE", "PENDING_PAYMENT", "PENDING_EXIT"));
+            
             int occupiedFixed = 0;
             for (ParkingSlot slot : occupiedSlots) {
-                boolean hasActiveSession = parkingSessionRepository
-                        .findCurrentBySlotId(slot.getSlotId())
-                        .isPresent();
-                if (!hasActiveSession) {
+                if (!slotsWithActiveSession.contains(slot.getSlotId())) {
                     slot.setSlotStatus("AVAILABLE");
                     parkingSlotRepository.save(slot);
                     occupiedFixed++;

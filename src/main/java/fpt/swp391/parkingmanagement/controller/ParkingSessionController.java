@@ -44,11 +44,10 @@ public class ParkingSessionController {
      * Unified check-in endpoint.
      *
      * <p>Legacy path: client gửi {@code ticketCode} + {@code plateNumber} → checkin() manual driver.</p>
-     * <p>OCR path: client gửi {@code plateImage} + {@code mode} (DRIVER|GUEST) + building/vehicleTypeId →
-     * quickDriverCheckin() hoặc quickGuestCheckin().</p>
+     * <p>OCR path: client gửi {@code plateImage} + {@code buildingId} → auto-detect DRIVER/GUEST.</p>
      */
     @Operation(summary = "Unified Staff Check-in",
-            description = "Staff check-in hợp nhất: ticket thủ công (ticketCode + plateNumber) HOẶC OCR (plateImage + mode).")
+            description = "Staff check-in hợp nhất: ticket thủ công (ticketCode + plateNumber) HOẶC OCR (plateImage + buildingId, auto-detect DRIVER/GUEST).")
     @PostMapping(value = "/sessions/checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<?>> checkin(
             @RequestParam(required = false) String ticketCode,
@@ -59,34 +58,28 @@ public class ParkingSessionController {
             @RequestParam(required = false) String guestName,
             @RequestParam(required = false) String guestPhone,
             @RequestParam(required = false) String note,
-            @RequestParam(required = false) String mode,
             @RequestParam(required = false) MultipartFile checkinImage,
             @RequestParam(required = false) MultipartFile plateImage,
             Authentication auth) {
 
-        boolean ocrMode = (plateImage != null && !plateImage.isEmpty())
-                || (mode != null && !mode.isBlank());
-        if (ocrMode) {
+        // [DEBUG] Log entry point
+        System.out.println("[DEBUG-6b654b] CONTROLLER checkin - auth: " + (auth != null ? auth.getName() : "NULL") 
+                + ", ticketCode: " + ticketCode + ", buildingId: " + buildingId
+                + ", hasPlateImage: " + (plateImage != null && !plateImage.isEmpty()));
+        
+        // ========== OCR MODE: Staff upload ảnh plate → AUTO DETECT DRIVER/GUEST ==========
+        if (plateImage != null && !plateImage.isEmpty() && buildingId != null && !buildingId.isBlank()) {
             QuickCheckinRequest req = new QuickCheckinRequest();
-            req.setPlateImage(plateImage != null ? plateImage : checkinImage);
+            req.setPlateImage(plateImage);
             req.setBuildingId(buildingId);
             req.setVehicleTypeId(vehicleTypeId);
-            if (mode != null) {
-                try {
-                    req.setMode(QuickCheckinRequest.QuickMode.valueOf(mode.toUpperCase()));
-                } catch (IllegalArgumentException ignored) {
-                    req.setMode(QuickCheckinRequest.QuickMode.DRIVER);
-                }
-            }
-            QuickCheckinResponse result;
-            if (req.getMode() == QuickCheckinRequest.QuickMode.GUEST) {
-                result = parkingSessionService.quickGuestCheckin(auth.getName(), req);
-            } else {
-                result = parkingSessionService.quickDriverCheckin(auth.getName(), req);
-            }
+
+            // AUTO DETECT: Tự động detect DRIVER (plate có reservation) hoặc GUEST (plate không có reservation)
+            QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
             return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));
         }
 
+        // ========== LEGACY MODE: Manual checkin với ticketCode + plateNumber ==========
         CheckinRequest req = new CheckinRequest();
         req.setTicketCode(ticketCode);
         req.setPlateNumber(plateNumber);
@@ -145,9 +138,8 @@ public class ParkingSessionController {
         String sessionId = parkingSessionService.findSessionIdByTicketCode(ticketCode)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND,
                         "No active session for ticket: " + ticketCode));
-        // Pass paymentMethod only if non-CASH electronic was used; otherwise omit.
         CheckoutResponse resp = parkingSessionService.confirmExitAndCheckout(
-                auth.getName(), sessionId, null);
+                auth.getName(), sessionId, null, checkoutImage != null ? cloudinaryService.uploadParkingImage(checkoutImage) : null);
         return ResponseEntity.ok(ApiResponse.ok("Driver checkout successful", resp));
     }
 
@@ -188,14 +180,15 @@ public class ParkingSessionController {
 
     @Operation(summary = "Staff checkout after electronic payment",
             description = "Sau khi driver hoàn tất VNPay/PayOS/MOMO (session.paymentStatus = PAID), staff gọi để release slot.")
-    @PatchMapping("/sessions/{sessionId}/confirm-exit")
+    @PatchMapping(value = "/sessions/{sessionId}/confirm-exit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<CheckoutResponse>> confirmExit(
             @PathVariable String sessionId,
             @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) MultipartFile checkoutImage,
             Authentication auth) {
         CheckoutResponse resp = parkingSessionService.confirmExitAndCheckout(
-                auth.getName(), sessionId, paymentMethod);
+                auth.getName(), sessionId, paymentMethod, checkoutImage != null ? cloudinaryService.uploadParkingImage(checkoutImage) : null);
         return ResponseEntity.ok(ApiResponse.ok("Exit confirmed, driver may proceed", resp));
     }
 }

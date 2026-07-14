@@ -92,8 +92,12 @@ public class ParkingSessionService {
 
     @Transactional
     public ParkingSessionResponse checkin(String staffEmail, CheckinRequest req) {
+        // [DEBUG] Log entry for checkin
+        System.out.println("[DEBUG-6b654b] checkin called - staffEmail: " + staffEmail + ", ticketCode: " + req.getTicketCode());
+        
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
+        System.out.println("[DEBUG-6b654b] Ticket found: " + ticket.getTicketCode() + ", isUsed: " + ticket.getIsUsed());
 
         if (Boolean.TRUE.equals(ticket.getIsUsed())) {
             throw new BaseAPIException(ErrorCode.TICKET_ALREADY_USED);
@@ -105,9 +109,10 @@ public class ParkingSessionService {
 
         var reservation = ticket.getReservation();
         if (reservation == null) throw new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND);
+        System.out.println("[DEBUG-6b654b] Reservation: " + reservation.getReservationId() + ", status: " + reservation.getReservationStatus());
 
         String resStatus = reservation.getReservationStatus();
-        if (!"PENDING".equalsIgnoreCase(resStatus) && !"APPROVED".equalsIgnoreCase(resStatus)) {
+        if (!"PENDING".equalsIgnoreCase(resStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED);
         }
 
@@ -127,7 +132,9 @@ public class ParkingSessionService {
         }
 
         String buildingId = resolveBuildingId(slot);
+        System.out.println("[DEBUG-6b654b] Resolved buildingId from slot: " + buildingId);
         checkStaffBuildingAssignment(staffEmail, buildingId);
+        System.out.println("[DEBUG-6b654b] Staff assignment check PASSED");
 
         PricingPolicy policy = null;
         BigDecimal basePrice = null;
@@ -150,7 +157,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
-        session.setSessionStatus("ACTIVE");
+        session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setCheckinImageUrl(req.getCheckinImageUrl());
@@ -367,7 +374,10 @@ public class ParkingSessionService {
     }
 
     @Transactional
-    public CheckoutResponse confirmExitAndCheckout(String staffEmail, String sessionId, String paymentMethod) {
+    public CheckoutResponse confirmExitAndCheckout(String staffEmail, String sessionId, String paymentMethod, String checkoutImageUrl) {
+        // [DEBUG] Log entry for confirmExitAndCheckout
+        System.out.println("[DEBUG-6b654b] confirmExitAndCheckout called - sessionId: " + sessionId + ", checkoutImageUrl: " + (checkoutImageUrl != null ? "present" : "null"));
+
         ParkingSession session = parkingSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
@@ -387,6 +397,10 @@ public class ParkingSessionService {
         }
         long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
         int hours = (int) Math.ceil(minutes / 60.0);
+
+        // [DEBUG] Log session vehicle plate for plate mismatch detection
+        String sessionPlate = session.getVehicle() != null ? session.getVehicle().getPlateNumber() : "null";
+        System.out.println("[DEBUG-6b654b] Session vehicle plate: " + sessionPlate + " - NO OCR VALIDATION PERFORMED!");
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
@@ -408,8 +422,11 @@ public class ParkingSessionService {
 
         session.setTotalFee(total);
         session.setParkingDuration(hours);
-        if ("PENDING_PAYMENT".equalsIgnoreCase(session.getSessionStatus())) {
-            session.setSessionStatus("ACTIVE");
+        session.setCheckoutImageUrl(checkoutImageUrl);
+        if (checkoutImageUrl != null && session.getVehicle() != null) {
+            Vehicle checkoutVehicle = session.getVehicle();
+            checkoutVehicle.setImageUrl(checkoutImageUrl);
+            vehicleRepository.save(checkoutVehicle);
         }
 
         if (electronicPayment) {
@@ -456,6 +473,7 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         resp.setSessionStatus(saved.getSessionStatus());
         resp.setPaymentStatus(saved.getPaymentStatus());
+        resp.setCheckoutImageUrl(saved.getCheckoutImageUrl());
         if (policy != null && session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
             resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
@@ -536,12 +554,7 @@ public class ParkingSessionService {
     public GuestCheckinResponse guestCheckin(String staffEmail, GuestCheckinRequest req) {
         String plateNumber = req.getPlateNumber().toUpperCase();
 
-        vehicleRepository.findByPlateNumberIgnoreCase(plateNumber).ifPresent(vehicle -> {
-            if (parkingSessionRepository.existsByVehicleVehicleIdAndSessionStatus(vehicle.getVehicleId(), "ACTIVE")) {
-                throw new BaseAPIException(ErrorCode.GUEST_ALREADY_PARKING,
-                        "Vehicle " + plateNumber + " already has an active parking session");
-            }
-        });
+        validateNoActiveSessionForPlate(plateNumber);
 
         ParkingSlot slot = parkingSlotRepository.findBySlotId(req.getSlotId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_FOUND));
@@ -582,7 +595,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
-        session.setSessionStatus("ACTIVE");
+        session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setNote(req.getNote());
@@ -1106,10 +1119,10 @@ public class ParkingSessionService {
         // 1. Staff phải được assign vào building này
         checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
 
-// 2. Resolve plate number bằng OCR
+        // 2. Resolve plate number bằng OCR
         String plateNumber = resolvePlateNumber(req);
 
-        // 3. Tìm reservation PENDING/APPROVED theo biển số trong building này
+        // 3. Tìm reservation PENDING theo biển số trong building này
         String normalizedPlate = plateNumber.toUpperCase();
         List<Reservation> candidates = reservationRepository.findPendingByPlateNumber(normalizedPlate);
         Reservation matched = candidates.stream()
@@ -1139,9 +1152,9 @@ public class ParkingSessionService {
 
         // 4. Validate reservation status
         String status = matched.getReservationStatus();
-        if (!"PENDING".equalsIgnoreCase(status) && !"APPROVED".equalsIgnoreCase(status)) {
+        if (!"PENDING".equalsIgnoreCase(status)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED,
-                    "Reservation không ở trạng thái PENDING/APPROVED (hiện tại: " + status + ")");
+                    "Reservation không ở trạng thái PENDING (hiện tại: " + status + ")");
         }
 
         ParkingSlot slot = matched.getSlot();
@@ -1149,6 +1162,8 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.SLOT_NOT_RESERVED,
                     "Slot " + slot.getSlotName() + " không ở trạng thái RESERVED");
         }
+
+        validateNoActiveSessionForPlate(normalizedPlate);
 
         // 5. Kiểm tra ticket — query ngược từ reservationId (Reservation không có field ticket)
         Ticket ticket = ticketRepository.findByReservationReservationId(matched.getReservationId())
@@ -1185,7 +1200,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
-        session.setSessionStatus("ACTIVE");
+        session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setCreatedBy(staff);
@@ -1237,6 +1252,9 @@ public class ParkingSessionService {
      */
     @Transactional
     public QuickCheckinResponse quickGuestCheckin(String staffEmail, QuickCheckinRequest req) {
+        // [DEBUG] Log entry for quickGuestCheckin
+        System.out.println("[DEBUG-6b654b] quickGuestCheckin called - staffEmail: " + staffEmail + ", buildingId: " + req.getBuildingId() + ", vehicleTypeId: " + req.getVehicleTypeId());
+
         // 1. Staff phải được assign vào building
         checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
 
@@ -1251,6 +1269,28 @@ public class ParkingSessionService {
 
         // 3. Resolve plate number bằng OCR
         String plateNumber = resolvePlateNumber(req);
+        String normalizedPlate = plateNumber.toUpperCase();
+        
+        // [DEBUG] Log OCR result and validation
+        System.out.println("[DEBUG-6b654b] OCR raw plate: '" + plateNumber + "', normalized: '" + normalizedPlate + "'");
+        
+        // 3b. CẤM Guest checkin nếu plate đã có reservation ACTIVE (PENDING, APPROVED, CHECKED_IN, etc)
+        // → Đây là Driver, phải dùng quickDriverCheckin()
+        // Lấy tất cả reservation theo plate và lọc trong service
+        List<Reservation> existingReservations = reservationRepository.findByVehiclePlateNumberIgnoreCase(normalizedPlate);
+        List<Reservation> activeReservations = existingReservations.stream()
+                .filter(r -> !List.of("COMPLETED", "CANCELLED", "EXPIRED").contains(r.getReservationStatus()))
+                .toList();
+        if (!activeReservations.isEmpty()) {
+            Reservation r = activeReservations.get(0);
+            System.out.println("[DEBUG-6b654b] GUEST checkin REJECTED - plate has ACTIVE reservation: " + r.getReservationCode() + ", status: " + r.getReservationStatus());
+            throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
+                    "Biển số " + normalizedPlate + " đã có reservation đang hoạt động (mã: " + r.getReservationCode() + ", trạng thái: " + r.getReservationStatus() + "). Vui lòng dùng chế độ DRIVER để checkin.");
+        }
+        
+        // 3c. Validate không có active session (phòng trường hợp guest session trùng biển số)
+        validateNoActiveSessionForPlate(normalizedPlate);
+        System.out.println("[DEBUG-6b654b] validateNoActiveSessionForPlate PASSED - no active session found for plate: " + normalizedPlate);
 
         // 4. Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp)
         List<ParkingSlot> availableSlots = parkingSlotRepository
@@ -1263,10 +1303,10 @@ public class ParkingSessionService {
         ParkingSlot slot = availableSlots.get(0); // đã order floorLevel ASC, slotName ASC
 
         // 5. Tìm hoặc tạo Vehicle
-        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(plateNumber)
+        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(normalizedPlate)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
-                    v.setPlateNumber(plateNumber.toUpperCase());
+                    v.setPlateNumber(normalizedPlate);
                     v.setVehicleType(vehicleType);
                     v.setStatus("ACTIVE");
                     return vehicleRepository.save(v);
@@ -1287,7 +1327,7 @@ public class ParkingSessionService {
         session.setVehicle(vehicle);
         session.setSlot(slot);
         session.setCheckinTime(now);
-        session.setSessionStatus("ACTIVE");
+        session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setCreatedBy(staff);
@@ -1315,7 +1355,7 @@ public class ParkingSessionService {
         resp.setCheckinType("GUEST");
         resp.setTicketCode(savedTicket.getTicketCode());
         resp.setSessionId(saved.getSessionId());
-        resp.setPlateNumber(plateNumber);
+        resp.setPlateNumber(normalizedPlate);
         resp.setOcrConfidence(1.0);
         resp.setVehicleColor(vehicle.getVehicleColor());
         resp.setBrand(vehicle.getBrand());
@@ -1330,6 +1370,16 @@ public class ParkingSessionService {
         applyHierarchyQuick(resp, slot);
 
         return resp;
+    }
+
+    private void validateNoActiveSessionForPlate(String plateNumber) {
+        Optional<ParkingSession> existing = parkingSessionRepository.findActiveByPlateNumber(plateNumber);
+        // [DEBUG] Log validation result
+        System.out.println("[DEBUG-6b654b] validateNoActiveSessionForPlate - searching plate: '" + plateNumber + "', found: " + (existing.isPresent() ? "YES - sessionId: " + existing.get().getSessionId() : "NO"));
+        if (existing.isPresent()) {
+            throw new BaseAPIException(ErrorCode.PLATE_ALREADY_PARKED,
+                    "Biển số " + plateNumber + " đã đang đỗ trong bãi. Vui lòng checkout trước.");
+        }
     }
 
     private void applyHierarchyQuick(QuickCheckinResponse resp, ParkingSlot slot) {
@@ -1350,6 +1400,59 @@ public class ParkingSessionService {
                     resp.setBuildingName(building.getBuildingName());
                 }
             }
+        }
+    }
+
+    // ======================== AUTO DETECT CHECKIN (DRIVER vs GUEST) ========================
+
+    /**
+     * Auto-detect checkin: Staff chỉ cần upload ảnh plate + buildingId.
+     * Hệ thống tự detect:
+     * - Plate có PENDING/APPROVED reservation → DRIVER flow
+     * - Plate không có reservation → GUEST flow
+     *
+     * @param staffEmail Email của staff đang checkin
+     * @param req Request chứa plateImage và buildingId (vehicleTypeId bắt buộc cho GUEST)
+     * @return QuickCheckinResponse với checkinType = "DRIVER" hoặc "GUEST"
+     */
+    @Transactional
+    public QuickCheckinResponse quickAutoCheckin(String staffEmail, QuickCheckinRequest req) {
+        // 1. Staff phải được assign vào building
+        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
+
+        // 2. OCR đọc plate
+        String plateNumber = resolvePlateNumber(req);
+        String normalizedPlate = plateNumber.toUpperCase();
+
+        System.out.println("[DEBUG-6b654b] quickAutoCheckin - OCR plate: '" + normalizedPlate + "', buildingId: " + req.getBuildingId());
+
+        // 3. Tìm reservation theo plate
+        List<Reservation> reservations = reservationRepository.findPendingByPlateNumber(normalizedPlate);
+
+        // 4. Auto-detect: lọc reservation theo building
+        Reservation matched = null;
+        for (Reservation r : reservations) {
+            if (r.getSlot() != null && r.getSlot().getZone() != null
+                    && r.getSlot().getZone().getFloor() != null
+                    && req.getBuildingId().equals(r.getSlot().getZone().getFloor().getBuilding().getBuildingId())) {
+                matched = r;
+                break;
+            }
+        }
+
+        // 5. Xử lý theo loại
+        if (matched != null) {
+            // DRIVER flow - gọi quickDriverCheckin (nó sẽ validate lại)
+            System.out.println("[DEBUG-6b654b] quickAutoCheckin - DETECTED DRIVER, reservationCode: " + matched.getReservationCode());
+            return quickDriverCheckin(staffEmail, req);
+        } else {
+            // GUEST flow
+            if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
+                throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                        "vehicleTypeId là bắt buộc cho chế độ Guest");
+            }
+            System.out.println("[DEBUG-6b654b] quickAutoCheckin - DETECTED GUEST");
+            return quickGuestCheckin(staffEmail, req);
         }
     }
 
