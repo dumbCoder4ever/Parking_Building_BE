@@ -34,8 +34,7 @@ public class DriverCurrentSessionResponse {
     private int parkingHours;
     
     private LocalDateTime reservationStart;
-    private LocalDateTime reservationEnd;
-    
+
     private String sessionStatus;
     private String paymentStatus;
     

@@ -10,17 +10,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
+import fpt.swp391.parkingmanagement.dto.FloorDto;
 import fpt.swp391.parkingmanagement.dto.PricingPolicySummaryDto;
 import fpt.swp391.parkingmanagement.dto.SlotDetailDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
+import fpt.swp391.parkingmanagement.dto.ZoneSummaryDto;
+import fpt.swp391.parkingmanagement.dto.SlotSummaryDto;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
+import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.entity.Zone;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
+import fpt.swp391.parkingmanagement.repository.FloorRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
@@ -36,17 +41,20 @@ public class BuildingService {
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
     private final PricingService pricingService;
+    private final FloorRepository floorRepository;
 
     public BuildingService(BuildingRepository buildingRepository,
                           ZoneRepository zoneRepository,
                           ParkingSlotRepository parkingSlotRepository,
                           ReservationRepository reservationRepository,
-                          PricingService pricingService) {
+                          PricingService pricingService,
+                          FloorRepository floorRepository) {
         this.buildingRepository = buildingRepository;
         this.zoneRepository = zoneRepository;
         this.parkingSlotRepository = parkingSlotRepository;
         this.reservationRepository = reservationRepository;
         this.pricingService = pricingService;
+        this.floorRepository = floorRepository;
     }
 
     // =============================================================================
@@ -238,5 +246,39 @@ public class BuildingService {
                 .availableSlots(available)
                 .slots(slotDtos)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<FloorDto> listFloorsOfBuilding(String buildingId) {
+        List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId);
+        return floors.stream()
+                .map(floor -> {
+                    List<Zone> zones = zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId());
+                    List<ZoneSummaryDto> zoneDtos = zones.stream()
+                            .map(zone -> {
+                                long total = parkingSlotRepository.countByZoneZoneId(zone.getZoneId());
+                                long available = parkingSlotRepository.countByZoneZoneIdAndSlotStatusIgnoreCase(
+                                        zone.getZoneId(), "AVAILABLE");
+                                return ZoneSummaryDto.builder()
+                                        .zoneId(zone.getZoneId())
+                                        .zoneName(zone.getZoneName())
+                                        .zoneStatus(zone.getStatus())
+                                        .slotSummary(SlotSummaryDto.builder().total(total).available(available).build())
+                                        .build();
+                            })
+                            .toList();
+
+                    VehicleType vehicleType = floor.getVehicleType();
+                    return FloorDto.builder()
+                            .floorId(floor.getFloorId())
+                            .floorNumber(floor.getFloorLevel())
+                            .buildingId(floor.getBuilding() != null ? floor.getBuilding().getBuildingId() : buildingId)
+                            .floorStatus(floor.getStatus())
+                            .vehicleTypeId(vehicleType != null ? vehicleType.getVehicleTypeId() : null)
+                            .vehicleTypeName(vehicleType != null ? vehicleType.getTypeName() : null)
+                            .zones(zoneDtos)
+                            .build();
+                })
+                .toList();
     }
 }
