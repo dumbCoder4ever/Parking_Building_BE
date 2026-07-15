@@ -150,6 +150,16 @@ public class ReservationController {
                 reservationService.getReservationsByStatusForStaff(auth.getName(), status)));
     }
 
+    @GetMapping("/staff/reservations/pending/by-building/{buildingId}")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getPendingReservationsByBuilding(
+            @PathVariable String buildingId,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Pending reservations retrieved successfully",
+                reservationService.getPendingReservationsByBuilding(auth.getName(), buildingId)));
+    }
+
     @GetMapping("/staff/reservations/code/{reservationCode}")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<ReservationResponse>> getReservationByCode(
