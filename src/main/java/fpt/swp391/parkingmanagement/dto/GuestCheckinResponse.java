@@ -32,6 +32,9 @@ public class GuestCheckinResponse {
     private LocalDateTime checkinTime;
     private String checkinImageUrl;
 
+    /** Trạng thái session: ACTIVE (đã check-in), PENDING_PAYMENT, PENDING_EXIT, COMPLETED, CANCELLED */
+    private String status;
+
     /** Thời gian đỗ (phút). Check-in mới = 0. */
     private Integer parkingDuration;
 
