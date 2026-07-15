@@ -40,4 +40,7 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
 
     @Query("select coalesce(sum(f.maxCapacity), 0) from Floor f where f.building.buildingId = :buildingId")
     int sumMaxCapacityByBuildingId(@Param("buildingId") String buildingId);
+
+    @Query("select coalesce(sum(f.currentOccupancy), 0) from Floor f where f.building.buildingId = :buildingId")
+    int sumCurrentOccupancyByBuildingId(@Param("buildingId") String buildingId);
 }
