@@ -489,15 +489,26 @@ public class ManagerBuildingSetupService {
     }
 
     private ManagerSetupResponse toBuildingSummary(Building building) {
-        long floorCount = floorRepository.countByBuildingBuildingId(building.getBuildingId());
+        String buildingId = building.getBuildingId();
+        long floorCount = floorRepository.countByBuildingBuildingId(buildingId);
+        long zoneCount = zoneRepository.countByFloorBuildingBuildingId(buildingId);
+        long slotCount = parkingSlotRepository.countByBuildingId(buildingId);
+        int maxCapacity = floorRepository.sumMaxCapacityByBuildingId(buildingId);
+        int currentOccupancy = floorRepository.sumCurrentOccupancyByBuildingId(buildingId);
+
         return ManagerSetupResponse.builder()
-                .id(building.getBuildingId())
+                .id(buildingId)
                 .name(building.getBuildingName())
                 .type("BUILDING")
                 .address(building.getAddress())
                 .contactNumber(building.getContactNumber())
                 .totalFloors(building.getTotalFloors())
                 .floorCount((int) floorCount)
+                .zoneCount((int) zoneCount)
+                .slotCount((int) slotCount)
+                .createdSlots((int) slotCount)
+                .maxCapacity(maxCapacity)
+                .currentOccupancy(currentOccupancy)
                 .status(building.getStatus())
                 .operatingStartTime(building.getOperatingStartTime())
                 .operatingEndTime(building.getOperatingEndTime())
@@ -507,9 +518,7 @@ public class ManagerBuildingSetupService {
     }
 
     private ManagerSetupResponse toBuildingDetail(Building building) {
-        ManagerSetupResponse response = toBuildingSummary(building);
-        response.setMaxCapacity(floorRepository.sumMaxCapacityByBuildingId(building.getBuildingId()));
-        return response;
+        return toBuildingSummary(building);
     }
 
     private ManagerSetupResponse toFloorResponse(Floor floor) {
