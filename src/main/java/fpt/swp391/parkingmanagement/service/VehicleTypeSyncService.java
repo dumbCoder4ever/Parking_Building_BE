@@ -32,6 +32,16 @@ public class VehicleTypeSyncService {
                 "Car",
                 "MEDIUM",
                 "4-seat or 7-seat car");
+        ensureType(
+                CreateFloorRequest.SUV_TYPE_ID,
+                "SUV",
+                "LARGE",
+                "Sport utility vehicle");
+        ensureType(
+                CreateFloorRequest.TRUCK_TYPE_ID,
+                "Truck",
+                "EXTRA_LARGE",
+                "Pickup truck or larger commercial vehicle");
     }
 
     private void ensureType(String canonicalId, String typeName, String sizeCategory, String description) {

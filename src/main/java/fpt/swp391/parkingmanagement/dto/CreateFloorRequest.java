@@ -14,6 +14,8 @@ public class CreateFloorRequest {
 
     public static final String MOTORBIKE_TYPE_ID = "33333333-3333-3333-3333-333333333331";
     public static final String CAR_TYPE_ID = "33333333-3333-3333-3333-333333333332";
+    public static final String SUV_TYPE_ID = "33333333-3333-3333-3333-333333333333";
+    public static final String TRUCK_TYPE_ID = "33333333-3333-3333-3333-333333333334";
 
     @NotBlank(message = "Floor name is required")
     @Schema(example = "Tầng xe máy")

@@ -30,4 +30,5 @@ public class PricingPolicyRequest {
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
     private String status;
+    private String pricingType;
 }
