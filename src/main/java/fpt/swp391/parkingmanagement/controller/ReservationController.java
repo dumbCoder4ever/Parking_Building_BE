@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.dto.CancelReservationRequest;
 import fpt.swp391.parkingmanagement.dto.CreateReservationRequest;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityDto;
@@ -89,6 +90,21 @@ public class ReservationController {
                 reservationService.getMyReservations(auth.getName())));
     }
 
+    /**
+     * Driver hủy reservation của chính mình.
+     * Chỉ hủy được khi reservation status = PENDING (chưa checkin).
+     */
+    @PostMapping("/reservations/{reservationCode}/cancel")
+    @PreAuthorize("hasAnyRole('DRIVER','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<ReservationResponse>> cancelMyReservation(
+            @PathVariable String reservationCode,
+            @Valid @RequestBody(required = false) CancelReservationRequest req,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservation cancelled successfully",
+                reservationService.cancelReservationByDriver(auth.getName(), reservationCode, req)));
+    }
+
     // =========================================================================
     // STAFF APIs - Cần có buildingId, staff phải được assign vào building đó
     // =========================================================================
@@ -147,5 +163,21 @@ public class ReservationController {
                 "Reservation status updated successfully",
                 reservationService.updateReservationStatusForStaff(
                         auth.getName(), reservationCode, request.getStatus(), request.getNote())));
+    }
+
+    /**
+     * Staff hủy reservation giúp driver.
+     * Staff có thể hủy PENDING (chưa checkin) hoặc CHECKED_IN (đã checkin nhưng phải checkout trước).
+     * Staff chỉ hủy được reservation thuộc building mình được assign.
+     */
+    @PostMapping("/staff/reservations/{reservationCode}/cancel")
+    @PreAuthorize("hasAnyRole('STAFF','ADMIN')")
+    public ResponseEntity<ApiResponse<ReservationResponse>> cancelReservationByStaff(
+            @PathVariable String reservationCode,
+            @Valid @RequestBody(required = false) CancelReservationRequest req,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservation cancelled successfully",
+                reservationService.cancelReservationByStaff(auth.getName(), reservationCode, req)));
     }
 }

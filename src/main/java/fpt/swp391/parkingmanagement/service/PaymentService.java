@@ -59,15 +59,20 @@ public class PaymentService {
         if (paymentRequest.getTicketCode() != null && !paymentRequest.getTicketCode().isBlank()) {
             Ticket ticket = ticketRepository.findByTicketCode(paymentRequest.getTicketCode())
                     .orElseThrow(() -> new RuntimeException("Ticket not found: " + paymentRequest.getTicketCode()));
+            // Accept both PENDING_PAYMENT (after checkin) and ACTIVE (already paid once, re-initiate case)
             session = parkingSessionRepository
-                    .findByTicketTicketIdAndSessionStatus(ticket.getTicketId(), "ACTIVE")
+                    .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
+                            java.util.List.of("ACTIVE", "PENDING_PAYMENT"))
                     .orElseThrow(() -> new RuntimeException("No active session for ticket: " + paymentRequest.getTicketCode()));
         } else {
             session = parkingSessionRepository.findById(paymentRequest.getSessionId())
                     .orElseThrow(() -> new RuntimeException("Parking session not found"));
         }
 
-        if (!session.getSessionStatus().equals("ACTIVE")) {
+        // Checkin sets session to PENDING_PAYMENT; payment is initiated from that state and the
+        // webhook later transitions to ACTIVE. Accept both to match the real flow.
+        String currentStatus = session.getSessionStatus();
+        if (!"ACTIVE".equalsIgnoreCase(currentStatus) && !"PENDING_PAYMENT".equalsIgnoreCase(currentStatus)) {
             throw new RuntimeException("Session is not active");
         }
 

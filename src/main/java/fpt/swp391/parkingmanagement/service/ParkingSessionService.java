@@ -1157,7 +1157,14 @@ public class ParkingSessionService {
                         "Không tìm thấy reservation nào cho biển số " + normalizedPlate + " tại building này. "
                                 + "Vui lòng kiểm tra lại biển số hoặc chuyển sang chế độ Guest."));
 
-        // 3b. Validate: biển số quét phải khớp với biển số đăng ký trong reservation
+        // 3b. Validate: không cho checkin sớm hơn reservationStart
+        LocalDateTime reservationStart = matched.getReservationStart();
+        if (LocalDateTime.now().isBefore(reservationStart)) {
+            throw new BaseAPIException(ErrorCode.CHECKIN_TOO_EARLY,
+                    "Chưa đến giờ checkin. Reservation bắt đầu lúc " + reservationStart + ". Giờ hiện tại: " + LocalDateTime.now() + ".");
+        }
+
+        // 3c. Validate: biển số quét phải khớp với biển số đăng ký trong reservation
         Vehicle resVehicle = matched.getVehicle();
         if (resVehicle != null && resVehicle.getPlateNumber() != null) {
             String registeredPlate = resVehicle.getPlateNumber().toUpperCase();

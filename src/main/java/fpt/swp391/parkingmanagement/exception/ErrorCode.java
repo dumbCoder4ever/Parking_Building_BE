@@ -14,6 +14,7 @@ public enum ErrorCode {
     TICKET_EXPIRED("Ticket has expired"),
     RESERVATION_NOT_APPROVED("Reservation has not been approved yet"),
     RESERVATION_EXPIRED("Reservation has expired"),
+    CHECKIN_TOO_EARLY("Cannot check in before reservation start time"),
     SLOT_NOT_RESERVED("Slot is not in reserved status"),
     SLOT_NOT_FOUND("Slot not found"),
     SESSION_NOT_FOUND("Active parking session not found for this ticket"),
