@@ -634,6 +634,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setStatus(saved.getSessionStatus());
         resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
@@ -872,6 +873,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
         resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setStatus(saved.getSessionStatus());
         resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
@@ -1058,6 +1060,7 @@ public class ParkingSessionService {
         resp.setGuestPhone(ps.getGuestPhone());
         resp.setCheckinTime(ps.getCheckinTime());
         resp.setCheckinImageUrl(ps.getCheckinImageUrl());
+        resp.setStatus(ps.getSessionStatus());
         resp.setParkingDuration(resolveParkingDurationMinutes(ps));
         resp.setEstimatedFee(ps.getEstimatedFee());
 
