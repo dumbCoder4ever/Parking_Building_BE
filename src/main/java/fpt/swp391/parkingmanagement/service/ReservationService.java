@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import fpt.swp391.parkingmanagement.dto.CancelReservationRequest;
 import fpt.swp391.parkingmanagement.dto.CreateReservationRequest;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityDto;
@@ -449,6 +450,104 @@ public class ReservationService {
             String status, String note) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
         return updateReservationStatus(staffEmail, buildingId, reservationCode, status, note);
+    }
+
+    /**
+     * Driver cancel reservation của chính mình.
+     * Chỉ cancel được khi status = PENDING (chưa checkin).
+     * Staff cancel xem overloaded bên dưới.
+     */
+    @Transactional
+    public ReservationResponse cancelReservationByDriver(String driverEmail, String reservationCode,
+            CancelReservationRequest req) {
+        User user = userRepository.findByEmail(driverEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("Driver not found"));
+
+        Reservation reservation = reservationRepository
+                .findByReservationCodeFetchingDetails(normalizeText(reservationCode))
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+
+        // Validate: driver chỉ cancel được reservation của chính mình
+        if (reservation.getUser() == null || !reservation.getUser().getUserId().equals(user.getUserId())) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
+                    "Bạn không có quyền hủy reservation này");
+        }
+
+        // Validate: chỉ cancel được khi PENDING
+        if (!"PENDING".equalsIgnoreCase(reservation.getReservationStatus())) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED,
+                    "Chỉ có thể hủy reservation khi đang ở trạng thái PENDING. "
+                            + "Trạng thái hiện tại: " + reservation.getReservationStatus());
+        }
+
+        String reason = req != null && req.getReason() != null ? req.getReason() : "Driver cancelled";
+        return doCancelReservation(reservation, reason);
+    }
+
+    /**
+     * Staff cancel reservation giúp driver.
+     * Staff có thể cancel khi status = PENDING hoặc CHECKED_IN.
+     * Staff chỉ cancel được reservation thuộc building mình được assign.
+     */
+    @Transactional
+    public ReservationResponse cancelReservationByStaff(String staffEmail, String reservationCode,
+            CancelReservationRequest req) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+
+        Reservation reservation = reservationRepository
+                .findByBuildingBuildingIdAndReservationCodeFetchingDetails(buildingId, normalizeText(reservationCode))
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found: " + reservationCode));
+
+        String currentStatus = reservation.getReservationStatus();
+        if ("CANCELLED".equalsIgnoreCase(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
+                    "Reservation đã bị hủy trước đó");
+        }
+        if ("COMPLETED".equalsIgnoreCase(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
+                    "Không thể hủy reservation đã hoàn thành");
+        }
+        if ("EXPIRED".equalsIgnoreCase(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
+                    "Không thể hủy reservation đã hết hạn");
+        }
+
+        // CHECKED_IN: phải checkout trước mới cancel được
+        if ("CHECKED_IN".equalsIgnoreCase(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
+                    "Xe đã checkin. Vui lòng checkout trước khi hủy reservation.");
+        }
+
+        String reason = req != null && req.getReason() != null
+                ? req.getReason()
+                : "Staff cancelled (no reason provided)";
+
+        return doCancelReservation(reservation, reason);
+    }
+
+    private ReservationResponse doCancelReservation(Reservation reservation, String reason) {
+        String oldStatus = reservation.getReservationStatus();
+
+        reservation.setReservationStatus("CANCELLED");
+        reservation.setNote(reason);
+        reservationRepository.save(reservation);
+
+        // Giải phóng slot
+        ParkingSlot slot = reservation.getSlot();
+        if (slot != null) {
+            slot.setSlotStatus("AVAILABLE");
+            parkingSlotRepository.save(slot);
+        }
+
+        ReservationResponse response = toReservationResponse(reservation);
+
+        // Gửi thông báo cho driver
+        if (oldStatus != null && !oldStatus.equals("CANCELLED")) {
+            sendStatusChangeNotification(reservation, oldStatus, "CANCELLED");
+        }
+
+        log.info("RESERVATION CANCELLED: code={}, reason={}", reservation.getReservationCode(), reason);
+        return response;
     }
 
     @Transactional
