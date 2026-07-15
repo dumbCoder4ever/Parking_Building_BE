@@ -22,6 +22,8 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
 
     long countByFloorFloorId(String floorId);
 
+    long countByFloorBuildingBuildingId(String buildingId);
+
     List<Zone> findByFloorFloorId(String floorId);
 
     List<Zone> findByFloorBuildingBuildingId(String buildingId);
