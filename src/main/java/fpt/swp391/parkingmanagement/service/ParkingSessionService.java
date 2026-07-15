@@ -218,7 +218,7 @@ public class ParkingSessionService {
         if (session.getCheckinTime() == null) {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
-        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        long minutes = calculateParkingMinutes(session, now);
         int hours = (int) Math.ceil(minutes / 60.0);
 
         BigDecimal total = BigDecimal.ZERO;
@@ -315,7 +315,7 @@ public class ParkingSessionService {
         ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
         LocalDateTime now = LocalDateTime.now();
-        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        long minutes = calculateParkingMinutes(session, now);
         int hours = (int) Math.ceil(minutes / 60.0);
 
         PricingPolicy policy = null;
@@ -400,7 +400,7 @@ public class ParkingSessionService {
         if (session.getCheckinTime() == null) {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
-        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        long minutes = calculateParkingMinutes(session, now);
         int hours = (int) Math.ceil(minutes / 60.0);
 
         // [DEBUG] Log session vehicle plate for plate mismatch detection
@@ -672,7 +672,7 @@ public class ParkingSessionService {
         if (session.getCheckinTime() == null) {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
-        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        long minutes = calculateParkingMinutes(session, now);
         int hours = (int) Math.ceil(minutes / 60.0);
 
         PricingPolicy policy = null;
@@ -936,7 +936,7 @@ public class ParkingSessionService {
         if (session.getCheckinTime() == null) {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
-        long minutes = Duration.between(session.getCheckinTime(), now).toMinutes();
+        long minutes = calculateParkingMinutes(session, now);
         int hours = (int) Math.ceil(minutes / 60.0);
 
         PricingPolicy policy = null;
@@ -1516,6 +1516,29 @@ public class ParkingSessionService {
                         sessionId, normalizedStatuses, PageRequest.of(0, 1))
                 .stream()
                 .findFirst();
+    }
+
+    /**
+     * Tính số phút đỗ xe cho session.
+     * - DRIVER (có reservation): tính từ reservationStart + gracePeriod
+     * - GUEST (không reservation): tính từ checkinTime
+     */
+    private long calculateParkingMinutes(ParkingSession session, LocalDateTime checkoutTime) {
+        Reservation reservation = session.getReservation();
+        LocalDateTime effectiveStart;
+
+        if (reservation != null) {
+            effectiveStart = reservation.getReservationStart();
+            Integer gracePeriod = reservation.getGracePeriodMinutes();
+            if (gracePeriod != null && gracePeriod > 0) {
+                effectiveStart = effectiveStart.plusMinutes(gracePeriod);
+            }
+        } else {
+            effectiveStart = session.getCheckinTime();
+        }
+
+        long minutes = Duration.between(effectiveStart, checkoutTime).toMinutes();
+        return Math.max(0, minutes);
     }
 
 }

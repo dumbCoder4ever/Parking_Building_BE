@@ -415,6 +415,13 @@ public class ReservationService {
     }
 
     @Transactional(readOnly = true)
+    public List<ReservationResponse> getPendingReservationsByBuilding(String staffEmail, String buildingId) {
+        checkStaffBuildingAssignment(staffEmail, buildingId);
+        return batchToReservationResponse(
+                reservationRepository.findByBuildingBuildingIdAndReservationStatusOrderByCreatedAtDesc(buildingId, "PENDING"));
+    }
+
+    @Transactional(readOnly = true)
     public ReservationResponse getReservationById(String staffEmail, String buildingId, String reservationId) {
         checkStaffBuildingAssignment(staffEmail, buildingId);
         Reservation reservation = reservationRepository.findByBuildingBuildingIdAndReservationId(buildingId, reservationId)

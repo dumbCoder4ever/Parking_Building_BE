@@ -111,6 +111,7 @@ public class PricingPolicyService {
         if (request.getStatus() != null) {
             policy.setStatus(request.getStatus());
         }
+        policy.setPricingType(request.getPricingType() != null ? request.getPricingType() : "STANDARD");
         return policy;
     }
 
@@ -124,6 +125,9 @@ public class PricingPolicyService {
         policy.setVehicleType(resolveVehicleType(request.getVehicleTypeId()));
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             policy.setStatus(request.getStatus().trim().toUpperCase());
+        }
+        if (request.getPricingType() != null && !request.getPricingType().isBlank()) {
+            policy.setPricingType(request.getPricingType());
         }
     }
 
@@ -140,6 +144,7 @@ public class PricingPolicyService {
         dto.setCreatedAt(policy.getCreatedAt());
         dto.setVehicleTypeId(policy.getVehicleType().getVehicleTypeId());
         dto.setTypeName(policy.getVehicleType().getTypeName());
+        dto.setPricingType(policy.getPricingType());
         return dto;
     }
 
