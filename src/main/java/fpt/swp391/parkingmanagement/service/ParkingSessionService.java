@@ -3,6 +3,7 @@ package fpt.swp391.parkingmanagement.service;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,8 +23,10 @@ import fpt.swp391.parkingmanagement.dto.GuestCheckoutOcrRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
 import fpt.swp391.parkingmanagement.dto.PlateDuplicateInfo;
+import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
+import fpt.swp391.parkingmanagement.dto.ReservationResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
@@ -788,14 +791,11 @@ public class ParkingSessionService {
         }
 
         // 3. Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp)
-        List<ParkingSlot> availableSlots = parkingSlotRepository
-                .findAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId());
-        if (availableSlots.isEmpty()) {
-            throw new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
-                    "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
-                            + " tại building này.");
-        }
-        ParkingSlot slot = availableSlots.get(0);
+        ParkingSlot slot = parkingSlotRepository
+                .findFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
+                        "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
+                                + " tại building này."));
 
         // 4. Tìm hoặc tạo Vehicle
         Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(finalPlateNumber)
@@ -1041,10 +1041,251 @@ public class ParkingSessionService {
     }
 
     public GuestCheckinResponse findActiveGuestByPlate(String plateNumber) {
-        ParkingSession ps = parkingSessionRepository.findActiveGuestByPlateNumber(plateNumber)
+        Vehicle vehicle = resolveVehicleByPlate(plateNumber)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
-                        "No active guest session found for plate: " + plateNumber));
-        return mapToGuestCheckinResponse(ps);
+                        "No active guest session or pending reservation found for plate: " + plateNumber));
+
+        Optional<Reservation> reservation = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId());
+        if (reservation.isPresent()) {
+            return mapReservationToGuestCheckin(reservation.get());
+        }
+
+        return parkingSessionRepository.findActiveGuestByVehicleId(vehicle.getVehicleId())
+                .map(this::mapToGuestCheckinResponse)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
+                        "No active guest session or pending reservation found for plate: " + plateNumber));
+    }
+
+    private GuestCheckinResponse mapReservationToGuestCheckin(Reservation reservation) {
+        GuestCheckinResponse resp = new GuestCheckinResponse();
+        if (reservation.getUser() != null) {
+            resp.setGuestName(reservation.getUser().getUsername());
+        }
+        resp.setStatus(reservation.getReservationStatus());
+        resp.setCheckinTime(reservation.getReservationStart());
+
+        Vehicle vehicle = reservation.getVehicle();
+        if (vehicle != null) {
+            resp.setVehiclePlate(vehicle.getPlateNumber());
+            resp.setVehicleColor(vehicle.getVehicleColor());
+            resp.setBrand(vehicle.getBrand());
+            resp.setModel(vehicle.getModel());
+            if (vehicle.getVehicleType() != null) {
+                resp.setVehicleTypeId(vehicle.getVehicleType().getVehicleTypeId());
+                resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
+            }
+        }
+
+        ParkingSlot slot = reservation.getSlot();
+        if (slot != null) {
+            resp.setSlotId(slot.getSlotId());
+            resp.setSlotName(slot.getSlotName());
+            Zone zone = slot.getZone();
+            if (zone != null) {
+                resp.setZoneId(zone.getZoneId());
+                resp.setZoneName(zone.getZoneName());
+                Floor floor = zone.getFloor();
+                if (floor != null) {
+                    resp.setFloorId(floor.getFloorId());
+                    resp.setFloorName(floor.getFloorName());
+                    if (floor.getVehicleType() != null) {
+                        if (resp.getVehicleTypeId() == null) {
+                            resp.setVehicleTypeId(floor.getVehicleType().getVehicleTypeId());
+                        }
+                        if (resp.getVehicleTypeName() == null) {
+                            resp.setVehicleTypeName(floor.getVehicleType().getTypeName());
+                        }
+                    }
+                    Building building = floor.getBuilding();
+                    if (building != null) {
+                        resp.setBuildingId(building.getBuildingId());
+                        resp.setBuildingName(building.getBuildingName());
+                    }
+                }
+            }
+        }
+
+        ticketRepository.findByReservationReservationId(reservation.getReservationId())
+                .ifPresent(ticket -> resp.setTicketCode(ticket.getTicketCode()));
+        return resp;
+    }
+
+    /**
+     * Tra cứu nhanh biển số cho màn staff check-in:
+     * 1) reservation PENDING/APPROVED (driver)
+     * 2) guest session ACTIVE (walk-in đã check-in)
+     */
+    @Transactional(readOnly = true)
+    public PlateLookupResponse lookupByPlate(String plateNumber, String buildingId) {
+        Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(plateNumber);
+        if (vehicleOpt.isEmpty()) {
+            return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+        }
+
+        Vehicle vehicle = vehicleOpt.get();
+        Optional<Reservation> matchedReservation = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId())
+                .filter(r -> matchesBuilding(r, buildingId));
+        if (matchedReservation.isPresent()) {
+            return PlateLookupResponse.builder()
+                    .lookupType("RESERVATION")
+                    .reservation(toReservationPreview(matchedReservation.get()))
+                    .build();
+        }
+
+        return findActiveGuestSessionByVehicle(vehicle.getVehicleId())
+                .map(ps -> PlateLookupResponse.builder()
+                        .lookupType("GUEST_SESSION")
+                        .guestSession(mapToGuestCheckinResponse(ps))
+                        .build())
+                .orElseGet(() -> PlateLookupResponse.builder().lookupType("NOT_FOUND").build());
+    }
+
+    private Optional<ParkingSession> findActiveGuestSessionByPlate(String plateNumber) {
+        return resolveVehicleByPlate(plateNumber).flatMap(this::findActiveGuestSessionByVehicle);
+    }
+
+    private Optional<ParkingSession> findActiveGuestSessionByVehicle(Vehicle vehicle) {
+        return findActiveGuestSessionByVehicle(vehicle.getVehicleId());
+    }
+
+    private Optional<ParkingSession> findActiveGuestSessionByVehicle(String vehicleId) {
+        return parkingSessionRepository.findActiveGuestByVehicleId(vehicleId);
+    }
+
+    private Optional<Vehicle> resolveVehicleByPlate(String plateNumber) {
+        if (plateNumber == null || plateNumber.isBlank()) {
+            return Optional.empty();
+        }
+        String trimmed = plateNumber.trim();
+
+        Optional<Vehicle> exact = vehicleRepository.findByPlateNumberIgnoreCase(trimmed);
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        String normalized = normalizePlateLookup(trimmed);
+        if (normalized.isBlank()) {
+            return Optional.empty();
+        }
+
+        Optional<Vehicle> byNormalized = vehicleRepository.findByNormalizedPlateNumber(normalized);
+        if (byNormalized.isPresent()) {
+            return byNormalized;
+        }
+
+        if (normalized.length() >= 4) {
+            String prefix = normalized.substring(0, 4);
+            List<Vehicle> candidates = vehicleRepository.findByNormalizedPlateStartingWith(
+                    prefix, PageRequest.of(0, 5));
+            return pickBestPlateMatch(normalized, candidates);
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<Vehicle> pickBestPlateMatch(String normalizedInput, List<Vehicle> candidates) {
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+        if (candidates.size() == 1) {
+            return Optional.of(candidates.get(0));
+        }
+        return candidates.stream()
+                .min(Comparator.comparingInt(v -> Math.abs(
+                        normalizePlateLookup(v.getPlateNumber()).length() - normalizedInput.length())))
+                .filter(v -> Math.abs(
+                        normalizePlateLookup(v.getPlateNumber()).length() - normalizedInput.length()) <= 2);
+    }
+
+    private String normalizePlateLookup(String plateNumber) {
+        return plateNumber.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+    }
+
+    private boolean matchesBuilding(Reservation reservation, String buildingId) {
+        if (buildingId == null || buildingId.isBlank()) {
+            return true;
+        }
+        if (reservation.getSlot() == null || reservation.getSlot().getZone() == null
+                || reservation.getSlot().getZone().getFloor() == null
+                || reservation.getSlot().getZone().getFloor().getBuilding() == null) {
+            return false;
+        }
+        return buildingId.equals(reservation.getSlot().getZone().getFloor().getBuilding().getBuildingId());
+    }
+
+    private List<Reservation> findPendingReservationsByPlate(String plateNumber) {
+        return resolveVehicleByPlate(plateNumber)
+                .flatMap(vehicle -> reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId()))
+                .map(List::of)
+                .orElseGet(List::of);
+    }
+
+    private ReservationResponse toReservationPreview(Reservation reservation) {
+        ReservationResponse resp = new ReservationResponse();
+        resp.setReservationId(reservation.getReservationId());
+        resp.setReservationCode(reservation.getReservationCode());
+        resp.setReservationStatus(reservation.getReservationStatus());
+        resp.setReservationNote(reservation.getNote());
+        resp.setReservationStart(reservation.getReservationStart());
+        resp.setCreatedAt(reservation.getCreatedAt());
+
+        if (reservation.getUser() != null) {
+            resp.setUserId(reservation.getUser().getUserId());
+            resp.setUsername(reservation.getUser().getUsername());
+        }
+
+        Vehicle vehicle = reservation.getVehicle();
+        if (vehicle != null) {
+            resp.setVehicleId(vehicle.getVehicleId());
+            resp.setVehiclePlate(vehicle.getPlateNumber());
+            resp.setVehicleColor(vehicle.getVehicleColor());
+            resp.setVehicleBrand(vehicle.getBrand());
+            resp.setVehicleModel(vehicle.getModel());
+            resp.setVehicleImageUrl(vehicle.getImageUrl());
+            if (vehicle.getVehicleType() != null) {
+                resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
+                resp.setFloorVehicleTypeId(vehicle.getVehicleType().getVehicleTypeId());
+                resp.setFloorVehicleTypeName(vehicle.getVehicleType().getTypeName());
+                PricingPolicy policy = pricingService.getActivePolicy(vehicle.getVehicleType().getVehicleTypeId());
+                if (policy != null) {
+                    resp.setBasePrice(policy.getBasePrice());
+                    resp.setHourlyRate(policy.getHourlyRate());
+                    resp.setMaxHours(policy.getMaxHours());
+                }
+            }
+        }
+
+        ParkingSlot slot = reservation.getSlot();
+        if (slot != null) {
+            resp.setSlotId(slot.getSlotId());
+            resp.setSlotName(slot.getSlotName());
+            resp.setSlotStatus(slot.getSlotStatus());
+            Zone zone = slot.getZone();
+            if (zone != null) {
+                resp.setZoneId(zone.getZoneId());
+                resp.setZoneName(zone.getZoneName());
+                resp.setZoneStatus(zone.getStatus());
+                Floor floor = zone.getFloor();
+                if (floor != null) {
+                    resp.setFloorId(floor.getFloorId());
+                    resp.setFloorName(floor.getFloorName());
+                    resp.setFloorLevel(floor.getFloorLevel());
+                    if (floor.getVehicleType() != null) {
+                        resp.setFloorVehicleTypeId(floor.getVehicleType().getVehicleTypeId());
+                        resp.setFloorVehicleTypeName(floor.getVehicleType().getTypeName());
+                    }
+                    Building building = floor.getBuilding();
+                    if (building != null) {
+                        resp.setBuildingId(building.getBuildingId());
+                        resp.setBuildingName(building.getBuildingName());
+                    }
+                }
+            }
+        }
+
+        ticketRepository.findByReservationReservationId(reservation.getReservationId())
+                .ifPresent(ticket -> resp.setTicketCode(ticket.getTicketCode()));
+        return resp;
     }
 
     private GuestCheckinResponse mapToGuestCheckinResponse(ParkingSession ps) {
@@ -1143,7 +1384,7 @@ public class ParkingSessionService {
 
         // 3. Tìm reservation PENDING theo biển số trong building này
         String normalizedPlate = plateNumber.toUpperCase();
-        List<Reservation> candidates = reservationRepository.findPendingByPlateNumber(normalizedPlate);
+        List<Reservation> candidates = findPendingReservationsByPlate(normalizedPlate);
         Reservation matched = candidates.stream()
                 .filter(r -> {
                     String bId = r.getSlot() != null && r.getSlot().getZone() != null
@@ -1308,7 +1549,9 @@ public class ParkingSessionService {
         // 3b. CẤM Guest checkin nếu plate đã có reservation ACTIVE (PENDING, APPROVED, CHECKED_IN, etc)
         // → Đây là Driver, phải dùng quickDriverCheckin()
         // Lấy tất cả reservation theo plate và lọc trong service
-        List<Reservation> existingReservations = reservationRepository.findByVehiclePlateNumberIgnoreCase(normalizedPlate);
+        List<Reservation> existingReservations = resolveVehicleByPlate(normalizedPlate)
+                .map(vehicle -> reservationRepository.findByVehicleVehicleId(vehicle.getVehicleId()))
+                .orElseGet(List::of);
         List<Reservation> activeReservations = existingReservations.stream()
                 .filter(r -> !List.of("COMPLETED", "CANCELLED", "EXPIRED").contains(r.getReservationStatus()))
                 .toList();
@@ -1324,17 +1567,14 @@ public class ParkingSessionService {
         System.out.println("[DEBUG-6b654b] validateNoActiveSessionForPlate PASSED - no active session found for plate: " + normalizedPlate);
 
         // 4. Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp)
-        List<ParkingSlot> availableSlots = parkingSlotRepository
-                .findAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId());
-        if (availableSlots.isEmpty()) {
-            throw new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
-                    "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
-                            + " tại building này.");
-        }
-        ParkingSlot slot = availableSlots.get(0); // đã order floorLevel ASC, slotName ASC
+        ParkingSlot slot = parkingSlotRepository
+                .findFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
+                        "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
+                                + " tại building này."));
 
         // 5. Tìm hoặc tạo Vehicle
-        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(normalizedPlate)
+        Vehicle vehicle = resolveVehicleByPlate(normalizedPlate)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
                     v.setPlateNumber(normalizedPlate);
@@ -1411,9 +1651,8 @@ public class ParkingSessionService {
     }
 
     private void validateNoActiveSessionForPlate(String plateNumber) {
-        Optional<ParkingSession> existing = parkingSessionRepository.findActiveByPlateNumber(plateNumber);
-        // [DEBUG] Log validation result
-        System.out.println("[DEBUG-6b654b] validateNoActiveSessionForPlate - searching plate: '" + plateNumber + "', found: " + (existing.isPresent() ? "YES - sessionId: " + existing.get().getSessionId() : "NO"));
+        Optional<ParkingSession> existing = resolveVehicleByPlate(plateNumber)
+                .flatMap(vehicle -> parkingSessionRepository.findAnyActiveSessionByVehicleId(vehicle.getVehicleId()));
         if (existing.isPresent()) {
             throw new BaseAPIException(ErrorCode.PLATE_ALREADY_PARKED,
                     "Biển số " + plateNumber + " đã đang đỗ trong bãi. Vui lòng checkout trước.");
@@ -1465,7 +1704,7 @@ public class ParkingSessionService {
         System.out.println("[DEBUG-6b654b] quickAutoCheckin - OCR plate: '" + normalizedPlate + "', buildingId: " + req.getBuildingId());
 
         // 3. Tìm reservation theo plate
-        List<Reservation> reservations = reservationRepository.findPendingByPlateNumber(normalizedPlate);
+        List<Reservation> reservations = findPendingReservationsByPlate(normalizedPlate);
 
         // 4. Auto-detect: lọc reservation theo building
         Reservation matched = null;

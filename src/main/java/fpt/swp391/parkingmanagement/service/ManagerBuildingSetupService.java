@@ -5,7 +5,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,7 @@ import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
+import fpt.swp391.parkingmanagement.repository.BuildingFloorStats;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
@@ -61,8 +64,28 @@ public class ManagerBuildingSetupService {
 
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getAllBuildings() {
-        return buildingRepository.findAll().stream()
-                .map(this::toBuildingSummary)
+        List<Building> buildings = buildingRepository.findAll();
+        if (buildings.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, BuildingFloorStats> floorStats = floorRepository.aggregateStatsByBuilding().stream()
+                .collect(Collectors.toMap(BuildingFloorStats::getBuildingId, s -> s, (a, b) -> a));
+        Map<String, Long> zoneCounts = zoneRepository.countGroupedByBuilding().stream()
+                .collect(Collectors.toMap(
+                        row -> (String) row[0],
+                        row -> (Long) row[1],
+                        (a, b) -> a));
+        Map<String, Long> slotCounts = parkingSlotRepository.countGroupedByBuilding().stream()
+                .collect(Collectors.toMap(
+                        row -> (String) row[0],
+                        row -> (Long) row[1],
+                        (a, b) -> a));
+
+        return buildings.stream()
+                .map(b -> toBuildingSummary(b, floorStats.get(b.getBuildingId()),
+                        zoneCounts.getOrDefault(b.getBuildingId(), 0L),
+                        slotCounts.getOrDefault(b.getBuildingId(), 0L)))
                 .toList();
     }
 
@@ -495,7 +518,28 @@ public class ManagerBuildingSetupService {
         long slotCount = parkingSlotRepository.countByBuildingId(buildingId);
         int maxCapacity = floorRepository.sumMaxCapacityByBuildingId(buildingId);
         int currentOccupancy = floorRepository.sumCurrentOccupancyByBuildingId(buildingId);
+        return toBuildingSummary(building, floorCount, zoneCount, slotCount, maxCapacity, currentOccupancy);
+    }
 
+    private ManagerSetupResponse toBuildingSummary(
+            Building building,
+            BuildingFloorStats floorStats,
+            long zoneCount,
+            long slotCount) {
+        long floorCount = floorStats != null ? floorStats.getFloorCount() : 0L;
+        int maxCapacity = floorStats != null ? floorStats.getMaxCapacity() : 0;
+        int currentOccupancy = floorStats != null ? floorStats.getCurrentOccupancy() : 0;
+        return toBuildingSummary(building, floorCount, zoneCount, slotCount, maxCapacity, currentOccupancy);
+    }
+
+    private ManagerSetupResponse toBuildingSummary(
+            Building building,
+            long floorCount,
+            long zoneCount,
+            long slotCount,
+            int maxCapacity,
+            int currentOccupancy) {
+        String buildingId = building.getBuildingId();
         return ManagerSetupResponse.builder()
                 .id(buildingId)
                 .name(building.getBuildingName())

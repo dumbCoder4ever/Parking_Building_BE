@@ -65,9 +65,8 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     long countByBuildingIdAndSlotStatus(@Param("buildingId") String buildingId, @Param("status") String status);
 
     /**
-     * Tìm slot trống đầu tiên theo building + vehicleType.
-     * Dùng trong quick guest checkin: staff quét biển số → hệ thống tự assign slot.
-     * Order by floorLevel ASC (ưu tiên tầng thấp), rồi slotName ASC.
+     * Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp).
+     * Dùng Pageable.ofSize(1) khi chỉ cần 1 slot để tránh load toàn bộ bảng.
      */
     @Query("SELECT ps FROM ParkingSlot ps " +
             "JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
@@ -77,8 +76,16 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             "ORDER BY f.floorLevel ASC, ps.slotName ASC")
     List<ParkingSlot> findAvailableByBuildingAndVehicleType(
             @Param("buildingId") String buildingId,
-            @Param("vehicleTypeId") String vehicleTypeId);
+            @Param("vehicleTypeId") String vehicleTypeId,
+            org.springframework.data.domain.Pageable pageable);
 
+    default java.util.Optional<ParkingSlot> findFirstAvailableByBuildingAndVehicleType(
+            String buildingId, String vehicleTypeId) {
+        return findAvailableByBuildingAndVehicleType(
+                buildingId, vehicleTypeId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
 
     /**
      * Single round-trip: aggregate slot counts per zone for a building (or all buildings).
@@ -89,7 +96,8 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             "vt.vehicleTypeId, vt.typeName, b.buildingId, b.buildingName, b.status, " +
             "COUNT(ps), SUM(CASE WHEN UPPER(ps.slotStatus) = 'AVAILABLE' THEN 1 ELSE 0 END), " +
             "SUM(CASE WHEN UPPER(ps.slotStatus) = 'RESERVED' THEN 1 ELSE 0 END), " +
-            "SUM(CASE WHEN UPPER(ps.slotStatus) = 'OCCUPIED' THEN 1 ELSE 0 END)) " +
+            "SUM(CASE WHEN UPPER(ps.slotStatus) = 'OCCUPIED' THEN 1 ELSE 0 END), " +
+            "SUM(CASE WHEN UPPER(ps.slotStatus) = 'PENDING_EXIT' THEN 1 ELSE 0 END)) " +
             "FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
             "WHERE (:buildingId IS NULL OR b.buildingId = :buildingId) " +
             "AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId) " +
@@ -97,5 +105,10 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             "vt.vehicleTypeId, vt.typeName, b.buildingId, b.buildingName, b.status")
     List<ZoneSlotCount> aggregateSlotCounts(@Param("buildingId") String buildingId,
                                             @Param("vehicleTypeId") String vehicleTypeId);
+
+    @Query("SELECT b.buildingId, COUNT(ps) FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f JOIN f.building b " +
+            "GROUP BY b.buildingId")
+    List<Object[]> countGroupedByBuilding();
 
 }

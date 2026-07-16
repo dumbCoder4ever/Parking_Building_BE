@@ -122,12 +122,11 @@ public class ReservationService {
     @Transactional(readOnly = true)
     public List<SlotAvailabilityDto> getAvailability(String buildingId, String vehicleTypeId) {
         // =====================================================================
-        // Strategy:
+        // Strategy (fixed query count — no per-zone N+1):
         // 1. aggregateSlotCounts → counts per zone/floor (1 query)
-        // 2. buildBuildingEnrichment → building data + vehicleTypes + pricing (1 query/building)
-        // 3. findBySlotZoneIdIn → active reservations cho tất cả zones (1 query)
-        // 4. Per-zone slot query → slots cho mỗi zone (1 query/zone, dùng index)
-        // Total: ~4-5 queries cố định, MySQL dùng index hiệu quả.
+        // 2. buildBuildingEnrichment → building data + vehicleTypes + pricing
+        // 3. findBySlotZoneIdIn → active reservations for all zones (1 query)
+        // 4. findByZoneZoneIdIn → all slots for all zones (1 query)
         // =====================================================================
 
         // QUERY 1: Get zone stats with counts (1 query)
@@ -167,15 +166,19 @@ public class ReservationService {
         Map<String, Reservation> reservationBySlotId = allReservations.stream()
                 .collect(Collectors.toMap(r -> r.getSlot().getSlotId(), r -> r, (a, b) -> a));
 
-        // BUILD RESPONSE: per-zone slot query (dùng index → nhanh)
+        // QUERY 4: Batch-load ALL slots for all zones in 1 query (was 1 query/zone)
+        Map<String, List<ParkingSlot>> slotsByZoneId = parkingSlotRepository
+                .findByZoneZoneIdInOrderBySlotNameAsc(zoneIds)
+                .stream()
+                .collect(Collectors.groupingBy(s -> s.getZone().getZoneId()));
+
+        // BUILD RESPONSE
         List<SlotAvailabilityDto> result = new ArrayList<>();
         for (ZoneSlotCount zoneStat : zoneStats) {
             BuildingEnrichment enr = enrichments.get(zoneStat.getBuildingId());
             boolean isFirstForBuilding = enr != null && !enr.consumed;
 
-            // QUERY 4 (per-zone): slots cho zone này (MySQL dùng index trên zone_id)
-            List<ParkingSlot> zoneSlots = parkingSlotRepository
-                    .findByZoneZoneIdOrderBySlotNameAsc(zoneStat.getZoneId());
+            List<ParkingSlot> zoneSlots = slotsByZoneId.getOrDefault(zoneStat.getZoneId(), List.of());
 
             SlotAvailabilityDto.SlotAvailabilityDtoBuilder dtoBuilder = SlotAvailabilityDto.builder()
                     .buildingId(zoneStat.getBuildingId())
@@ -680,23 +683,34 @@ public class ReservationService {
         LocalDateTime now = LocalDateTime.now();
 
         List<Reservation> expiredPending = reservationRepository.findExpiredPendingReservations(now);
-        int expiredCount = 0;
-        for (Reservation reservation : expiredPending) {
-            ParkingSlot slot = reservation.getSlot();
-            if (slot != null) {
-                reservation.setReservationStatus("EXPIRED");
-                reservation.setNote("Auto-expired: driver did not check-in before grace period");
-                reservationRepository.save(reservation);
-
-                slot.setSlotStatus("AVAILABLE");
-                parkingSlotRepository.save(slot);
-
-                sendAutoExpireNotification(reservation, "EXPIRED");
-                expiredCount++;
-            }
+        if (expiredPending.isEmpty()) {
+            return 0;
         }
 
-        return expiredCount;
+        List<ParkingSlot> slotsToFree = new ArrayList<>();
+        List<Reservation> toExpire = new ArrayList<>();
+        for (Reservation reservation : expiredPending) {
+            ParkingSlot slot = reservation.getSlot();
+            if (slot == null) {
+                continue;
+            }
+            reservation.setReservationStatus("EXPIRED");
+            reservation.setNote("Auto-expired: driver did not check-in before grace period");
+            toExpire.add(reservation);
+            slot.setSlotStatus("AVAILABLE");
+            slotsToFree.add(slot);
+        }
+
+        if (toExpire.isEmpty()) {
+            return 0;
+        }
+
+        reservationRepository.saveAll(toExpire);
+        parkingSlotRepository.saveAll(slotsToFree);
+        for (Reservation reservation : toExpire) {
+            sendAutoExpireNotification(reservation, "EXPIRED");
+        }
+        return toExpire.size();
     }
 
     private void sendAutoExpireNotification(Reservation reservation, String newStatus) {

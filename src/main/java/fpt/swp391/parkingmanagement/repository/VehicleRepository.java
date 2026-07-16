@@ -3,6 +3,7 @@ package fpt.swp391.parkingmanagement.repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +14,19 @@ import fpt.swp391.parkingmanagement.entity.Vehicle;
 public interface VehicleRepository extends JpaRepository<Vehicle, String> {
 
     Optional<Vehicle> findByPlateNumberIgnoreCase(String plateNumber);
+
+    @Query("""
+            SELECT v FROM Vehicle v
+            WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '') = :normalizedPlate
+            """)
+    Optional<Vehicle> findByNormalizedPlateNumber(@Param("normalizedPlate") String normalizedPlate);
+
+    @Query("""
+            SELECT v FROM Vehicle v
+            WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '')
+                  LIKE CONCAT(:prefix, '%')
+            """)
+    List<Vehicle> findByNormalizedPlateStartingWith(@Param("prefix") String prefix, Pageable pageable);
 
     Optional<Vehicle> findByPlateNumber(String plateNumber);
 

@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import fpt.swp391.parkingmanagement.entity.Zone;
 
@@ -26,7 +27,11 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
 
     List<Zone> findByFloorFloorId(String floorId);
 
+    @EntityGraph(attributePaths = {"floor", "floor.vehicleType"})
     List<Zone> findByFloorBuildingBuildingId(String buildingId);
 
     List<Zone> findByFloorBuildingBuildingIdAndFloorVehicleTypeVehicleTypeId(String buildingId, String vehicleTypeId);
+
+    @Query("SELECT z.floor.building.buildingId, COUNT(z) FROM Zone z GROUP BY z.floor.building.buildingId")
+    List<Object[]> countGroupedByBuilding();
 }
