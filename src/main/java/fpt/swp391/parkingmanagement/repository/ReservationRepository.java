@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -76,10 +77,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            nativeQuery = true)
     List<Reservation> findExpiredReservations(@Param("currentTime") LocalDateTime currentTime);
 
+    /**
+     * Sargable-friendly expire lookup: filter PENDING by reservation_start first
+     * (usable with idx on status+start), then apply grace in the DATE_ADD predicate.
+     * JOIN FETCH slot/user via EntityGraph is not available on native queries —
+     * service batches with saveAll after loading relations once.
+     */
     @Query(value = "SELECT r.* FROM reservations r " +
            "WHERE r.reservation_status = 'PENDING' " +
-           // Expire PENDING reservations: reservationStart + gracePeriod <= now
-           // (Driver has gracePeriod minutes after reservationStart to checkin)
+           "AND r.reservation_start <= :currentTime " +
            "AND DATE_ADD(r.reservation_start, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
            nativeQuery = true)
     List<Reservation> findExpiredPendingReservations(@Param("currentTime") LocalDateTime currentTime);
@@ -152,6 +158,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findPendingByBuildingOrderByCreatedAtAsc(@Param("buildingId") String buildingId);
 
+    @Query("SELECT r FROM Reservation r "
+           + "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+           + "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType "
+           + "JOIN FETCH r.user "
+           + "WHERE v.vehicleId = :vehicleId "
+           + "AND r.reservationStatus IN ('PENDING', 'APPROVED') "
+           + "ORDER BY r.createdAt DESC")
+    List<Reservation> findPendingByVehicleId(@Param("vehicleId") String vehicleId, Pageable pageable);
+
+    default Optional<Reservation> findFirstPendingByVehicleId(String vehicleId) {
+        return findPendingByVehicleId(vehicleId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
     /**
      * Tìm reservation PENDING/APPROVED theo biển số xe (case-insensitive).
      * Dùng trong quick checkin: staff quét biển số → hệ thống tự tìm reservation phù hợp.
@@ -173,6 +194,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
      * vì JPA không hỗ trợ đầy đủ path traversal trên tất cả các query patterns.
      */
     List<Reservation> findByVehiclePlateNumberIgnoreCase(String plateNumber);
+
+    List<Reservation> findByVehicleVehicleId(String vehicleId);
 
     // Check active reservations by vehicle type (không dùng time range nữa)
     @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +
