@@ -56,7 +56,7 @@ public class GuestSessionController {
             Authentication auth) {
 
         GuestCheckinResponse resp = parkingSessionService.findActiveGuestByPlate(plateNumber);
-        return ResponseEntity.ok(ApiResponse.ok("Active guest session found", resp));
+        return ResponseEntity.ok(ApiResponse.ok("Plate lookup successful", resp));
     }
 
     @Operation(

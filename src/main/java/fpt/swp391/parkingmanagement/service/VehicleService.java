@@ -1,8 +1,12 @@
 package fpt.swp391.parkingmanagement.service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +18,7 @@ import fpt.swp391.parkingmanagement.dto.UpdateVehicleRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateVehicleTypeRequest;
 import fpt.swp391.parkingmanagement.dto.VehicleResponse;
 import fpt.swp391.parkingmanagement.dto.VehicleTypeOptionResponse;
+import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.User;
 import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
@@ -201,11 +206,44 @@ public class VehicleService {
                 normalizeOptionalText(ownerFullName),
                 normalizeOptionalText(vehicleTypeId));
 
-        return vehicles.stream()
-                .map(this::toManagerVehicleResponse)
-                .filter(response -> matchesParkedFilter(response, parked))
-                .filter(response -> matchesCheckInRange(response, checkInFrom, checkInTo))
+        if (vehicles.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> vehicleIds = vehicles.stream().map(Vehicle::getVehicleId).toList();
+        Map<String, ParkingSession> activeByVehicle = parkingSessionRepository
+                .findActiveByVehicleIds(vehicleIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        s -> s.getVehicle().getVehicleId(),
+                        Function.identity(),
+                        (a, b) -> a.getCheckinTime() != null
+                                && b.getCheckinTime() != null
+                                && a.getCheckinTime().isAfter(b.getCheckinTime()) ? a : b));
+
+        Map<String, ParkingSession> latestByVehicle = Map.of();
+        List<String> missingLatestIds = vehicleIds.stream()
+                .filter(id -> !activeByVehicle.containsKey(id))
                 .toList();
+        if (!missingLatestIds.isEmpty()) {
+            latestByVehicle = parkingSessionRepository.findLatestByVehicleIds(missingLatestIds).stream()
+                    .collect(Collectors.toMap(
+                            s -> s.getVehicle().getVehicleId(),
+                            Function.identity(),
+                            (a, b) -> a));
+        }
+
+        List<VehicleResponse> result = new ArrayList<>(vehicles.size());
+        for (Vehicle vehicle : vehicles) {
+            VehicleResponse response = toManagerVehicleResponse(
+                    vehicle,
+                    activeByVehicle.get(vehicle.getVehicleId()),
+                    latestByVehicle.get(vehicle.getVehicleId()));
+            if (matchesParkedFilter(response, parked) && matchesCheckInRange(response, checkInFrom, checkInTo)) {
+                result.add(response);
+            }
+        }
+        return result;
     }
 
     @Transactional
@@ -300,16 +338,27 @@ public class VehicleService {
     }
 
     private VehicleResponse toManagerVehicleResponse(Vehicle vehicle) {
-        VehicleResponse response = VehicleResponse.from(vehicle);
         var activeSession = parkingSessionRepository.findActiveByVehicleId(vehicle.getVehicleId());
-        if (activeSession.isPresent()) {
-            var s = activeSession.get();
-            return response.withParkingTimes(s.getCheckinTime(), null, s.getCheckinImageUrl(), null);
+        var latestSession = activeSession.isEmpty()
+                ? parkingSessionRepository.findLatestByVehicleId(vehicle.getVehicleId()).orElse(null)
+                : null;
+        return toManagerVehicleResponse(vehicle, activeSession.orElse(null), latestSession);
+    }
+
+    private VehicleResponse toManagerVehicleResponse(
+            Vehicle vehicle, ParkingSession activeSession, ParkingSession latestSession) {
+        VehicleResponse response = VehicleResponse.from(vehicle);
+        if (activeSession != null) {
+            return response.withParkingTimes(
+                    activeSession.getCheckinTime(), null,
+                    activeSession.getCheckinImageUrl(), null);
         }
-        return parkingSessionRepository.findLatestByVehicleId(vehicle.getVehicleId())
-                .map(s -> response.withParkingTimes(s.getCheckinTime(), s.getCheckoutTime(),
-                        s.getCheckinImageUrl(), s.getCheckoutImageUrl()))
-                .orElse(response);
+        if (latestSession != null) {
+            return response.withParkingTimes(
+                    latestSession.getCheckinTime(), latestSession.getCheckoutTime(),
+                    latestSession.getCheckinImageUrl(), latestSession.getCheckoutImageUrl());
+        }
+        return response;
     }
 
     private String validateStatus(String status, Set<String> allowedValues) {

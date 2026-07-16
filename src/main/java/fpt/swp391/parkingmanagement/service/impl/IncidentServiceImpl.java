@@ -96,7 +96,7 @@ public class IncidentServiceImpl implements IncidentService {
     @Override
     @Transactional(readOnly = true)
     public List<IncidentResponse> getAllIncidents(String staffEmail) {
-        return incidentRepository.findAll().stream()
+        return incidentRepository.findAllFetchingDetails().stream()
                 .map(this::toResponse)
                 .toList();
     }
