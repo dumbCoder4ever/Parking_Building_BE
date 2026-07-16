@@ -53,34 +53,70 @@ public class DashboardStatsService {
     }
 
     private OccupancyStatsResponse buildOccupancyStats() {
-        long total = parkingSlotRepository.count();
-        long available = parkingSlotRepository.countBySlotStatus("AVAILABLE");
-        long occupied = parkingSlotRepository.countBySlotStatus("OCCUPIED");
-        long reserved = parkingSlotRepository.countBySlotStatus("RESERVED");
-        long pendingExit = parkingSlotRepository.countBySlotStatus("PENDING_EXIT");
-        double rate = total > 0 ? Math.round((double) (occupied + reserved) / total * 1000.0) / 10.0 : 0.0;
+        List<ZoneSlotCount> zoneCounts = parkingSlotRepository.aggregateSlotCounts(null, null);
+
+        long total = 0;
+        long available = 0;
+        long occupied = 0;
+        long reserved = 0;
+        long pendingExit = 0;
+
+        Map<String, BuildingOccupancyResponse.BuildingOccupancyResponseBuilder> buildingBuilders = new LinkedHashMap<>();
+        Map<String, long[]> buildingTallies = new LinkedHashMap<>(); // total, avail, occ, reserved, pending
+
+        for (ZoneSlotCount z : zoneCounts) {
+            long zTotal = nz(z.getTotalSlots());
+            long zAvail = nz(z.getAvailableSlots());
+            long zOcc = nz(z.getOccupiedSlots());
+            long zRes = nz(z.getReservedSlots());
+            long zPend = nz(z.getPendingExitSlots());
+
+            total += zTotal;
+            available += zAvail;
+            occupied += zOcc;
+            reserved += zRes;
+            pendingExit += zPend;
+
+            String bid = z.getBuildingId();
+            buildingTallies.computeIfAbsent(bid, id -> {
+                buildingBuilders.put(id, BuildingOccupancyResponse.builder()
+                        .buildingId(id)
+                        .buildingName(z.getBuildingName()));
+                return new long[5];
+            });
+            long[] t = buildingTallies.get(bid);
+            t[0] += zTotal;
+            t[1] += zAvail;
+            t[2] += zOcc;
+            t[3] += zRes;
+            t[4] += zPend;
+        }
+
+        // Buildings without slots still appear with zeros
+        for (Building b : buildingRepository.findAll()) {
+            buildingTallies.computeIfAbsent(b.getBuildingId(), id -> {
+                buildingBuilders.put(id, BuildingOccupancyResponse.builder()
+                        .buildingId(id)
+                        .buildingName(b.getBuildingName()));
+                return new long[5];
+            });
+        }
 
         List<BuildingOccupancyResponse> buildingList = new ArrayList<>();
-        for (Building b : buildingRepository.findAll()) {
-            String bid = b.getBuildingId();
-            long bTotal = parkingSlotRepository.countByBuildingId(bid);
-            long bAvailable = parkingSlotRepository.countByBuildingIdAndSlotStatus(bid, "AVAILABLE");
-            long bOccupied = parkingSlotRepository.countByBuildingIdAndSlotStatus(bid, "OCCUPIED");
-            long bReserved = parkingSlotRepository.countByBuildingIdAndSlotStatus(bid, "RESERVED");
-            long bPendingExit = parkingSlotRepository.countByBuildingIdAndSlotStatus(bid, "PENDING_EXIT");
-            double bRate = bTotal > 0 ? Math.round((double) (bOccupied + bReserved) / bTotal * 1000.0) / 10.0 : 0.0;
-            buildingList.add(BuildingOccupancyResponse.builder()
-                    .buildingId(bid)
-                    .buildingName(b.getBuildingName())
-                    .totalSlots(bTotal)
-                    .availableSlots(bAvailable)
-                    .occupiedSlots(bOccupied)
-                    .reservedSlots(bReserved)
-                    .pendingExitSlots(bPendingExit)
+        for (Map.Entry<String, long[]> e : buildingTallies.entrySet()) {
+            long[] t = e.getValue();
+            double bRate = t[0] > 0 ? Math.round((double) (t[2] + t[3]) / t[0] * 1000.0) / 10.0 : 0.0;
+            buildingList.add(buildingBuilders.get(e.getKey())
+                    .totalSlots(t[0])
+                    .availableSlots(t[1])
+                    .occupiedSlots(t[2])
+                    .reservedSlots(t[3])
+                    .pendingExitSlots(t[4])
                     .occupancyRate(bRate)
                     .build());
         }
 
+        double rate = total > 0 ? Math.round((double) (occupied + reserved) / total * 1000.0) / 10.0 : 0.0;
         return OccupancyStatsResponse.builder()
                 .totalSlots(total)
                 .availableSlots(available)
@@ -90,6 +126,10 @@ public class DashboardStatsService {
                 .occupancyRate(rate)
                 .buildings(buildingList)
                 .build();
+    }
+
+    private static long nz(Long value) {
+        return value != null ? value : 0L;
     }
 
     private SessionStatsResponse buildSessionStats(LocalDateTime startOfToday, LocalDateTime endOfToday,

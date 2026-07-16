@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -250,20 +252,64 @@ public class BuildingService {
 
     @Transactional(readOnly = true)
     public List<FloorDto> listFloorsOfBuilding(String buildingId) {
-        List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId);
+        return listFloorsOfBuilding(buildingId, null);
+    }
+
+    /**
+     * Floors + zone slot summaries for availability drill-down.
+     * Fixed query count: 1 (floors) + 1 (zones) + 1 (aggregate counts) — no per-zone N+1.
+     */
+    @Transactional(readOnly = true)
+    public List<FloorDto> listFloorsOfBuilding(String buildingId, String vehicleTypeId) {
+        buildingRepository.findById(buildingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Building not found: " + buildingId));
+
+        List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId).stream()
+                .filter(f -> "ACTIVE".equalsIgnoreCase(f.getStatus()))
+                .filter(f -> !hasText(vehicleTypeId)
+                        || (f.getVehicleType() != null
+                        && vehicleTypeId.equalsIgnoreCase(f.getVehicleType().getVehicleTypeId())))
+                .toList();
+
+        if (floors.isEmpty()) {
+            return List.of();
+        }
+
+        Set<String> floorIds = floors.stream().map(Floor::getFloorId).collect(Collectors.toSet());
+
+        Map<String, List<Zone>> zonesByFloorId = zoneRepository.findByFloorBuildingBuildingId(buildingId).stream()
+                .filter(z -> z.getFloor() != null && floorIds.contains(z.getFloor().getFloorId()))
+                .collect(Collectors.groupingBy(z -> z.getFloor().getFloorId()));
+
+        Map<String, ZoneSlotCount> countsByZoneId = parkingSlotRepository
+                .aggregateSlotCounts(buildingId, hasText(vehicleTypeId) ? vehicleTypeId : null)
+                .stream()
+                .collect(Collectors.toMap(ZoneSlotCount::getZoneId, Function.identity(), (a, b) -> a));
+
         return floors.stream()
                 .map(floor -> {
-                    List<Zone> zones = zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId());
-                    List<ZoneSummaryDto> zoneDtos = zones.stream()
+                    List<ZoneSummaryDto> zoneDtos = zonesByFloorId
+                            .getOrDefault(floor.getFloorId(), List.of())
+                            .stream()
+                            .sorted((a, b) -> {
+                                String nameA = a.getZoneName() != null ? a.getZoneName() : "";
+                                String nameB = b.getZoneName() != null ? b.getZoneName() : "";
+                                return nameA.compareToIgnoreCase(nameB);
+                            })
                             .map(zone -> {
-                                long total = parkingSlotRepository.countByZoneZoneId(zone.getZoneId());
-                                long available = parkingSlotRepository.countByZoneZoneIdAndSlotStatusIgnoreCase(
-                                        zone.getZoneId(), "AVAILABLE");
+                                ZoneSlotCount counts = countsByZoneId.get(zone.getZoneId());
+                                long total = counts != null && counts.getTotalSlots() != null
+                                        ? counts.getTotalSlots() : 0L;
+                                long available = counts != null && counts.getAvailableSlots() != null
+                                        ? counts.getAvailableSlots() : 0L;
                                 return ZoneSummaryDto.builder()
                                         .zoneId(zone.getZoneId())
                                         .zoneName(zone.getZoneName())
                                         .zoneStatus(zone.getStatus())
-                                        .slotSummary(SlotSummaryDto.builder().total(total).available(available).build())
+                                        .slotSummary(SlotSummaryDto.builder()
+                                                .total(total)
+                                                .available(available)
+                                                .build())
                                         .build();
                             })
                             .toList();
@@ -280,5 +326,9 @@ public class BuildingService {
                             .build();
                 })
                 .toList();
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

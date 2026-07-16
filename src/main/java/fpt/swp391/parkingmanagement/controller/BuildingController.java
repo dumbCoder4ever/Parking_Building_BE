@@ -81,9 +81,11 @@ public class BuildingController {
             summary = "List floors for a building",
             description = "Returns floors with vehicle type and per-zone slot summaries so the UI can expand a building before selecting a zone.")
     public ResponseEntity<ApiResponse<List<FloorDto>>> getBuildingFloors(
-            @Parameter(description = "Building id") @PathVariable String buildingId) {
+            @Parameter(description = "Building id") @PathVariable String buildingId,
+            @Parameter(description = "Filter floors by vehicle type id (e.g. MOTORBIKE). Optional.")
+            @RequestParam(required = false) String vehicleTypeId) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Building floors retrieved successfully",
-                buildingService.listFloorsOfBuilding(buildingId)));
+                buildingService.listFloorsOfBuilding(buildingId, vehicleTypeId)));
     }
 }

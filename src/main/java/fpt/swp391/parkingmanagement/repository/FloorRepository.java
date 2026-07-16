@@ -43,4 +43,16 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
 
     @Query("select coalesce(sum(f.currentOccupancy), 0) from Floor f where f.building.buildingId = :buildingId")
     int sumCurrentOccupancyByBuildingId(@Param("buildingId") String buildingId);
+
+    @Query("""
+            SELECT new fpt.swp391.parkingmanagement.repository.BuildingFloorStats(
+                f.building.buildingId,
+                COUNT(f),
+                COALESCE(SUM(f.maxCapacity), 0),
+                COALESCE(SUM(f.currentOccupancy), 0)
+            )
+            FROM Floor f
+            GROUP BY f.building.buildingId
+            """)
+    java.util.List<BuildingFloorStats> aggregateStatsByBuilding();
 }

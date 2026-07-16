@@ -6,6 +6,7 @@ import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
+import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
@@ -38,6 +39,22 @@ public class ParkingSessionController {
     private final ParkingSessionService parkingSessionService;
     private final CloudinaryService cloudinaryService;
     private final TicketRepository ticketRepository;
+
+    @Operation(summary = "Lookup plate for staff check-in",
+            description = """
+                    Tra cứu nhanh biển số trước khi check-in.
+                    - Ưu tiên reservation PENDING/APPROVED (driver).
+                    - Nếu không có reservation thì trả guest session ACTIVE (nếu có).
+                    - `buildingId` tùy chọn để lọc reservation theo bãi.
+                    """)
+    @GetMapping("/sessions/plate/{plateNumber}/lookup")
+    public ResponseEntity<ApiResponse<PlateLookupResponse>> lookupByPlate(
+            @PathVariable String plateNumber,
+            @RequestParam(required = false) String buildingId,
+            Authentication auth) {
+        PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId);
+        return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
+    }
 
     @Operation(summary = "Unified Staff Check-in",
             description = """
