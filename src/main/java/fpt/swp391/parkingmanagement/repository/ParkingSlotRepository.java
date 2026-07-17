@@ -106,9 +106,36 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     List<ZoneSlotCount> aggregateSlotCounts(@Param("buildingId") String buildingId,
                                             @Param("vehicleTypeId") String vehicleTypeId);
 
+    /**
+     * Building picker: totals per building × vehicle type (no per-zone GROUP BY).
+     */
+    @Query("SELECT new fpt.swp391.parkingmanagement.repository.BuildingVtSlotCount(" +
+            "b.buildingId, vt.vehicleTypeId, vt.typeName, " +
+            "COUNT(ps), SUM(CASE WHEN ps.slotStatus = 'AVAILABLE' THEN 1 ELSE 0 END)) " +
+            "FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId) " +
+            "GROUP BY b.buildingId, vt.vehicleTypeId, vt.typeName")
+    List<BuildingVtSlotCount> aggregateBuildingVtSlotCounts(@Param("vehicleTypeId") String vehicleTypeId);
+
+    /**
+     * Floor drill-down: totals per zone for one building (minimal columns).
+     */
+    @Query("SELECT new fpt.swp391.parkingmanagement.repository.ZoneAvailabilityCount(" +
+            "z.zoneId, COUNT(ps), SUM(CASE WHEN ps.slotStatus = 'AVAILABLE' THEN 1 ELSE 0 END)) " +
+            "FROM ParkingSlot ps JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE b.buildingId = :buildingId " +
+            "AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId) " +
+            "GROUP BY z.zoneId")
+    List<ZoneAvailabilityCount> aggregateZoneAvailabilityCounts(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId);
+
     @Query("SELECT b.buildingId, COUNT(ps) FROM ParkingSlot ps " +
             "JOIN ps.zone z JOIN z.floor f JOIN f.building b " +
             "GROUP BY b.buildingId")
     List<Object[]> countGroupedByBuilding();
+
+    @Query("SELECT ps.zone.zoneId, COUNT(ps) FROM ParkingSlot ps WHERE ps.zone.floor.floorId = :floorId GROUP BY ps.zone.zoneId")
+    List<Object[]> countGroupedByZoneForFloor(@Param("floorId") String floorId);
 
 }

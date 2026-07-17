@@ -2,12 +2,13 @@ package fpt.swp391.parkingmanagement.service;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,24 +16,24 @@ import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
 import fpt.swp391.parkingmanagement.dto.FloorDto;
 import fpt.swp391.parkingmanagement.dto.PricingPolicySummaryDto;
 import fpt.swp391.parkingmanagement.dto.SlotDetailDto;
+import fpt.swp391.parkingmanagement.dto.SlotSummaryDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSummaryDto;
-import fpt.swp391.parkingmanagement.dto.SlotSummaryDto;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
-import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
-import fpt.swp391.parkingmanagement.entity.VehicleType;
+import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.Zone;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
+import fpt.swp391.parkingmanagement.repository.BuildingVtSlotCount;
 import fpt.swp391.parkingmanagement.repository.FloorRepository;
+import fpt.swp391.parkingmanagement.repository.FloorZoneAvailabilityRow;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
+import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
-import fpt.swp391.parkingmanagement.repository.ZoneSlotCount;
-import fpt.swp391.parkingmanagement.service.PricingService;
 
 @Service
 @Transactional(readOnly = true)
@@ -43,6 +44,7 @@ public class BuildingService {
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
     private final PricingService pricingService;
+    private final PricingPolicyRepository pricingPolicyRepository;
     private final FloorRepository floorRepository;
 
     public BuildingService(BuildingRepository buildingRepository,
@@ -50,91 +52,60 @@ public class BuildingService {
                           ParkingSlotRepository parkingSlotRepository,
                           ReservationRepository reservationRepository,
                           PricingService pricingService,
+                          PricingPolicyRepository pricingPolicyRepository,
                           FloorRepository floorRepository) {
         this.buildingRepository = buildingRepository;
         this.zoneRepository = zoneRepository;
         this.parkingSlotRepository = parkingSlotRepository;
         this.reservationRepository = reservationRepository;
         this.pricingService = pricingService;
+        this.pricingPolicyRepository = pricingPolicyRepository;
         this.floorRepository = floorRepository;
     }
 
     // =============================================================================
     // STEP 1 - GET /api/buildings/available
-    // Returns: list of active buildings with slot counts + supported vehicle types
-    // Queries: 1 (buildings) + 1 (aggregate counts) + 1 (pricing per unique vt)
+    // Lightweight: 1 buildings + 1 building×vt aggregate + 1 batch pricing
     // =============================================================================
+    @Cacheable(value = "buildingsAvailable",
+            key = "(#vehicleTypeId ?: '') + '|' + (#name ?: '') + '|' + (#address ?: '')")
     public List<BuildingSummaryDto> listAvailableBuildings(String vehicleTypeId,
                                                           String name,
                                                           String address) {
-        // QUERY 1: active buildings filtered by name/address
         List<Building> buildings = buildingRepository.findActiveBuildings(name, address);
-
         if (buildings.isEmpty()) {
             return List.of();
         }
 
-        // QUERY 2: aggregate slot counts per zone (already handles vehicleTypeId filter)
-        List<ZoneSlotCount> allCounts = parkingSlotRepository
-                .aggregateSlotCounts(null, vehicleTypeId);
+        List<BuildingVtSlotCount> allCounts = parkingSlotRepository
+                .aggregateBuildingVtSlotCounts(hasText(vehicleTypeId) ? vehicleTypeId : null);
 
-        // Group counts by buildingId
-        Map<String, List<ZoneSlotCount>> countsByBuilding = allCounts.stream()
-                .collect(Collectors.groupingBy(ZoneSlotCount::getBuildingId));
+        Map<String, List<BuildingVtSlotCount>> countsByBuilding = allCounts.stream()
+                .collect(Collectors.groupingBy(BuildingVtSlotCount::getBuildingId, LinkedHashMap::new, Collectors.toList()));
 
-        // Get unique vehicle type IDs across all buildings
-        List<String> allVtIds = allCounts.stream()
-                .map(ZoneSlotCount::getVehicleTypeId)
+        Set<String> allVtIds = allCounts.stream()
+                .map(BuildingVtSlotCount::getVehicleTypeId)
                 .filter(vt -> vt != null)
-                .distinct()
-                .toList();
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        // QUERY 3: pricing per unique vehicle type (N queries where N = unique vt count, bounded)
-        // Vehicle types are already loaded in ZoneSlotCount via the aggregate query — no extra DB hit needed.
-        Map<String, PricingPolicySummaryDto> pricingMap = new LinkedHashMap<>();
-        for (String vtId : allVtIds) {
-            PricingPolicy policy = pricingService.getActivePolicy(vtId);
-            if (policy != null) {
-                // vehicleType already available from ZoneSlotCount → no extra query needed
-                PricingPolicySummaryDto dto = pricingMap.get(vtId);
-                if (dto == null) {
-                    // extract name from ZoneSlotCount instead of querying VehicleTypeRepository
-                    String vtName = allCounts.stream()
-                            .filter(c -> vtId.equals(c.getVehicleTypeId()))
-                            .findFirst()
-                            .map(ZoneSlotCount::getVehicleTypeName)
-                            .orElse(null);
-                    pricingMap.put(vtId, PricingPolicySummaryDto.builder()
-                            .policyId(policy.getPolicyId())
-                            .vehicleTypeId(vtId)
-                            .vehicleTypeName(vtName)
-                            .pricingType(policy.getPricingType())
-                            .basePrice(policy.getBasePrice())
-                            .hourlyRate(policy.getHourlyRate())
-                            .maxHours(policy.getMaxHours())
-                            .build());
-                }
-            }
-        }
+        Map<String, PricingPolicySummaryDto> pricingMap = loadPricingSummaries(allVtIds, allCounts);
 
-        // Build each building summary
         List<BuildingSummaryDto> result = new ArrayList<>(buildings.size());
         for (Building b : buildings) {
-            List<ZoneSlotCount> buildingCounts = countsByBuilding.getOrDefault(b.getBuildingId(), List.of());
+            List<BuildingVtSlotCount> buildingCounts =
+                    countsByBuilding.getOrDefault(b.getBuildingId(), List.of());
 
-            long total = buildingCounts.stream().mapToLong(ZoneSlotCount::getTotalSlots).sum();
-            long available = buildingCounts.stream().mapToLong(ZoneSlotCount::getAvailableSlots).sum();
+            long total = buildingCounts.stream().mapToLong(BuildingVtSlotCount::getTotalSlots).sum();
+            long available = buildingCounts.stream().mapToLong(BuildingVtSlotCount::getAvailableSlots).sum();
 
-            // Get unique vehicle type names for this building
             List<String> vehicleTypeNames = buildingCounts.stream()
-                    .map(ZoneSlotCount::getVehicleTypeName)
+                    .map(BuildingVtSlotCount::getVehicleTypeName)
                     .filter(vt -> vt != null)
                     .distinct()
                     .toList();
 
-            // Pricing by vehicle type for this building
             List<PricingPolicySummaryDto> pricingList = buildingCounts.stream()
-                    .map(ZoneSlotCount::getVehicleTypeId)
+                    .map(BuildingVtSlotCount::getVehicleTypeId)
                     .filter(vt -> vt != null)
                     .distinct()
                     .map(pricingMap::get)
@@ -166,33 +137,27 @@ public class BuildingService {
 
     // =============================================================================
     // STEP 3 - GET /api/zones/{zoneId}/slots
-    // Returns: zone + slots with pricing + reservation info
-    // Queries: 1 (zone+floor+building) + 1 (slots) + 1 (reservations) + 1 (pricing)
     // =============================================================================
     public ZoneSlotsDto getZoneSlots(String zoneId) {
-        // QUERY 1: zone with floor + building + vehicle type (EntityGraph)
         Zone zone = zoneRepository.findByZoneId(zoneId)
                 .orElseThrow(() -> new ResourceNotFoundException("Zone not found: " + zoneId));
 
         Floor floor = zone.getFloor();
         Building building = floor.getBuilding();
 
-        // QUERY 2: slots for this zone (EntityGraph already loads zone+floor+building+vehicleType)
         List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zoneId);
 
-        // QUERY 3: active reservations for these slots
         List<String> slotIds = slots.stream().map(ParkingSlot::getSlotId).toList();
-        List<Reservation> reservations = reservationRepository
-                .findBySlotSlotIdInAndReservationStatusInOrderByCreatedAtDesc(
+        List<Reservation> reservations = slotIds.isEmpty()
+                ? List.of()
+                : reservationRepository.findBySlotSlotIdInAndReservationStatusInOrderByCreatedAtDesc(
                         slotIds, List.of("RESERVED", "APPROVED", "PENDING"));
         Map<String, Reservation> reservationBySlotId = reservations.stream()
                 .collect(Collectors.toMap(r -> r.getSlot().getSlotId(), r -> r, (a, b) -> a));
 
-        // QUERY 4: pricing policy for vehicle type of this zone
         String vtId = floor.getVehicleType() != null ? floor.getVehicleType().getVehicleTypeId() : null;
         PricingPolicy policy = vtId != null ? pricingService.getActivePolicy(vtId) : null;
 
-        // Build slot DTOs
         List<SlotDetailDto> slotDtos = slots.stream()
                 .map(slot -> {
                     Reservation res = reservationBySlotId.get(slot.getSlotId());
@@ -228,11 +193,6 @@ public class BuildingService {
                 .filter(s -> "AVAILABLE".equalsIgnoreCase(s.getSlotStatus()))
                 .count();
 
-        String operatingDisplay = null;
-        if (building.getOperatingStartTime() != null && building.getOperatingEndTime() != null) {
-            operatingDisplay = building.getOperatingStartTime() + " - " + building.getOperatingEndTime();
-        }
-
         return ZoneSlotsDto.builder()
                 .buildingId(building.getBuildingId())
                 .buildingName(building.getBuildingName())
@@ -256,76 +216,93 @@ public class BuildingService {
     }
 
     /**
-     * Floors + zone slot summaries for availability drill-down.
-     * Fixed query count: 1 (floors) + 1 (zones) + 1 (aggregate counts) — no per-zone N+1.
+     * Floors + zone slot summaries in one DB round-trip (critical on remote Railway MySQL).
      */
+    @Cacheable(value = "buildingFloors",
+            key = "#buildingId + '|' + (#vehicleTypeId ?: '')")
     @Transactional(readOnly = true)
     public List<FloorDto> listFloorsOfBuilding(String buildingId, String vehicleTypeId) {
-        buildingRepository.findById(buildingId)
-                .orElseThrow(() -> new ResourceNotFoundException("Building not found: " + buildingId));
+        List<FloorZoneAvailabilityRow> rows = floorRepository.findFloorZoneAvailability(
+                buildingId, hasText(vehicleTypeId) ? vehicleTypeId : null);
 
-        List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId).stream()
-                .filter(f -> "ACTIVE".equalsIgnoreCase(f.getStatus()))
-                .filter(f -> !hasText(vehicleTypeId)
-                        || (f.getVehicleType() != null
-                        && vehicleTypeId.equalsIgnoreCase(f.getVehicleType().getVehicleTypeId())))
-                .toList();
-
-        if (floors.isEmpty()) {
+        if (rows.isEmpty()) {
+            if (!buildingRepository.existsById(buildingId)) {
+                throw new ResourceNotFoundException("Building not found: " + buildingId);
+            }
             return List.of();
         }
 
-        Set<String> floorIds = floors.stream().map(Floor::getFloorId).collect(Collectors.toSet());
+        Map<String, FloorDto.FloorDtoBuilder> floorBuilders = new LinkedHashMap<>();
+        Map<String, List<ZoneSummaryDto>> zonesByFloor = new LinkedHashMap<>();
 
-        Map<String, List<Zone>> zonesByFloorId = zoneRepository.findByFloorBuildingBuildingId(buildingId).stream()
-                .filter(z -> z.getFloor() != null && floorIds.contains(z.getFloor().getFloorId()))
-                .collect(Collectors.groupingBy(z -> z.getFloor().getFloorId()));
+        for (FloorZoneAvailabilityRow row : rows) {
+            floorBuilders.computeIfAbsent(row.getFloorId(), id -> FloorDto.builder()
+                    .floorId(row.getFloorId())
+                    .floorNumber(row.getFloorLevel())
+                    .buildingId(row.getBuildingId() != null ? row.getBuildingId() : buildingId)
+                    .floorStatus(row.getFloorStatus())
+                    .vehicleTypeId(row.getVehicleTypeId())
+                    .vehicleTypeName(row.getVehicleTypeName()));
 
-        Map<String, ZoneSlotCount> countsByZoneId = parkingSlotRepository
-                .aggregateSlotCounts(buildingId, hasText(vehicleTypeId) ? vehicleTypeId : null)
-                .stream()
-                .collect(Collectors.toMap(ZoneSlotCount::getZoneId, Function.identity(), (a, b) -> a));
+            if (row.getZoneId() == null) {
+                zonesByFloor.putIfAbsent(row.getFloorId(), new ArrayList<>());
+                continue;
+            }
 
-        return floors.stream()
-                .map(floor -> {
-                    List<ZoneSummaryDto> zoneDtos = zonesByFloorId
-                            .getOrDefault(floor.getFloorId(), List.of())
-                            .stream()
-                            .sorted((a, b) -> {
-                                String nameA = a.getZoneName() != null ? a.getZoneName() : "";
-                                String nameB = b.getZoneName() != null ? b.getZoneName() : "";
-                                return nameA.compareToIgnoreCase(nameB);
-                            })
-                            .map(zone -> {
-                                ZoneSlotCount counts = countsByZoneId.get(zone.getZoneId());
-                                long total = counts != null && counts.getTotalSlots() != null
-                                        ? counts.getTotalSlots() : 0L;
-                                long available = counts != null && counts.getAvailableSlots() != null
-                                        ? counts.getAvailableSlots() : 0L;
-                                return ZoneSummaryDto.builder()
-                                        .zoneId(zone.getZoneId())
-                                        .zoneName(zone.getZoneName())
-                                        .zoneStatus(zone.getStatus())
-                                        .slotSummary(SlotSummaryDto.builder()
-                                                .total(total)
-                                                .available(available)
-                                                .build())
-                                        .build();
-                            })
-                            .toList();
+            zonesByFloor
+                    .computeIfAbsent(row.getFloorId(), id -> new ArrayList<>())
+                    .add(ZoneSummaryDto.builder()
+                            .zoneId(row.getZoneId())
+                            .zoneName(row.getZoneName())
+                            .zoneStatus(row.getZoneStatus())
+                            .slotSummary(SlotSummaryDto.builder()
+                                    .total(row.getTotalSlots())
+                                    .available(row.getAvailableSlots())
+                                    .build())
+                            .build());
+        }
 
-                    VehicleType vehicleType = floor.getVehicleType();
-                    return FloorDto.builder()
-                            .floorId(floor.getFloorId())
-                            .floorNumber(floor.getFloorLevel())
-                            .buildingId(floor.getBuilding() != null ? floor.getBuilding().getBuildingId() : buildingId)
-                            .floorStatus(floor.getStatus())
-                            .vehicleTypeId(vehicleType != null ? vehicleType.getVehicleTypeId() : null)
-                            .vehicleTypeName(vehicleType != null ? vehicleType.getTypeName() : null)
-                            .zones(zoneDtos)
-                            .build();
-                })
-                .toList();
+        List<FloorDto> result = new ArrayList<>(floorBuilders.size());
+        for (Map.Entry<String, FloorDto.FloorDtoBuilder> e : floorBuilders.entrySet()) {
+            result.add(e.getValue()
+                    .zones(zonesByFloor.getOrDefault(e.getKey(), List.of()))
+                    .build());
+        }
+        return result;
+    }
+
+    private Map<String, PricingPolicySummaryDto> loadPricingSummaries(
+            Set<String> vehicleTypeIds,
+            List<BuildingVtSlotCount> counts) {
+        Map<String, PricingPolicySummaryDto> pricingMap = new LinkedHashMap<>();
+        if (vehicleTypeIds.isEmpty()) {
+            return pricingMap;
+        }
+
+        Map<String, String> vtNameById = counts.stream()
+                .filter(c -> c.getVehicleTypeId() != null)
+                .collect(Collectors.toMap(
+                        BuildingVtSlotCount::getVehicleTypeId,
+                        BuildingVtSlotCount::getVehicleTypeName,
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+
+        for (PricingPolicy p : pricingPolicyRepository.findAllActiveForVehicleTypes(vehicleTypeIds)) {
+            if (p.getVehicleType() == null || p.getVehicleType().getVehicleTypeId() == null) {
+                continue;
+            }
+            String vtId = p.getVehicleType().getVehicleTypeId();
+            pricingMap.putIfAbsent(vtId, PricingPolicySummaryDto.builder()
+                    .policyId(p.getPolicyId())
+                    .vehicleTypeId(vtId)
+                    .vehicleTypeName(vtNameById.getOrDefault(vtId, p.getVehicleType().getTypeName()))
+                    .pricingType(p.getPricingType())
+                    .basePrice(p.getBasePrice())
+                    .hourlyRate(p.getHourlyRate())
+                    .maxHours(p.getMaxHours())
+                    .build());
+        }
+        return pricingMap;
     }
 
     private static boolean hasText(String value) {

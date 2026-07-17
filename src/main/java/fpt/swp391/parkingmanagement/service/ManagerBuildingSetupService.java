@@ -98,16 +98,22 @@ public class ManagerBuildingSetupService {
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getFloorsByBuilding(String buildingId) {
         findBuilding(buildingId);
-        return floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId).stream()
-                .map(this::toFloorResponse)
+        List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId);
+        Map<String, Long> zoneCountByFloor = toCountMap(
+                zoneRepository.countGroupedByFloorForBuilding(buildingId));
+        return floors.stream()
+                .map(floor -> toFloorResponse(floor, zoneCountByFloor.getOrDefault(floor.getFloorId(), 0L)))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getZonesByFloor(String floorId) {
         Floor floor = findFloor(floorId);
-        return zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId()).stream()
-                .map(this::toZoneResponse)
+        List<Zone> zones = zoneRepository.findByFloorFloorIdOrderByZoneNameAsc(floor.getFloorId());
+        Map<String, Long> slotCountByZone = toCountMap(
+                parkingSlotRepository.countGroupedByZoneForFloor(floor.getFloorId()));
+        return zones.stream()
+                .map(zone -> toZoneResponse(zone, slotCountByZone.getOrDefault(zone.getZoneId(), 0L)))
                 .toList();
     }
 
@@ -567,6 +573,10 @@ public class ManagerBuildingSetupService {
 
     private ManagerSetupResponse toFloorResponse(Floor floor) {
         long zoneCount = zoneRepository.countByFloorFloorId(floor.getFloorId());
+        return toFloorResponse(floor, zoneCount);
+    }
+
+    private ManagerSetupResponse toFloorResponse(Floor floor, long zoneCount) {
         VehicleType vehicleType = floor.getVehicleType();
         return ManagerSetupResponse.builder()
                 .id(floor.getFloorId())
@@ -587,6 +597,10 @@ public class ManagerBuildingSetupService {
 
     private ManagerSetupResponse toZoneResponse(Zone zone) {
         long slotCount = parkingSlotRepository.countByZoneZoneId(zone.getZoneId());
+        return toZoneResponse(zone, slotCount);
+    }
+
+    private ManagerSetupResponse toZoneResponse(Zone zone, long slotCount) {
         return ManagerSetupResponse.builder()
                 .id(zone.getZoneId())
                 .parentId(zone.getFloor().getFloorId())
@@ -599,6 +613,13 @@ public class ManagerBuildingSetupService {
                 .createdAt(zone.getCreatedAt())
                 .updatedAt(zone.getUpdatedAt())
                 .build();
+    }
+
+    private Map<String, Long> toCountMap(List<Object[]> rows) {
+        return rows.stream().collect(Collectors.toMap(
+                row -> (String) row[0],
+                row -> row[1] instanceof Number n ? n.longValue() : 0L,
+                (a, b) -> a));
     }
 
     private ManagerSetupResponse toSlotResponse(ParkingSlot slot) {
