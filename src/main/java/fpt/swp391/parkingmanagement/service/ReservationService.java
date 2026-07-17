@@ -2,7 +2,6 @@ package fpt.swp391.parkingmanagement.service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -149,15 +148,12 @@ public class ReservationService {
             return List.of();
         }
 
-        // QUERY 2: Load building enrichment cho tất cả buildings (1 query/building)
+        // QUERY 2: Batch-load building enrichment cho TẤT CẢ buildings (floors + pricing in bulk)
         Set<String> buildingIds = zoneStats.stream()
                 .map(ZoneSlotCount::getBuildingId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        Map<String, BuildingEnrichment> enrichments = new HashMap<>();
-        for (String bId : buildingIds) {
-            enrichments.put(bId, buildBuildingEnrichment(bId));
-        }
+        Map<String, BuildingEnrichment> enrichments = buildBuildingEnrichments(buildingIds);
 
         // QUERY 3: Batch load active reservations cho TẤT CẢ zones (1 query)
         List<String> zoneIds = zoneStats.stream().map(ZoneSlotCount::getZoneId).toList();
@@ -242,69 +238,98 @@ public class ReservationService {
     }
 
     /**
+     * Batch enrichment cho nhiều buildings: 1 query floors + 1 query pricing (thay vì N×buildings).
+     */
+    private Map<String, BuildingEnrichment> buildBuildingEnrichments(Set<String> buildingIds) {
+        Map<String, BuildingEnrichment> result = new LinkedHashMap<>();
+        if (buildingIds == null || buildingIds.isEmpty()) {
+            return result;
+        }
+
+        List<Floor> allFloors = floorRepository.findByBuildingBuildingIdInOrderByFloorLevelAsc(buildingIds);
+        Map<String, List<Floor>> floorsByBuilding = allFloors.stream()
+                .filter(f -> ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(f.getStatus())))
+                .collect(Collectors.groupingBy(f -> f.getBuilding().getBuildingId(), LinkedHashMap::new, Collectors.toList()));
+
+        Set<String> vehicleTypeIds = floorsByBuilding.values().stream()
+                .flatMap(List::stream)
+                .map(Floor::getVehicleType)
+                .filter(vt -> vt != null && vt.getVehicleTypeId() != null)
+                .map(VehicleType::getVehicleTypeId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<String, PricingPolicySummaryDto> policyByVt = new LinkedHashMap<>();
+        if (!vehicleTypeIds.isEmpty()) {
+            for (PricingPolicy p : pricingPolicyRepository.findAllActiveForVehicleTypes(vehicleTypeIds)) {
+                if (p.getVehicleType() == null || p.getVehicleType().getVehicleTypeId() == null) {
+                    continue;
+                }
+                String vtId = p.getVehicleType().getVehicleTypeId();
+                // Query ordered by createdAt desc → first wins
+                policyByVt.putIfAbsent(vtId, PricingPolicySummaryDto.builder()
+                        .policyId(p.getPolicyId())
+                        .vehicleTypeId(vtId)
+                        .vehicleTypeName(p.getVehicleType().getTypeName())
+                        .pricingType(p.getPricingType())
+                        .basePrice(p.getBasePrice())
+                        .hourlyRate(p.getHourlyRate())
+                        .maxHours(p.getMaxHours())
+                        .build());
+            }
+        }
+
+        for (String buildingId : buildingIds) {
+            List<Floor> floors = floorsByBuilding.getOrDefault(buildingId, List.of());
+            BuildingEnrichment enr = new BuildingEnrichment();
+
+            enr.supportedVehicleTypes = floors.stream()
+                    .map(Floor::getVehicleType)
+                    .filter(vt -> vt != null)
+                    .collect(Collectors.collectingAndThen(
+                            Collectors.toMap(
+                                    VehicleType::getVehicleTypeId,
+                                    vt -> VehicleTypeOptionResponse.builder()
+                                            .vehicleTypeId(vt.getVehicleTypeId())
+                                            .typeName(vt.getTypeName())
+                                            .description(vt.getDescription())
+                                            .sizeCategory(vt.getSizeCategory())
+                                            .build(),
+                                    (a, b) -> a,
+                                    LinkedHashMap::new),
+                            m -> new ArrayList<>(m.values())));
+
+            LinkedHashSet<String> buildingVtIds = floors.stream()
+                    .map(Floor::getVehicleType)
+                    .filter(vt -> vt != null && vt.getVehicleTypeId() != null)
+                    .map(VehicleType::getVehicleTypeId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            enr.pricingPolicies = buildingVtIds.stream()
+                    .map(policyByVt::get)
+                    .filter(p -> p != null)
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            if (!floors.isEmpty() && floors.get(0).getBuilding() != null) {
+                Building b = floors.get(0).getBuilding();
+                enr.address = b.getAddress();
+                enr.contactNumber = b.getContactNumber();
+                enr.operatingStartTime = b.getOperatingStartTime();
+                enr.operatingEndTime = b.getOperatingEndTime();
+                if (b.getOperatingStartTime() != null && b.getOperatingEndTime() != null) {
+                    enr.operatingHoursDisplay = b.getOperatingStartTime() + " - " + b.getOperatingEndTime();
+                }
+            }
+            enr.parkingRules = "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
+            result.put(buildingId, enr);
+        }
+        return result;
+    }
+
+    /**
      * Build 1 lần cho cả building: vehicle types + pricing policies + operating hours.
      * Trước đây logic này nằm trong loop của getAvailability(), gọi lặp lại cho mỗi zone.
      */
     private BuildingEnrichment buildBuildingEnrichment(String buildingId) {
-        BuildingEnrichment enr = new BuildingEnrichment();
-
-        // QUERY: floors kèm vehicleType (1 query, dùng EntityGraph đã có)
-        List<Floor> floors = floorRepository
-                .findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId).stream()
-                .filter(f -> ACTIVE_BUILDING_FLOOR_STATUSES.contains(normalize(f.getStatus())))
-                .toList();
-
-        // Dedupe vehicleTypes theo vehicleTypeId
-        enr.supportedVehicleTypes = floors.stream()
-                .map(Floor::getVehicleType)
-                .filter(vt -> vt != null)
-                .collect(Collectors.collectingAndThen(
-                        Collectors.toMap(
-                                VehicleType::getVehicleTypeId,
-                                vt -> VehicleTypeOptionResponse.builder()
-                                        .vehicleTypeId(vt.getVehicleTypeId())
-                                        .typeName(vt.getTypeName())
-                                        .description(vt.getDescription())
-                                        .sizeCategory(vt.getSizeCategory())
-                                        .build(),
-                                (a, b) -> a),
-                        m -> new ArrayList<>(m.values())));
-
-        // QUERY: pricing policies cho mỗi vehicle type (gọi 1 lần / vt, không trong loop zone)
-        Map<String, PricingPolicySummaryDto> policyByVt = new LinkedHashMap<>();
-        for (Floor f : floors) {
-            if (f.getVehicleType() == null || f.getVehicleType().getVehicleTypeId() == null) continue;
-            String vtId = f.getVehicleType().getVehicleTypeId();
-            if (policyByVt.containsKey(vtId)) continue;
-            pricingPolicyRepository.findAllActiveForVehicleType(vtId).stream()
-                    .filter(p -> "ACTIVE".equals(p.getStatus()))
-                    .findFirst()
-                    .ifPresent(p -> policyByVt.put(vtId, PricingPolicySummaryDto.builder()
-                            .policyId(p.getPolicyId())
-                            .vehicleTypeId(p.getVehicleType().getVehicleTypeId())
-                            .vehicleTypeName(p.getVehicleType().getTypeName())
-                            .pricingType(p.getPricingType())
-                            .basePrice(p.getBasePrice())
-                            .hourlyRate(p.getHourlyRate())
-                            .maxHours(p.getMaxHours())
-                            .build()));
-        }
-        enr.pricingPolicies = new ArrayList<>(policyByVt.values());
-
-        // Operating hours từ floor đầu tiên (cùng building nên giống nhau)
-        if (!floors.isEmpty() && floors.get(0).getBuilding() != null) {
-            Building b = floors.get(0).getBuilding();
-            enr.address = b.getAddress();
-            enr.contactNumber = b.getContactNumber();
-            enr.operatingStartTime = b.getOperatingStartTime();
-            enr.operatingEndTime = b.getOperatingEndTime();
-            if (b.getOperatingStartTime() != null && b.getOperatingEndTime() != null) {
-                enr.operatingHoursDisplay = b.getOperatingStartTime() + " - " + b.getOperatingEndTime();
-            }
-        }
-        enr.parkingRules = "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
-
-        return enr;
+        return buildBuildingEnrichments(Set.of(buildingId)).getOrDefault(buildingId, new BuildingEnrichment());
     }
 
     /**

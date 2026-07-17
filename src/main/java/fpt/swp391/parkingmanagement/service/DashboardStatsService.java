@@ -4,6 +4,7 @@ import fpt.swp391.parkingmanagement.dto.*;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,7 @@ public class DashboardStatsService {
     private final IncidentRepository incidentRepository;
     private final BuildingRepository buildingRepository;
 
+    @Cacheable(value = "dashboardStats", key = "#fromDay + '_' + #toDay")
     @Transactional(readOnly = true)
     public DashboardStatsResponse getStats(LocalDate fromDay, LocalDate toDay) {
         LocalDateTime now = LocalDateTime.now();

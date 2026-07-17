@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -68,6 +69,29 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
             AND (:username IS NULL OR LOWER(u.username) LIKE LOWER(CONCAT('%', :username, '%')))
             AND (:ownerFullName IS NULL OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :ownerFullName, '%')))
             AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId)
+            AND (
+                :parked IS NULL
+                OR (:parked = TRUE AND EXISTS (
+                    SELECT 1 FROM ParkingSession psa
+                    WHERE psa.vehicle = v AND UPPER(psa.sessionStatus) = 'ACTIVE'
+                ))
+                OR (:parked = FALSE AND NOT EXISTS (
+                    SELECT 1 FROM ParkingSession psb
+                    WHERE psb.vehicle = v AND UPPER(psb.sessionStatus) = 'ACTIVE'
+                ))
+            )
+            AND (
+                (:checkInFrom IS NULL AND :checkInTo IS NULL)
+                OR EXISTS (
+                    SELECT 1 FROM ParkingSession psc
+                    WHERE psc.vehicle = v
+                    AND psc.checkinTime = (
+                        SELECT MAX(psd.checkinTime) FROM ParkingSession psd WHERE psd.vehicle = v
+                    )
+                    AND (:checkInFrom IS NULL OR psc.checkinTime >= :checkInFrom)
+                    AND (:checkInTo IS NULL OR psc.checkinTime <= :checkInTo)
+                )
+            )
             ORDER BY v.createdAt DESC
             """)
     List<Vehicle> searchForManager(
@@ -76,5 +100,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
             @Param("userId") String userId,
             @Param("username") String username,
             @Param("ownerFullName") String ownerFullName,
-            @Param("vehicleTypeId") String vehicleTypeId);
+            @Param("vehicleTypeId") String vehicleTypeId,
+            @Param("parked") Boolean parked,
+            @Param("checkInFrom") LocalDateTime checkInFrom,
+            @Param("checkInTo") LocalDateTime checkInTo);
 }
