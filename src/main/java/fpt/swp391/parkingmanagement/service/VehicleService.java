@@ -43,6 +43,7 @@ public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
     private final VehicleTypeRepository vehicleTypeRepository;
+    private final VehicleTypeCacheService vehicleTypeCacheService;
     private final UserRepository userRepository;
     private final ReservationRepository reservationRepository;
     private final ParkingSessionRepository parkingSessionRepository;
@@ -52,7 +53,7 @@ public class VehicleService {
 
     @Transactional(readOnly = true)
     public List<VehicleTypeOptionResponse> getVehicleTypeOptions() {
-        return vehicleTypeRepository.findAll().stream()
+        return vehicleTypeCacheService.findAll().stream()
                 .map(this::toVehicleTypeResponse)
                 .toList();
     }
@@ -73,7 +74,9 @@ public class VehicleService {
         vehicleType.setTypeName(typeName);
         vehicleType.setSizeCategory(normalizeText(request.getSizeCategory()));
         vehicleType.setDescription(normalizeText(request.getDescription()));
-        return toVehicleTypeResponse(vehicleTypeRepository.save(vehicleType));
+        VehicleTypeOptionResponse response = toVehicleTypeResponse(vehicleTypeRepository.save(vehicleType));
+        vehicleTypeCacheService.evictAll();
+        return response;
     }
 
     @Transactional
@@ -88,7 +91,9 @@ public class VehicleService {
         vehicleType.setTypeName(typeName);
         vehicleType.setSizeCategory(normalizeText(request.getSizeCategory()));
         vehicleType.setDescription(normalizeText(request.getDescription()));
-        return toVehicleTypeResponse(vehicleTypeRepository.save(vehicleType));
+        VehicleTypeOptionResponse response = toVehicleTypeResponse(vehicleTypeRepository.save(vehicleType));
+        vehicleTypeCacheService.evictAll();
+        return response;
     }
 
     @Transactional
@@ -96,6 +101,7 @@ public class VehicleService {
         VehicleType vehicleType = findVehicleType(vehicleTypeId);
         validateVehicleTypeNotInUse(vehicleTypeId);
         vehicleTypeRepository.delete(vehicleType);
+        vehicleTypeCacheService.evictAll();
     }
 
     @Transactional(readOnly = true)
@@ -204,7 +210,10 @@ public class VehicleService {
                 normalizeOptionalText(userId),
                 normalizeOptionalText(username),
                 normalizeOptionalText(ownerFullName),
-                normalizeOptionalText(vehicleTypeId));
+                normalizeOptionalText(vehicleTypeId),
+                parked,
+                checkInFrom,
+                checkInTo);
 
         if (vehicles.isEmpty()) {
             return List.of();
@@ -235,13 +244,10 @@ public class VehicleService {
 
         List<VehicleResponse> result = new ArrayList<>(vehicles.size());
         for (Vehicle vehicle : vehicles) {
-            VehicleResponse response = toManagerVehicleResponse(
+            result.add(toManagerVehicleResponse(
                     vehicle,
                     activeByVehicle.get(vehicle.getVehicleId()),
-                    latestByVehicle.get(vehicle.getVehicleId()));
-            if (matchesParkedFilter(response, parked) && matchesCheckInRange(response, checkInFrom, checkInTo)) {
-                result.add(response);
-            }
+                    latestByVehicle.get(vehicle.getVehicleId())));
         }
         return result;
     }
@@ -288,7 +294,7 @@ public class VehicleService {
     }
 
     private VehicleType findVehicleType(String vehicleTypeId) {
-        return vehicleTypeRepository.findById(normalizeText(vehicleTypeId))
+        return vehicleTypeCacheService.findById(normalizeText(vehicleTypeId))
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle type not found: " + vehicleTypeId));
     }
 
@@ -386,27 +392,5 @@ public class VehicleService {
             return null;
         }
         return validateStatus(status, MANAGER_VEHICLE_STATUSES);
-    }
-
-    private boolean matchesParkedFilter(VehicleResponse response, Boolean parked) {
-        if (parked == null) {
-            return true;
-        }
-        boolean isParked = response.getCheckInTime() != null && response.getCheckOutTime() == null;
-        return parked == isParked;
-    }
-
-    private boolean matchesCheckInRange(VehicleResponse response, LocalDateTime checkInFrom, LocalDateTime checkInTo) {
-        if (checkInFrom == null && checkInTo == null) {
-            return true;
-        }
-        LocalDateTime checkInTime = response.getCheckInTime();
-        if (checkInTime == null) {
-            return false;
-        }
-        if (checkInFrom != null && checkInTime.isBefore(checkInFrom)) {
-            return false;
-        }
-        return checkInTo == null || !checkInTime.isAfter(checkInTo);
     }
 }

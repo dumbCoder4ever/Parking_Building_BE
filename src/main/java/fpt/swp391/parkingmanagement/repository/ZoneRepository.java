@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import fpt.swp391.parkingmanagement.entity.Zone;
 
@@ -34,4 +35,7 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
 
     @Query("SELECT z.floor.building.buildingId, COUNT(z) FROM Zone z GROUP BY z.floor.building.buildingId")
     List<Object[]> countGroupedByBuilding();
+
+    @Query("SELECT z.floor.floorId, COUNT(z) FROM Zone z WHERE z.floor.building.buildingId = :buildingId GROUP BY z.floor.floorId")
+    List<Object[]> countGroupedByFloorForBuilding(@Param("buildingId") String buildingId);
 }

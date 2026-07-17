@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -14,6 +15,9 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
 
     @EntityGraph(attributePaths = {"building", "vehicleType"})
     List<Floor> findByBuildingBuildingIdOrderByFloorLevelAsc(String buildingId);
+
+    @EntityGraph(attributePaths = {"building", "vehicleType"})
+    List<Floor> findByBuildingBuildingIdInOrderByFloorLevelAsc(Collection<String> buildingIds);
 
     @EntityGraph(attributePaths = {"building", "vehicleType"})
     List<Floor> findByBuildingStatusIgnoreCaseOrderByBuildingBuildingNameAscFloorLevelAsc(String status);
@@ -55,4 +59,31 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
             GROUP BY f.building.buildingId
             """)
     java.util.List<BuildingFloorStats> aggregateStatsByBuilding();
+
+    /**
+     * One round-trip for availability floor drill-down: floors + zones + slot counts.
+     * Avoids EntityGraph + separate aggregate queries (critical on remote Railway MySQL).
+     */
+    @Query("""
+            SELECT new fpt.swp391.parkingmanagement.repository.FloorZoneAvailabilityRow(
+                f.floorId, f.floorLevel, f.status, f.building.buildingId,
+                vt.vehicleTypeId, vt.typeName,
+                z.zoneId, z.zoneName, z.status,
+                COUNT(ps.slotId),
+                COALESCE(SUM(CASE WHEN ps.slotStatus = 'AVAILABLE' THEN 1 ELSE 0 END), 0)
+            )
+            FROM Floor f
+            JOIN f.vehicleType vt
+            LEFT JOIN Zone z ON z.floor = f
+            LEFT JOIN ParkingSlot ps ON ps.zone = z
+            WHERE f.building.buildingId = :buildingId
+            AND f.status = 'ACTIVE'
+            AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId)
+            GROUP BY f.floorId, f.floorLevel, f.status, f.building.buildingId,
+                     vt.vehicleTypeId, vt.typeName, z.zoneId, z.zoneName, z.status
+            ORDER BY f.floorLevel ASC, z.zoneName ASC
+            """)
+    List<FloorZoneAvailabilityRow> findFloorZoneAvailability(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId);
 }
