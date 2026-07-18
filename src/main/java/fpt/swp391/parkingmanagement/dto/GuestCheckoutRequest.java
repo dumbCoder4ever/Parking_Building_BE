@@ -13,5 +13,5 @@ public class GuestCheckoutRequest {
     private String paymentMethod;
 
     /** Set programmatically after Cloudinary upload */
-    private String checkoutImageUrl;
+    private String checkoutVehicleImage;
 }

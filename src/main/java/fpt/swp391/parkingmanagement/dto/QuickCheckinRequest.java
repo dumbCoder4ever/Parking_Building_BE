@@ -25,5 +25,5 @@ public class QuickCheckinRequest {
     private String note;
 
     /** Set programmatically after Cloudinary upload — not sent by client */
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
 }

@@ -357,12 +357,12 @@ public class VehicleService {
         if (activeSession != null) {
             return response.withParkingTimes(
                     activeSession.getCheckinTime(), null,
-                    activeSession.getCheckinImageUrl(), null);
+                    activeSession.getCheckinVehicleImage(), null);
         }
         if (latestSession != null) {
             return response.withParkingTimes(
                     latestSession.getCheckinTime(), latestSession.getCheckoutTime(),
-                    latestSession.getCheckinImageUrl(), latestSession.getCheckoutImageUrl());
+                    latestSession.getCheckinVehicleImage(), latestSession.getCheckoutVehicleImage());
         }
         return response;
     }

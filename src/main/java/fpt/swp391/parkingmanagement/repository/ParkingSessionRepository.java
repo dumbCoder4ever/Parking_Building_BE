@@ -65,6 +65,45 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     Optional<ParkingSession> findCurrentSessionByUser(@Param("ticketId") String ticketId);
 
+    /**
+     * FIX N+1: Full graph fetch for checkout operations.
+     * Loads slot->zone->floor->building chain and vehicle->vehicleType in one query.
+     */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building "
+            + "LEFT JOIN FETCH s.zone.floor.vehicleType "
+            + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH ps.ticket t "
+            + "WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    Optional<ParkingSession> findActiveSessionGraphByTicketId(@Param("ticketId") String ticketId);
+
+    /**
+     * FIX N+1: Full graph fetch for confirmExitAndCheckout operation.
+     */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building "
+            + "LEFT JOIN FETCH s.zone.floor.vehicleType "
+            + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH ps.ticket t "
+            + "WHERE ps.sessionId = :sessionId")
+    Optional<ParkingSession> findByIdGraph(@Param("sessionId") String sessionId);
+
+    /**
+     * FIX N+1: Full graph for checkin via ticket code.
+     * Loads ticket, reservation, vehicle, slot chain in one query.
+     */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.ticket t "
+            + "JOIN FETCH ps.reservation r "
+            + "JOIN FETCH r.vehicle rv JOIN FETCH rv.vehicleType "
+            + "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "JOIN FETCH r.user "
+            + "JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "WHERE t.ticketCode = :ticketCode")
+    Optional<ParkingSession> findByTicketCodeGraph(@Param("ticketCode") String ticketCode);
+
     @Query("SELECT ps FROM ParkingSession ps "
             + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
             + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
@@ -115,17 +154,18 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     /**
      * FIX N+1: Batch-load latest session cho nhiều reservation.
-     * Native query: lấy session có createdAt MAX theo từng reservation_id.
+     * Dùng JPQL thay vì native query để tránh duplicates khi session có cùng createdAt.
+     * Chỉ lấy 1 session mới nhất cho mỗi reservation.
      */
-    @Query(value = """
-            SELECT ps.* FROM parking_sessions ps
-            INNER JOIN (
-                SELECT reservation_id, MAX(created_at) AS max_created
-                FROM parking_sessions
-                WHERE reservation_id IN (:reservationIds)
-                GROUP BY reservation_id
-            ) latest ON ps.reservation_id = latest.reservation_id AND ps.created_at = latest.max_created
-            """, nativeQuery = true)
+    @Query("""
+            SELECT ps FROM ParkingSession ps
+            LEFT JOIN FETCH ps.ticket
+            WHERE ps.reservation.reservationId IN :reservationIds
+            AND ps.createdAt = (
+                SELECT MAX(ps2.createdAt) FROM ParkingSession ps2
+                WHERE ps2.reservation.reservationId = ps.reservation.reservationId
+            )
+            """)
     List<ParkingSession> findLatestByReservationIds(@Param("reservationIds") Collection<String> reservationIds);
 
     @Query("SELECT ps FROM ParkingSession ps "

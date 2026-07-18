@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.data.domain.PageRequest;
@@ -73,6 +74,7 @@ public class ParkingSessionService {
     private final PricingService pricingService;
     private final VehicleTypeRepository vehicleTypeRepository;
     private final PlateRecognizerService ocrService;
+    private final NotificationService notificationService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
         String userId = userRepository.findByEmail(staffEmail)
@@ -99,7 +101,8 @@ public class ParkingSessionService {
         // [DEBUG] Log entry for checkin
         System.out.println("[DEBUG-6b654b] checkin called - staffEmail: " + staffEmail + ", ticketCode: " + req.getTicketCode());
         
-        Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
+        // FIX N+1: Use graph query to load reservation, vehicle, slot chain in one query
+        Ticket ticket = ticketRepository.findByTicketCodeGraph(req.getTicketCode())
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
         System.out.println("[DEBUG-6b654b] Ticket found: " + ticket.getTicketCode() + ", isUsed: " + ticket.getIsUsed());
 
@@ -165,7 +168,7 @@ public class ParkingSessionService {
         session.setSessionStatus("PENDING_PAYMENT");
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
-        session.setCheckinImageUrl(req.getCheckinImageUrl());
+        session.setCheckinVehicleImage(req.getCheckinVehicleImage());
         User staff = userRepository.findByEmail(staffEmail).orElse(null);
         session.setCreatedBy(staff);
 
@@ -182,12 +185,28 @@ public class ParkingSessionService {
         slot.setSlotStatus("OCCUPIED");
         parkingSlotRepository.save(slot);
 
+        // Send checkin notification to driver
+        User driver = reservation.getUser();
+        Ticket finalTicket = ticket;
+        if (driver != null) {
+            String buildingName = "";
+            if (slot.getZone() != null && slot.getZone().getFloor() != null
+                    && slot.getZone().getFloor().getBuilding() != null) {
+                buildingName = slot.getZone().getFloor().getBuilding().getBuildingName();
+            }
+            notificationService.sendToUser(driver.getUsername(), "CHECKIN_CONFIRMED", Map.of(
+                    "reservationCode", reservation.getReservationCode(),
+                    "buildingName", buildingName,
+                    "ticketCode", finalTicket.getTicketCode()
+            ));
+        }
+
         ParkingSessionResponse resp = new ParkingSessionResponse();
         resp.setSessionId(saved.getSessionId());
         resp.setTicketCode(ticket.getTicketCode());
         resp.setVehiclePlate(vehicle != null ? vehicle.getPlateNumber() : null);
         resp.setCheckinTime(saved.getCheckinTime());
-        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
         resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
         resp.setBasePrice(basePrice);
@@ -206,9 +225,9 @@ public class ParkingSessionService {
         Ticket ticket = ticketRepository.findByTicketCode(req.getTicketCode())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
+        // FIX N+1: Use graph query to load slot->zone->floor->building, vehicle->vehicleType in one query
         Optional<ParkingSession> optSession = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
-                        java.util.List.of("ACTIVE", "PENDING_PAYMENT"));
+                .findActiveSessionGraphByTicketId(ticket.getTicketId());
 
         ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
@@ -245,7 +264,7 @@ public class ParkingSessionService {
         session.setTotalFee(total);
         session.setParkingDuration((int) minutes);
         session.setSessionStatus("COMPLETED");
-        session.setCheckoutImageUrl(req.getCheckoutImageUrl());
+        session.setCheckoutVehicleImage(req.getCheckoutVehicleImage());
 
         // Update reservation to COMPLETED after successful checkout
         if (session.getReservation() != null) {
@@ -293,7 +312,7 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         resp.setSessionStatus(saved.getSessionStatus());
         resp.setPaymentStatus(saved.getPaymentStatus());
-        resp.setCheckoutImageUrl(saved.getCheckoutImageUrl());
+        resp.setCheckoutVehicleImage(saved.getCheckoutVehicleImage());
         if (savedPayment != null) {
             resp.setPaymentId(savedPayment.getPaymentId());
         }
@@ -305,6 +324,18 @@ public class ParkingSessionService {
             applyHierarchy(resp, slot);
         }
 
+        // Send checkout notification to driver
+        User driver = session.getReservation() != null ? session.getReservation().getUser() : null;
+        Ticket sessionTicket = session.getTicket();
+        if (driver != null) {
+            String ticketCode = sessionTicket != null ? sessionTicket.getTicketCode() : "";
+            notificationService.sendToUser(driver.getUsername(), "CHECKOUT_COMPLETED", Map.of(
+                    "reservationCode", session.getReservation() != null ? session.getReservation().getReservationCode() : "",
+                    "ticketCode", ticketCode,
+                    "totalFee", total
+            ));
+        }
+
         return resp;
     }
 
@@ -312,9 +343,9 @@ public class ParkingSessionService {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
+        // FIX N+1: Use graph query to load session with all relationships
         Optional<ParkingSession> optSession = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
-                        java.util.List.of("ACTIVE", "PENDING_PAYMENT"));
+                .findActiveSessionGraphByTicketId(ticket.getTicketId());
 
         ParkingSession session = optSession.orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
@@ -387,7 +418,8 @@ public class ParkingSessionService {
         // [DEBUG] Log entry for confirmExitAndCheckout
         System.out.println("[DEBUG-6b654b] confirmExitAndCheckout called - sessionId: " + sessionId + ", checkoutImageUrl: " + (checkoutImageUrl != null ? "present" : "null"));
 
-        ParkingSession session = parkingSessionRepository.findById(sessionId)
+        // FIX N+1: Use graph query to load all relationships in one query
+        ParkingSession session = parkingSessionRepository.findByIdGraph(sessionId)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND));
 
         String buildingId = resolveBuildingId(session.getSlot());
@@ -431,7 +463,7 @@ public class ParkingSessionService {
 
         session.setTotalFee(total);
         session.setParkingDuration((int) minutes);
-        session.setCheckoutImageUrl(checkoutImageUrl);
+        session.setCheckoutVehicleImage(checkoutImageUrl);
         if (checkoutImageUrl != null && session.getVehicle() != null) {
             Vehicle checkoutVehicle = session.getVehicle();
             checkoutVehicle.setImageUrl(checkoutImageUrl);
@@ -484,7 +516,7 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         resp.setSessionStatus(saved.getSessionStatus());
         resp.setPaymentStatus(saved.getPaymentStatus());
-        resp.setCheckoutImageUrl(saved.getCheckoutImageUrl());
+        resp.setCheckoutVehicleImage(saved.getCheckoutVehicleImage());
         if (policy != null && session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
             resp.setVehicleTypeName(session.getVehicle().getVehicleType().getTypeName());
@@ -579,7 +611,8 @@ public class ParkingSessionService {
 
         VehicleType vehicleType = resolveVehicleTypeFromSlot(slot);
 
-        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(plateNumber)
+        // FIX N+1: Use graph query to load vehicle with vehicleType
+        Vehicle vehicle = vehicleRepository.findByPlateNumberGraph(plateNumber)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
                     v.setPlateNumber(plateNumber);
@@ -611,7 +644,7 @@ public class ParkingSessionService {
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setNote(req.getNote());
-        session.setCheckinImageUrl(req.getCheckinImageUrl());
+        session.setCheckinVehicleImage(req.getCheckinVehicleImage());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
@@ -637,7 +670,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
-        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
         resp.setStatus(saved.getSessionStatus());
         resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
@@ -702,7 +735,7 @@ public class ParkingSessionService {
         session.setTotalFee(total);
         session.setParkingDuration((int) minutes);
         session.setSessionStatus("COMPLETED");
-        session.setCheckoutImageUrl(req.getCheckoutImageUrl());
+        session.setCheckoutVehicleImage(req.getCheckoutVehicleImage());
 
         Payment savedPayment = null;
         if (electronicPayment) {
@@ -745,7 +778,7 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         resp.setSessionStatus(saved.getSessionStatus());
         resp.setPaymentStatus(saved.getPaymentStatus());
-        resp.setCheckoutImageUrl(saved.getCheckoutImageUrl());
+        resp.setCheckoutVehicleImage(saved.getCheckoutVehicleImage());
         if (savedPayment != null) resp.setPaymentId(savedPayment.getPaymentId());
         if (policy != null && session.getVehicle() != null && session.getVehicle().getVehicleType() != null) {
             resp.setVehicleTypeId(session.getVehicle().getVehicleType().getVehicleTypeId());
@@ -799,8 +832,8 @@ public class ParkingSessionService {
                         "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
                                 + " tại building này."));
 
-        // 4. Tìm hoặc tạo Vehicle
-        Vehicle vehicle = vehicleRepository.findByPlateNumberIgnoreCase(finalPlateNumber)
+        // 4. Tìm hoặc tạo Vehicle - FIX N+1: use graph query
+        Vehicle vehicle = vehicleRepository.findByPlateNumberGraph(finalPlateNumber)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
                     v.setPlateNumber(finalPlateNumber);
@@ -840,7 +873,7 @@ public class ParkingSessionService {
         session.setGuestName(req.getGuestName());
         session.setGuestPhone(req.getGuestPhone());
         session.setNote(req.getNote());
-        session.setCheckinImageUrl(req.getCheckinImageUrl());
+        session.setCheckinVehicleImage(req.getCheckinVehicleImage());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
@@ -874,7 +907,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(saved.getCheckinTime());
-        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
         resp.setStatus(saved.getSessionStatus());
         resp.setParkingDuration(0);
         resp.setEstimatedFee(estimatedFee);
@@ -892,12 +925,12 @@ public class ParkingSessionService {
     @Transactional
     public CheckoutResponse guestCheckoutOcr(String staffEmail, GuestCheckoutOcrRequest req) {
         PlateRecognizerService.OcrResult ocr = recognizePlate(req.getPlateImage());
-        return guestCheckoutOcr(staffEmail, req.getTicketCode(), req.getCheckoutImageUrl(), req.getPaymentMethod(), ocr.plateNumber().toUpperCase());
+        return guestCheckoutOcr(staffEmail, req.getTicketCode(), req.getCheckoutVehicleImage(), req.getPaymentMethod(), ocr.plateNumber().toUpperCase());
     }
 
     @Transactional
     public CheckoutResponse guestCheckoutOcr(String staffEmail, CheckoutRequest checkoutRequest, String scannedPlate) {
-        return guestCheckoutOcr(staffEmail, checkoutRequest.getTicketCode(), checkoutRequest.getCheckoutImageUrl(), checkoutRequest.getPaymentMethod(), scannedPlate);
+        return guestCheckoutOcr(staffEmail, checkoutRequest.getTicketCode(), checkoutRequest.getCheckoutVehicleImage(), checkoutRequest.getPaymentMethod(), scannedPlate);
     }
 
     @Transactional
@@ -906,10 +939,9 @@ public class ParkingSessionService {
         Ticket ticket = ticketRepository.findByTicketCode(ticketCode)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
 
-        // 2. Tìm session ACTIVE theo ticket
+        // 2. Tìm session ACTIVE theo ticket - FIX N+1: use graph query
         ParkingSession session = parkingSessionRepository
-                .findByTicketTicketIdAndSessionStatusIn(ticket.getTicketId(),
-                        java.util.List.of("ACTIVE", "PENDING_PAYMENT"))
+                .findActiveSessionGraphByTicketId(ticket.getTicketId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
                         "Không tìm thấy session ACTIVE cho ticket: " + ticketCode));
 
@@ -963,7 +995,7 @@ public class ParkingSessionService {
         session.setTotalFee(total);
         session.setParkingDuration((int) minutes);
         session.setSessionStatus("COMPLETED");
-        session.setCheckoutImageUrl(checkoutImageUrl);
+        session.setCheckoutVehicleImage(checkoutImageUrl);
 
         Payment savedPayment = null;
         if (electronicPayment) {
@@ -1005,7 +1037,7 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         resp.setSessionStatus(saved.getSessionStatus());
         resp.setPaymentStatus(saved.getPaymentStatus());
-        resp.setCheckoutImageUrl(saved.getCheckoutImageUrl());
+        resp.setCheckoutVehicleImage(saved.getCheckoutVehicleImage());
         if (savedPayment != null) resp.setPaymentId(savedPayment.getPaymentId());
         if (policy != null && sessionVehicle.getVehicleType() != null) {
             resp.setVehicleTypeId(sessionVehicle.getVehicleType().getVehicleTypeId());
@@ -1161,7 +1193,8 @@ public class ParkingSessionService {
         }
         String trimmed = plateNumber.trim();
 
-        Optional<Vehicle> exact = vehicleRepository.findByPlateNumberIgnoreCase(trimmed);
+        // FIX N+1: Use graph query to load vehicle with vehicleType
+        Optional<Vehicle> exact = vehicleRepository.findByPlateNumberGraph(trimmed);
         if (exact.isPresent()) {
             return exact;
         }
@@ -1303,7 +1336,7 @@ public class ParkingSessionService {
         resp.setGuestName(ps.getGuestName());
         resp.setGuestPhone(ps.getGuestPhone());
         resp.setCheckinTime(ps.getCheckinTime());
-        resp.setCheckinImageUrl(ps.getCheckinImageUrl());
+        resp.setCheckinVehicleImage(ps.getCheckinVehicleImage());
         resp.setStatus(ps.getSessionStatus());
         resp.setParkingDuration(resolveParkingDurationMinutes(ps));
         resp.setEstimatedFee(ps.getEstimatedFee());
@@ -1475,7 +1508,7 @@ public class ParkingSessionService {
         session.setPaymentStatus("UNPAID");
         session.setEstimatedFee(estimatedFee);
         session.setNote(req.getNote());
-        session.setCheckinImageUrl(req.getCheckinImageUrl());
+        session.setCheckinVehicleImage(req.getCheckinVehicleImage());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
@@ -1510,7 +1543,7 @@ public class ParkingSessionService {
             resp.setVehicleTypeName(vehicleType.getTypeName());
         }
         resp.setCheckinTime(now);
-        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
         resp.setParkingDuration(0);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
@@ -1576,7 +1609,7 @@ public class ParkingSessionService {
                         "Không có slot trống nào cho loại xe " + vehicleType.getTypeName()
                                 + " tại building này."));
 
-        // 5. Tìm hoặc tạo Vehicle
+        // 5. Tìm hoặc tạo Vehicle - FIX N+1: use graph query
         Vehicle vehicle = resolveVehicleByPlate(normalizedPlate)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
@@ -1608,7 +1641,7 @@ public class ParkingSessionService {
         session.setGuestName(req.getGuestName());
         session.setGuestPhone(req.getGuestPhone());
         session.setNote(req.getNote());
-        session.setCheckinImageUrl(req.getCheckinImageUrl());
+        session.setCheckinVehicleImage(req.getCheckinVehicleImage());
         session.setCreatedBy(staff);
 
         ParkingSession saved = parkingSessionRepository.save(session);
@@ -1642,7 +1675,7 @@ public class ParkingSessionService {
         resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
         resp.setVehicleTypeName(vehicleType.getTypeName());
         resp.setCheckinTime(now);
-        resp.setCheckinImageUrl(saved.getCheckinImageUrl());
+        resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
         resp.setParkingDuration(0);
         resp.setBasePrice(basePrice);
         resp.setHourlyRate(hourlyRate);
