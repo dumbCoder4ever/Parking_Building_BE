@@ -107,6 +107,40 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
                                             @Param("vehicleTypeId") String vehicleTypeId);
 
     /**
+     * Admin dashboard occupancy: one GROUP BY building (lighter than per-zone rollup).
+     * Includes buildings with zero slots via LEFT JOIN from buildings.
+     */
+    @Query(value = """
+            SELECT b.building_id,
+                   b.building_name,
+                   COUNT(ps.slot_id),
+                   COALESCE(SUM(CASE WHEN UPPER(ps.slot_status) = 'AVAILABLE' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN UPPER(ps.slot_status) = 'RESERVED' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN UPPER(ps.slot_status) = 'OCCUPIED' THEN 1 ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN UPPER(ps.slot_status) = 'PENDING_EXIT' THEN 1 ELSE 0 END), 0)
+            FROM buildings b
+            LEFT JOIN floors f ON f.building_id = b.building_id
+            LEFT JOIN zones z ON z.floor_id = f.floor_id
+            LEFT JOIN parking_slots ps ON ps.zone_id = z.zone_id
+            GROUP BY b.building_id, b.building_name
+            ORDER BY b.building_name ASC
+            """, nativeQuery = true)
+    List<Object[]> aggregateOccupancyByBuildingRaw();
+
+    default List<BuildingOccupancyCount> aggregateOccupancyByBuilding() {
+        return aggregateOccupancyByBuildingRaw().stream()
+                .map(row -> new BuildingOccupancyCount(
+                        (String) row[0],
+                        (String) row[1],
+                        row[2] instanceof Number n2 ? n2.longValue() : 0L,
+                        row[3] instanceof Number n3 ? n3.longValue() : 0L,
+                        row[4] instanceof Number n4 ? n4.longValue() : 0L,
+                        row[5] instanceof Number n5 ? n5.longValue() : 0L,
+                        row[6] instanceof Number n6 ? n6.longValue() : 0L))
+                .toList();
+    }
+
+    /**
      * Building picker: totals per building × vehicle type (no per-zone GROUP BY).
      */
     @Query("SELECT new fpt.swp391.parkingmanagement.repository.BuildingVtSlotCount(" +

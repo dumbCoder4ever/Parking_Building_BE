@@ -22,13 +22,24 @@ public class CacheConfig {
                 "zones",
                 "slotConfigs",
                 "dashboardStats",
+                "revenueDashboard",
                 "buildingsAvailable",
-                "buildingFloors");
+                "buildingFloors",
+                "managerBuildings",
+                "managerFloors",
+                "managerZones",
+                "managerSlots");
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(500)
                 .expireAfterWrite(300, TimeUnit.SECONDS));
         // Admin dashboard can be slightly stale; short TTL avoids COUNT storm on refresh
         cacheManager.registerCustomCache("dashboardStats",
+                Caffeine.newBuilder()
+                        .maximumSize(50)
+                        .expireAfterWrite(30, TimeUnit.SECONDS)
+                        .build());
+        // Manager revenue dashboard — same freshness window as admin stats
+        cacheManager.registerCustomCache("revenueDashboard",
                 Caffeine.newBuilder()
                         .maximumSize(50)
                         .expireAfterWrite(30, TimeUnit.SECONDS)
@@ -43,6 +54,28 @@ public class CacheConfig {
                 Caffeine.newBuilder()
                         .maximumSize(200)
                         .expireAfterWrite(30, TimeUnit.SECONDS)
+                        .build());
+        // Manager parking-space cascading reads (remote MySQL) — same APIs, faster repeats
+        cacheManager.registerCustomCache("managerBuildings",
+                Caffeine.newBuilder()
+                        .maximumSize(20)
+                        .expireAfterWrite(60, TimeUnit.SECONDS)
+                        .build());
+        cacheManager.registerCustomCache("managerFloors",
+                Caffeine.newBuilder()
+                        .maximumSize(100)
+                        .expireAfterWrite(30, TimeUnit.SECONDS)
+                        .build());
+        cacheManager.registerCustomCache("managerZones",
+                Caffeine.newBuilder()
+                        .maximumSize(200)
+                        .expireAfterWrite(30, TimeUnit.SECONDS)
+                        .build());
+        // Slot statuses change often — keep short
+        cacheManager.registerCustomCache("managerSlots",
+                Caffeine.newBuilder()
+                        .maximumSize(500)
+                        .expireAfterWrite(10, TimeUnit.SECONDS)
                         .build());
         return cacheManager;
     }
