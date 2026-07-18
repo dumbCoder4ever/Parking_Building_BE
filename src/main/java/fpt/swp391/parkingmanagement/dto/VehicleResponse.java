@@ -25,8 +25,8 @@ public class VehicleResponse {
     private String status;
     private LocalDateTime checkInTime;
     private LocalDateTime checkOutTime;
-    private String checkinImageUrl;
-    private String checkoutImageUrl;
+    private String checkinVehicleImage;
+    private String checkoutVehicleImage;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -51,11 +51,11 @@ public class VehicleResponse {
     }
 
     public VehicleResponse withParkingTimes(LocalDateTime checkInTime, LocalDateTime checkOutTime,
-            String checkinImageUrl, String checkoutImageUrl) {
+            String checkinVehicleImage, String checkoutVehicleImage) {
         this.checkInTime = checkInTime;
         this.checkOutTime = checkOutTime;
-        this.checkinImageUrl = checkinImageUrl;
-        this.checkoutImageUrl = checkoutImageUrl;
+        this.checkinVehicleImage = checkinVehicleImage;
+        this.checkoutVehicleImage = checkoutVehicleImage;
         return this;
     }
 }

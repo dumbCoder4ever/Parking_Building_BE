@@ -23,5 +23,5 @@ public class GuestCheckoutOcrRequest {
     private MultipartFile checkoutImage;
 
     /** Set programmatically after Cloudinary upload */
-    private String checkoutImageUrl;
+    private String checkoutVehicleImage;
 }

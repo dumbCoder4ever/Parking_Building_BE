@@ -42,5 +42,5 @@ public class GuestCheckinOcrRequest {
     private MultipartFile checkinImage;
 
     /** Set programmatically after Cloudinary upload */
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
 }

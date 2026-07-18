@@ -30,6 +30,7 @@ import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -141,8 +142,12 @@ public class PaymentService {
                 .driverName(displayName)
                 .build();
 
-        if (driver != null) {
-            notificationService.sendPaymentInitiationToDriver(driver, response);
+        if (driver != null && session.getReservation() != null) {
+            notificationService.sendToUser(driver.getUsername(), "PAYMENT_INITIATED", Map.of(
+                    "reservationCode", session.getReservation().getReservationCode(),
+                    "amount", paymentRequest.getAmount(),
+                    "paymentMethod", paymentRequest.getPaymentMethod()
+            ));
         }
 
         return response;
@@ -183,8 +188,14 @@ public class PaymentService {
                 .message("Payment successful. Staff may proceed with checkout.")
                 .build();
 
-        if (driver != null) {
-            notificationService.sendPaymentSuccessToDriver(driver, response);
+        if (driver != null && session.getReservation() != null) {
+            String ticketCode = payment.getSession().getTicket() != null
+                    ? payment.getSession().getTicket().getTicketCode() : "";
+            notificationService.sendToUser(driver.getUsername(), "PAYMENT_PAID", Map.of(
+                    "reservationCode", session.getReservation().getReservationCode(),
+                    "ticketCode", ticketCode,
+                    "amount", updatedPayment.getAmount()
+            ));
         }
 
         return response;

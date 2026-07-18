@@ -33,8 +33,8 @@ public final class EnumParser {
             return PaidStatus.UNPAID;
         }
         return switch (status) {
-            case PAID, CONFIRMED, SUCCESS -> PaidStatus.PAID;
-            default -> PaidStatus.UNPAID;
+            case PAID -> PaidStatus.PAID;
+            case FAILED, PENDING -> PaidStatus.UNPAID;
         };
     }
 }

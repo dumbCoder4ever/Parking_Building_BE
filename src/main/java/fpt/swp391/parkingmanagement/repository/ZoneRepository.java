@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,6 +17,13 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
 
     @EntityGraph(attributePaths = {"floor", "floor.building", "floor.vehicleType"})
     List<Zone> findByFloorFloorIdOrderByZoneNameAsc(String floorId);
+
+    /**
+     * Batch load zones for N floors in ONE query — replaces N x findByFloorFloorIdOrderByZoneNameAsc.
+     * Used by BuildingService.listFloorsOfBuilding to eliminate N+1.
+     */
+    @EntityGraph(attributePaths = {"floor", "floor.building", "floor.vehicleType"})
+    List<Zone> findByFloorFloorIdInOrderByZoneNameAsc(Collection<String> floorIds);
 
     boolean existsByFloorFloorIdAndZoneNameIgnoreCase(String floorId, String zoneName);
 

@@ -761,7 +761,7 @@ public class ManagerBuildingSetupService {
                     .checkinTime(session.getCheckinTime())
                     .checkoutTime(session.getCheckoutTime())
                     .parkedDurationMinutes(calculateParkedDurationMinutes(session))
-                    .checkinImageUrl(session.getCheckinImageUrl());
+                    .checkinVehicleImage(session.getCheckinVehicleImage());
         }
 
         return builder.build();
