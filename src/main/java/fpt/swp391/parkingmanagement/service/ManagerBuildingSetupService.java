@@ -9,6 +9,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,6 +65,7 @@ public class ManagerBuildingSetupService {
     private final ParkingSessionRepository parkingSessionRepository;
     private final TicketRepository ticketRepository;
 
+    @Cacheable(value = "managerBuildings", key = "'all'")
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getAllBuildings() {
         List<Building> buildings = buildingRepository.findAll();
@@ -95,10 +99,13 @@ public class ManagerBuildingSetupService {
         return toBuildingDetail(building);
     }
 
+    @Cacheable(value = "managerFloors", key = "#buildingId")
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getFloorsByBuilding(String buildingId) {
-        findBuilding(buildingId);
         List<Floor> floors = floorRepository.findByBuildingBuildingIdOrderByFloorLevelAsc(buildingId);
+        if (floors.isEmpty() && !buildingRepository.existsById(buildingId)) {
+            throw new ResourceNotFoundException("Building not found: " + buildingId);
+        }
         Map<String, Long> zoneCountByFloor = toCountMap(
                 zoneRepository.countGroupedByFloorForBuilding(buildingId));
         return floors.stream()
@@ -106,6 +113,7 @@ public class ManagerBuildingSetupService {
                 .toList();
     }
 
+    @Cacheable(value = "managerZones", key = "#floorId")
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getZonesByFloor(String floorId) {
         Floor floor = findFloor(floorId);
@@ -117,10 +125,14 @@ public class ManagerBuildingSetupService {
                 .toList();
     }
 
+    @Cacheable(value = "managerSlots", key = "#zoneId")
     @Transactional(readOnly = true)
     public List<ManagerSetupResponse> getSlotsByZone(String zoneId) {
-        Zone zone = findZone(zoneId);
-        return parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zone.getZoneId()).stream()
+        List<ParkingSlot> slots = parkingSlotRepository.findByZoneZoneIdOrderBySlotNameAsc(zoneId);
+        if (slots.isEmpty() && !zoneRepository.existsById(zoneId)) {
+            throw new ResourceNotFoundException("Zone not found: " + zoneId);
+        }
+        return slots.stream()
                 .sorted(slotByIndexAscending())
                 .map(this::toSlotResponse)
                 .toList();
@@ -156,6 +168,10 @@ public class ManagerBuildingSetupService {
         return toSlotOccupancyDetail(slot, reservation, session, ticket);
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true),
+            @CacheEvict(value = "managerSlots", allEntries = true)
+    })
     @Transactional
     public void forceResetSlotStatus(String slotId) {
         ParkingSlot slot = findSlot(slotId);
@@ -167,6 +183,9 @@ public class ManagerBuildingSetupService {
         parkingSlotRepository.save(slot);
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse createBuilding(CreateBuildingRequest request) {
         validateBuildingTimes(request.getOperatingStartTime(), request.getOperatingEndTime());
@@ -184,6 +203,9 @@ public class ManagerBuildingSetupService {
         return toBuildingDetail(saved);
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse updateBuilding(String buildingId, UpdateBuildingRequest request) {
         Building building = findBuilding(buildingId);
@@ -204,6 +226,9 @@ public class ManagerBuildingSetupService {
         return toBuildingDetail(buildingRepository.save(building));
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse updateBuildingStatus(String buildingId, String status) {
         Building building = findBuilding(buildingId);
@@ -211,6 +236,10 @@ public class ManagerBuildingSetupService {
         return toBuildingDetail(buildingRepository.save(building));
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true),
+            @CacheEvict(value = "managerFloors", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse createFloor(String buildingId, CreateFloorRequest request) {
         Building building = findBuilding(buildingId);
@@ -235,6 +264,11 @@ public class ManagerBuildingSetupService {
         return toFloorResponse(floorRepository.save(floor));
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true),
+            @CacheEvict(value = "managerFloors", allEntries = true),
+            @CacheEvict(value = "managerZones", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse updateFloor(String floorId, UpdateFloorRequest request) {
         Floor floor = findFloor(floorId);
@@ -266,6 +300,9 @@ public class ManagerBuildingSetupService {
         return toFloorResponse(floorRepository.save(floor));
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerFloors", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse updateFloorStatus(String floorId, String status) {
         Floor floor = findFloor(floorId);
@@ -273,6 +310,12 @@ public class ManagerBuildingSetupService {
         return toFloorResponse(floorRepository.save(floor));
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true),
+            @CacheEvict(value = "managerFloors", allEntries = true),
+            @CacheEvict(value = "managerZones", allEntries = true),
+            @CacheEvict(value = "managerSlots", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse createZoneAndSlots(String floorId, CreateZoneRequest request) {
         Floor floor = findFloor(floorId);
@@ -294,6 +337,11 @@ public class ManagerBuildingSetupService {
         return response;
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true),
+            @CacheEvict(value = "managerZones", allEntries = true),
+            @CacheEvict(value = "managerSlots", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse updateZone(String zoneId, UpdateZoneRequest request) {
         Zone zone = findZone(zoneId);
@@ -348,6 +396,9 @@ public class ManagerBuildingSetupService {
         return response;
     }
 
+    @Caching(evict = {
+            @CacheEvict(value = "managerZones", allEntries = true)
+    })
     @Transactional
     public ManagerSetupResponse updateZoneStatus(String zoneId, String status) {
         Zone zone = findZone(zoneId);
@@ -519,12 +570,10 @@ public class ManagerBuildingSetupService {
 
     private ManagerSetupResponse toBuildingSummary(Building building) {
         String buildingId = building.getBuildingId();
-        long floorCount = floorRepository.countByBuildingBuildingId(buildingId);
+        BuildingFloorStats floorStats = floorRepository.aggregateStatsForBuilding(buildingId).orElse(null);
         long zoneCount = zoneRepository.countByFloorBuildingBuildingId(buildingId);
         long slotCount = parkingSlotRepository.countByBuildingId(buildingId);
-        int maxCapacity = floorRepository.sumMaxCapacityByBuildingId(buildingId);
-        int currentOccupancy = floorRepository.sumCurrentOccupancyByBuildingId(buildingId);
-        return toBuildingSummary(building, floorCount, zoneCount, slotCount, maxCapacity, currentOccupancy);
+        return toBuildingSummary(building, floorStats, zoneCount, slotCount);
     }
 
     private ManagerSetupResponse toBuildingSummary(

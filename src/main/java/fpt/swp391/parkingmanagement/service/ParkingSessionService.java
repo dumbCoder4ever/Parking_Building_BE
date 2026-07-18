@@ -269,6 +269,7 @@ public class ParkingSessionService {
             payment.setPaymentMethod(paymentMethod);
             payment.setAmount(total);
             payment.setPaymentStatus("PAID");
+            payment.setPaymentTime(now);
             savedPayment = paymentRepository.save(payment);
         }
 
@@ -720,6 +721,7 @@ public class ParkingSessionService {
             payment.setPaymentMethod(paymentMethod);
             payment.setAmount(total);
             payment.setPaymentStatus("PAID");
+            payment.setPaymentTime(now);
             savedPayment = paymentRepository.save(payment);
         }
 
@@ -979,6 +981,7 @@ public class ParkingSessionService {
             payment.setPaymentMethod(resolvedPaymentMethod);
             payment.setAmount(total);
             payment.setPaymentStatus("PAID");
+            payment.setPaymentTime(now);
             savedPayment = paymentRepository.save(payment);
         }
 

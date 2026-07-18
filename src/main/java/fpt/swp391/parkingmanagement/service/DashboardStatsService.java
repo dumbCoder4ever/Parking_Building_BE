@@ -1,24 +1,24 @@
 package fpt.swp391.parkingmanagement.service;
 
 import fpt.swp391.parkingmanagement.dto.*;
-import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.repository.*;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class DashboardStatsService {
 
     private final ParkingSlotRepository parkingSlotRepository;
@@ -27,10 +27,26 @@ public class DashboardStatsService {
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
     private final IncidentRepository incidentRepository;
-    private final BuildingRepository buildingRepository;
+    private final Executor dashboardExecutor;
+
+    public DashboardStatsService(
+            ParkingSlotRepository parkingSlotRepository,
+            ParkingSessionRepository parkingSessionRepository,
+            ReservationRepository reservationRepository,
+            UserRepository userRepository,
+            PaymentRepository paymentRepository,
+            IncidentRepository incidentRepository,
+            @Qualifier("dashboardExecutor") Executor dashboardExecutor) {
+        this.parkingSlotRepository = parkingSlotRepository;
+        this.parkingSessionRepository = parkingSessionRepository;
+        this.reservationRepository = reservationRepository;
+        this.userRepository = userRepository;
+        this.paymentRepository = paymentRepository;
+        this.incidentRepository = incidentRepository;
+        this.dashboardExecutor = dashboardExecutor;
+    }
 
     @Cacheable(value = "dashboardStats", key = "#fromDay + '_' + #toDay")
-    @Transactional(readOnly = true)
     public DashboardStatsResponse getStats(LocalDate fromDay, LocalDate toDay) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime startOfToday = now.toLocalDate().atStartOfDay();
@@ -42,83 +58,88 @@ public class DashboardStatsService {
         LocalDateTime trendFrom = resolvedFrom.atStartOfDay();
         LocalDateTime trendTo = resolvedTo.atTime(23, 59, 59);
 
+        // Parallel DB reads — remote MySQL RTT dominates; wall-clock ≈ max(query)
+        CompletableFuture<OccupancyStatsResponse> occupancyF =
+                CompletableFuture.supplyAsync(this::buildOccupancyStats, dashboardExecutor);
+        CompletableFuture<SessionStatsResponse> sessionsF =
+                CompletableFuture.supplyAsync(
+                        () -> buildSessionStats(startOfToday, endOfToday, startOfMonth, now),
+                        dashboardExecutor);
+        CompletableFuture<ReservationStatsResponse> reservationsF =
+                CompletableFuture.supplyAsync(
+                        () -> buildReservationStats(startOfToday, endOfToday),
+                        dashboardExecutor);
+        CompletableFuture<UserStatsResponse> usersF =
+                CompletableFuture.supplyAsync(
+                        () -> buildUserStats(startOfMonth, now),
+                        dashboardExecutor);
+        CompletableFuture<IncidentStatsResponse> incidentsF =
+                CompletableFuture.supplyAsync(
+                        () -> buildIncidentStats(startOfMonth, now),
+                        dashboardExecutor);
+        CompletableFuture<List<PaymentMethodStatsResponse>> methodsF =
+                CompletableFuture.supplyAsync(this::buildPaymentMethodStats, dashboardExecutor);
+        CompletableFuture<List<RevenueTrendItem>> trendF =
+                CompletableFuture.supplyAsync(
+                        () -> buildRevenueTrend(trendFrom, trendTo),
+                        dashboardExecutor);
+
+        CompletableFuture.allOf(
+                occupancyF, sessionsF, reservationsF, usersF, incidentsF, methodsF, trendF).join();
+
         return DashboardStatsResponse.builder()
                 .generatedAt(now)
-                .occupancy(buildOccupancyStats())
-                .sessions(buildSessionStats(startOfToday, endOfToday, startOfMonth, now))
-                .reservations(buildReservationStats(startOfToday, endOfToday))
-                .users(buildUserStats(startOfMonth, now))
-                .incidents(buildIncidentStats(startOfMonth, now))
-                .revenueByPaymentMethod(buildPaymentMethodStats())
-                .revenueTrend(buildRevenueTrend(trendFrom, trendTo))
+                .occupancy(occupancyF.join())
+                .sessions(sessionsF.join())
+                .reservations(reservationsF.join())
+                .users(usersF.join())
+                .incidents(incidentsF.join())
+                .revenueByPaymentMethod(methodsF.join())
+                .revenueTrend(trendF.join())
                 .build();
     }
 
     private OccupancyStatsResponse buildOccupancyStats() {
-        List<ZoneSlotCount> zoneCounts = parkingSlotRepository.aggregateSlotCounts(null, null);
+        List<BuildingOccupancyCount> rows = parkingSlotRepository.aggregateOccupancyByBuilding();
 
         long total = 0;
         long available = 0;
         long occupied = 0;
         long reserved = 0;
         long pendingExit = 0;
+        List<BuildingOccupancyResponse> buildingList = new ArrayList<>(rows.size());
 
-        Map<String, BuildingOccupancyResponse.BuildingOccupancyResponseBuilder> buildingBuilders = new LinkedHashMap<>();
-        Map<String, long[]> buildingTallies = new LinkedHashMap<>(); // total, avail, occ, reserved, pending
+        for (BuildingOccupancyCount row : rows) {
+            long bTotal = row.getTotalSlots();
+            long bAvail = row.getAvailableSlots();
+            long bOcc = row.getOccupiedSlots();
+            long bRes = row.getReservedSlots();
+            long bPend = row.getPendingExitSlots();
 
-        for (ZoneSlotCount z : zoneCounts) {
-            long zTotal = nz(z.getTotalSlots());
-            long zAvail = nz(z.getAvailableSlots());
-            long zOcc = nz(z.getOccupiedSlots());
-            long zRes = nz(z.getReservedSlots());
-            long zPend = nz(z.getPendingExitSlots());
+            total += bTotal;
+            available += bAvail;
+            occupied += bOcc;
+            reserved += bRes;
+            pendingExit += bPend;
 
-            total += zTotal;
-            available += zAvail;
-            occupied += zOcc;
-            reserved += zRes;
-            pendingExit += zPend;
-
-            String bid = z.getBuildingId();
-            buildingTallies.computeIfAbsent(bid, id -> {
-                buildingBuilders.put(id, BuildingOccupancyResponse.builder()
-                        .buildingId(id)
-                        .buildingName(z.getBuildingName()));
-                return new long[5];
-            });
-            long[] t = buildingTallies.get(bid);
-            t[0] += zTotal;
-            t[1] += zAvail;
-            t[2] += zOcc;
-            t[3] += zRes;
-            t[4] += zPend;
-        }
-
-        // Buildings without slots still appear with zeros
-        for (Building b : buildingRepository.findAll()) {
-            buildingTallies.computeIfAbsent(b.getBuildingId(), id -> {
-                buildingBuilders.put(id, BuildingOccupancyResponse.builder()
-                        .buildingId(id)
-                        .buildingName(b.getBuildingName()));
-                return new long[5];
-            });
-        }
-
-        List<BuildingOccupancyResponse> buildingList = new ArrayList<>();
-        for (Map.Entry<String, long[]> e : buildingTallies.entrySet()) {
-            long[] t = e.getValue();
-            double bRate = t[0] > 0 ? Math.round((double) (t[2] + t[3]) / t[0] * 1000.0) / 10.0 : 0.0;
-            buildingList.add(buildingBuilders.get(e.getKey())
-                    .totalSlots(t[0])
-                    .availableSlots(t[1])
-                    .occupiedSlots(t[2])
-                    .reservedSlots(t[3])
-                    .pendingExitSlots(t[4])
+            double bRate = bTotal > 0
+                    ? Math.round((double) (bOcc + bRes) / bTotal * 1000.0) / 10.0
+                    : 0.0;
+            buildingList.add(BuildingOccupancyResponse.builder()
+                    .buildingId(row.getBuildingId())
+                    .buildingName(row.getBuildingName())
+                    .totalSlots(bTotal)
+                    .availableSlots(bAvail)
+                    .occupiedSlots(bOcc)
+                    .reservedSlots(bRes)
+                    .pendingExitSlots(bPend)
                     .occupancyRate(bRate)
                     .build());
         }
 
-        double rate = total > 0 ? Math.round((double) (occupied + reserved) / total * 1000.0) / 10.0 : 0.0;
+        double rate = total > 0
+                ? Math.round((double) (occupied + reserved) / total * 1000.0) / 10.0
+                : 0.0;
         return OccupancyStatsResponse.builder()
                 .totalSlots(total)
                 .availableSlots(available)
@@ -130,63 +151,82 @@ public class DashboardStatsService {
                 .build();
     }
 
-    private static long nz(Long value) {
-        return value != null ? value : 0L;
-    }
-
     private SessionStatsResponse buildSessionStats(LocalDateTime startOfToday, LocalDateTime endOfToday,
                                                     LocalDateTime startOfMonth, LocalDateTime now) {
-        long active = parkingSessionRepository.countBySessionStatus("ACTIVE");
-        long today = parkingSessionRepository.countSessionsInRange(startOfToday, endOfToday);
-        long thisMonth = parkingSessionRepository.countSessionsInRange(startOfMonth, now);
-        long guestToday = parkingSessionRepository.countGuestSessionsInRange(startOfToday, endOfToday);
-        Double avgDuration = parkingSessionRepository.avgDurationMinutesCompleted();
-        Double avgFeeRaw = parkingSessionRepository.avgFeeCompleted();
+        SessionDashboardStats counts = parkingSessionRepository.aggregateDashboardSessionCounts(
+                startOfToday, endOfToday, startOfMonth, now);
+        if (counts == null) {
+            counts = new SessionDashboardStats(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0.0, 0.0);
+        }
+
+        Double avgDuration = counts.getAvgDurationMinutes();
+        Double avgFeeRaw = counts.getAvgFee();
         BigDecimal avgFee = avgFeeRaw != null
                 ? BigDecimal.valueOf(avgFeeRaw).setScale(0, java.math.RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
+        long today = counts.getSessionsToday();
+        long guestToday = counts.getGuestSessionsToday();
+
         return SessionStatsResponse.builder()
-                .totalActiveSessions(active)
+                .totalActiveSessions(counts.getActiveSessions())
                 .sessionsToday(today)
-                .sessionsThisMonth(thisMonth)
+                .sessionsThisMonth(counts.getSessionsThisMonth())
                 .guestSessionsToday(guestToday)
                 .registeredSessionsToday(today - guestToday)
-                .totalGuestSessionsAllTime(parkingSessionRepository.countGuestSessionsAllTime())
-                .totalDriverSessionsAllTime(parkingSessionRepository.countDriverSessionsAllTime())
-                .activeGuestSessions(parkingSessionRepository.countActiveGuestSessions())
-                .activeDriverSessions(parkingSessionRepository.countActiveDriverSessions())
+                .totalGuestSessionsAllTime(counts.getGuestSessionsAllTime())
+                .totalDriverSessionsAllTime(counts.getDriverSessionsAllTime())
+                .activeGuestSessions(counts.getActiveGuestSessions())
+                .activeDriverSessions(counts.getActiveDriverSessions())
                 .avgDurationMinutes(avgDuration != null ? Math.round(avgDuration * 10.0) / 10.0 : 0.0)
                 .avgFee(avgFee)
                 .build();
     }
 
     private ReservationStatsResponse buildReservationStats(LocalDateTime startOfToday, LocalDateTime endOfToday) {
+        Map<String, Long> byStatus = new HashMap<>();
+        for (Object[] row : reservationRepository.countGroupedByReservationStatus()) {
+            if (row[0] != null) {
+                byStatus.put(String.valueOf(row[0]), row[1] instanceof Number n ? n.longValue() : 0L);
+            }
+        }
+
         return ReservationStatsResponse.builder()
-                .totalPending(reservationRepository.countByReservationStatus("PENDING"))
-                .totalApproved(reservationRepository.countByReservationStatus("APPROVED"))
-                .totalCompleted(reservationRepository.countByReservationStatus("COMPLETED"))
-                .totalCancelled(reservationRepository.countByReservationStatus("CANCELLED"))
-                .totalExpired(reservationRepository.countByReservationStatus("EXPIRED"))
+                .totalPending(byStatus.getOrDefault("PENDING", 0L))
+                .totalApproved(byStatus.getOrDefault("APPROVED", 0L))
+                .totalCompleted(byStatus.getOrDefault("COMPLETED", 0L))
+                .totalCancelled(byStatus.getOrDefault("CANCELLED", 0L))
+                .totalExpired(byStatus.getOrDefault("EXPIRED", 0L))
                 .totalToday(reservationRepository.countReservationsInRange(startOfToday, endOfToday))
                 .build();
     }
 
     private UserStatsResponse buildUserStats(LocalDateTime startOfMonth, LocalDateTime now) {
+        Map<String, Long> byRole = new HashMap<>();
+        for (Object[] row : userRepository.countActiveGroupedByRole()) {
+            if (row[0] != null) {
+                byRole.put(String.valueOf(row[0]), row[1] instanceof Number n ? n.longValue() : 0L);
+            }
+        }
+
         return UserStatsResponse.builder()
-                .totalDrivers(userRepository.countActiveByRole("ROLE_DRIVER"))
-                .totalStaff(userRepository.countActiveByRole("ROLE_STAFF"))
-                .totalManagers(userRepository.countActiveByRole("ROLE_MANAGER"))
+                .totalDrivers(byRole.getOrDefault("ROLE_DRIVER", 0L))
+                .totalStaff(byRole.getOrDefault("ROLE_STAFF", 0L))
+                .totalManagers(byRole.getOrDefault("ROLE_MANAGER", 0L))
                 .newUsersThisMonth(userRepository.countNewUsersInRange(startOfMonth, now))
                 .driversCurrentlyParked(parkingSessionRepository.countDistinctDriversCurrentlyParked())
                 .build();
     }
 
     private IncidentStatsResponse buildIncidentStats(LocalDateTime startOfMonth, LocalDateTime now) {
+        IncidentDashboardStats stats = incidentRepository.aggregateDashboardStats(startOfMonth, now);
+        if (stats == null) {
+            stats = new IncidentDashboardStats(0L, 0L, 0L);
+        }
         return IncidentStatsResponse.builder()
-                .totalOpen(incidentRepository.countByStatus("OPEN"))
-                .totalThisMonth(incidentRepository.countInRange(startOfMonth, now))
-                .totalAllTime(incidentRepository.count())
+                .totalOpen(stats.getOpenCount())
+                .totalThisMonth(stats.getThisMonthCount())
+                .totalAllTime(stats.getAllTimeCount())
                 .build();
     }
 
@@ -210,7 +250,6 @@ public class DashboardStatsService {
                     .build());
         }
 
-        // Fill all dates in range; days with no transactions get revenue = 0
         List<RevenueTrendItem> result = new ArrayList<>();
         LocalDate cursor = from.toLocalDate();
         LocalDate end = to.toLocalDate();
