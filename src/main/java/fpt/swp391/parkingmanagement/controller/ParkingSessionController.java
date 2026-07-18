@@ -89,7 +89,7 @@ public class ParkingSessionController {
             req.setNote(note);
             MultipartFile imageToUpload = checkinImage != null && !checkinImage.isEmpty()
                     ? checkinImage : plateImage;
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
+            req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(imageToUpload));
 
             QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
             return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));
@@ -105,7 +105,7 @@ public class ParkingSessionController {
         req.setNote(note);
         MultipartFile imageToUpload = checkinImage != null ? checkinImage : plateImage;
         if (imageToUpload != null && !imageToUpload.isEmpty()) {
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
+            req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(imageToUpload));
         }
         ParkingSessionResponse resp = parkingSessionService.checkin(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok("Check-in successful", resp));
@@ -167,7 +167,7 @@ public class ParkingSessionController {
         req.setTicketCode(ticketCode);
         req.setPaymentMethod(paymentMethod);
         if (checkoutImage != null && !checkoutImage.isEmpty()) {
-            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImage(checkoutImage));
+            req.setCheckoutVehicleImage(cloudinaryService.uploadParkingImage(checkoutImage));
         }
         return req;
     }

@@ -55,6 +55,12 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     @EntityGraph(attributePaths = {"vehicleType", "user"})
     List<Vehicle> findByUserUserIdOrderByCreatedAtDesc(String userId);
 
+    /**
+     * FIX N+1: Load vehicleType eagerly for plate lookup in checkin/checkout flows.
+     */
+    @Query("SELECT v FROM Vehicle v LEFT JOIN FETCH v.vehicleType WHERE v.plateNumber = :plateNumber")
+    Optional<Vehicle> findByPlateNumberGraph(@Param("plateNumber") String plateNumber);
+
     boolean existsByPlateNumber(String plateNumber);
 
     int countByUserUserId(String userId);
