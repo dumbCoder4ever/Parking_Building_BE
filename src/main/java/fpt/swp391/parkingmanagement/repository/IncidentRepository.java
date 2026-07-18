@@ -20,6 +20,18 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
 
     // ============ DASHBOARD STATS ============
 
+    @Query("""
+            SELECT new fpt.swp391.parkingmanagement.repository.IncidentDashboardStats(
+                COALESCE(SUM(CASE WHEN UPPER(i.status) = 'OPEN' THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN i.createdAt >= :from AND i.createdAt < :to THEN 1L ELSE 0L END), 0L),
+                COUNT(i)
+            )
+            FROM Incident i
+            """)
+    IncidentDashboardStats aggregateDashboardStats(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
     @Query("SELECT COUNT(i) FROM Incident i WHERE UPPER(i.status) = UPPER(:status)")
     long countByStatus(@Param("status") String status);
 

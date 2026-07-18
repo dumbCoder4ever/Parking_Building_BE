@@ -7,6 +7,7 @@ import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.BuildingRevenueProjection;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,7 @@ public class RevenueDashboardService {
     private final PaymentRepository paymentRepository;
     private final BuildingRepository buildingRepository;
 
+    @Cacheable(value = "revenueDashboard", key = "#from + '_' + #to")
     @Transactional(readOnly = true)
     public RevenueDashboardResponse getRevenueDashboard(LocalDateTime from, LocalDateTime to) {
         BigDecimal totalRevenue = paymentRepository.sumPaidRevenue(from, to);

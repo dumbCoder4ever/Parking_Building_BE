@@ -64,8 +64,8 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             SELECT COALESCE(SUM(p.amount), 0)
             FROM Payment p
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
-            AND (:from IS NULL OR p.paymentTime >= :from)
-            AND (:to IS NULL OR p.paymentTime <= :to)
+            AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
+            AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
             """)
     BigDecimal sumPaidRevenue(
             @Param("from") LocalDateTime from,
@@ -75,8 +75,8 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             SELECT COUNT(p)
             FROM Payment p
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
-            AND (:from IS NULL OR p.paymentTime >= :from)
-            AND (:to IS NULL OR p.paymentTime <= :to)
+            AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
+            AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
             """)
     long countPaidPayments(
             @Param("from") LocalDateTime from,
@@ -94,8 +94,8 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             JOIN z.floor f
             JOIN f.building b
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
-            AND (:from IS NULL OR p.paymentTime >= :from)
-            AND (:to IS NULL OR p.paymentTime <= :to)
+            AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
+            AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
             GROUP BY b.buildingId, b.buildingName
             ORDER BY SUM(p.amount) DESC
             """)
@@ -111,8 +111,8 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
                    COUNT(p.paymentId) AS count
             FROM Payment p
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
-            AND (:from IS NULL OR p.paymentTime >= :from)
-            AND (:to IS NULL OR p.paymentTime <= :to)
+            AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
+            AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
             GROUP BY p.paymentMethod
             ORDER BY SUM(p.amount) DESC
             """)
@@ -121,15 +121,15 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             @Param("to") LocalDateTime to);
 
     @Query(value = """
-            SELECT DATE(p.payment_time) AS date,
+            SELECT DATE(COALESCE(p.payment_time, p.created_at)) AS date,
                    COALESCE(SUM(p.amount), 0) AS revenue,
                    COUNT(p.payment_id) AS count
             FROM payments p
             WHERE UPPER(p.payment_status) IN ('PAID', 'CONFIRMED', 'SUCCESS')
-            AND p.payment_time >= :from
-            AND p.payment_time <= :to
-            GROUP BY DATE(p.payment_time)
-            ORDER BY DATE(p.payment_time) ASC
+            AND COALESCE(p.payment_time, p.created_at) >= :from
+            AND COALESCE(p.payment_time, p.created_at) <= :to
+            GROUP BY DATE(COALESCE(p.payment_time, p.created_at))
+            ORDER BY DATE(COALESCE(p.payment_time, p.created_at)) ASC
             """, nativeQuery = true)
     List<RevenueTrendProjection> getRevenueTrend(
             @Param("from") LocalDateTime from,

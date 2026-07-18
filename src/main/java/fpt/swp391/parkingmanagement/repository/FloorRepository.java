@@ -60,6 +60,19 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
             """)
     java.util.List<BuildingFloorStats> aggregateStatsByBuilding();
 
+    @Query("""
+            SELECT new fpt.swp391.parkingmanagement.repository.BuildingFloorStats(
+                f.building.buildingId,
+                COUNT(f),
+                COALESCE(SUM(f.maxCapacity), 0),
+                COALESCE(SUM(f.currentOccupancy), 0)
+            )
+            FROM Floor f
+            WHERE f.building.buildingId = :buildingId
+            GROUP BY f.building.buildingId
+            """)
+    java.util.Optional<BuildingFloorStats> aggregateStatsForBuilding(@Param("buildingId") String buildingId);
+
     /**
      * One round-trip for availability floor drill-down: floors + zones + slot counts.
      * Avoids EntityGraph + separate aggregate queries (critical on remote Railway MySQL).
