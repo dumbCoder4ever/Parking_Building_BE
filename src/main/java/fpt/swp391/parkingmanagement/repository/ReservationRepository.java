@@ -59,7 +59,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "JOIN FETCH s.zone z " +
            "JOIN FETCH z.floor f " +
            "JOIN FETCH f.building " +
-           "JOIN FETCH r.vehicle " +
+           "JOIN FETCH r.vehicle v " +
+           "JOIN FETCH v.vehicleType " +
            "JOIN FETCH r.user " +
            "WHERE r.user.userId = :userId " +
            "ORDER BY r.createdAt DESC")
@@ -119,6 +120,14 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "WHERE f.building.buildingId = :buildingId")
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findByBuildingBuildingIdOrderByCreatedAtDesc(@Param("buildingId") String buildingId);
+
+    @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId ORDER BY r.createdAt DESC",
+           countQuery = "SELECT COUNT(r) FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId")
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    org.springframework.data.domain.Page<Reservation> findByBuildingBuildingIdOrderByCreatedAtDesc(
+            @Param("buildingId") String buildingId, Pageable pageable);
 
     @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
            "WHERE f.building.buildingId = :buildingId AND r.reservationStatus = :status ORDER BY r.createdAt DESC",

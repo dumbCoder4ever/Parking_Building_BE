@@ -1,7 +1,7 @@
 # Parking Building Management System - Requirements & Main Flows
 
 > Tài liệu mô tả yêu cầu & luồng chính của hệ thống quản lý bãi đỗ xe.  
-> Cập nhật lần cuối: 2026-07-01
+> Cập nhật lần cuối: 2026-07-17
 
 ---
 
@@ -102,9 +102,12 @@ Mục tiêu: tối ưu phân bổ chỗ đỗ xe theo loại phương tiện tro
 
 ### FLOW 2 — STAFF XÁC NHẬN XE VÀO BÃI
 1. User đến bãi, đưa ticket/QR/biển số.
-2. Staff đối chiếu ticket, biển số, loại xe, màu xe.
-3. Nếu hợp lệ: tạo Parking Session, slot RESERVED → OCCUPIED, ghi checkin_time, slot, vehicle, staff.
-4. Nếu không hợp lệ: sai biển số / sai loại xe / quá giờ reservation → staff từ chối check-in.
+2. Staff có 2 cách tìm reservation:
+   - **Cách 1**: Quét/ nhập ticket code trực tiếp.
+   - **Cách 2**: Quét OCR biển số xe → gọi API `/api/staff/reservations/by-plate?plateNumber=XXX` → hệ thống tự tìm reservation PENDING/APPROVED của driver.
+3. Staff đối chiếu ticket, biển số, loại xe, màu xe.
+4. Nếu hợp lệ: tạo Parking Session, slot RESERVED → OCCUPIED, ghi checkin_time, checkin_vehicle_image, slot, vehicle, staff.
+5. Nếu không hợp lệ: sai biển số / sai loại xe / quá giờ reservation → staff từ chối check-in.
 
 ### FLOW 3 — AUTO CANCEL RESERVATION
 - User đặt 14:00, đến 14:30 vẫn chưa tới.
@@ -114,8 +117,8 @@ Mục tiêu: tối ưu phân bổ chỗ đỗ xe theo loại phương tiện tro
 1. User đưa ticket, staff tìm Parking Session.
 2. Kiểm tra session, vehicle, slot, thời gian gửi.
 3. Tính phí theo pricing policy: loại xe, số giờ, overtime, peak hour.
-4. Thanh toán: Payment CASH hoặc BANKING (VNPay/PayOS).
-5. Kết thúc session: checkout_time, total_fee, session_status = COMPLETED.
+4. Thanh toán: Payment CASH hoặc BANKING (VNPay/PayOS/MOMO).
+5. Kết thúc session: checkout_time, checkout_vehicle_image, total_fee, session_status = COMPLETED.
 6. Giải phóng slot: OCCUPIED → AVAILABLE.
 
 ### FLOW 5 — MANAGER QUẢN LÝ BÃI XE
@@ -128,6 +131,28 @@ Mục tiêu: tối ưu phân bổ chỗ đỗ xe theo loại phương tiện tro
 
 ### FLOW 6 — INCIDENT FLOW
 - Mất ticket, sai biển số, quá giờ, đỗ sai khu vực → tạo Incident.
+
+---
+
+## 7. IMAGE STORAGE
+
+### Cloudinary Integration
+Hệ thống sử dụng **Cloudinary** để lưu trữ hình ảnh check-in/checkout:
+
+| Image Type | DB Column | Description |
+|------------|-----------|-------------|
+| Check-in Vehicle Image | `checkin_vehicle_image` | Ảnh xe lúc vào bãi |
+| Checkout Vehicle Image | `checkout_vehicle_image` | Ảnh xe lúc ra bãi |
+
+**Flow upload ảnh:**
+1. Staff chụp ảnh xe khi vào/ra bãi
+2. Ảnh được upload lên Cloudinary qua API `/api/sessions/checkin` hoặc `/api/sessions/checkout`
+3. Cloudinary trả về URL, BE lưu vào DB (`checkin_vehicle_image` / `checkout_vehicle_image`)
+
+**API Endpoints liên quan:**
+- `POST /api/sessions/checkin` - Check-in kèm upload ảnh
+- `POST /api/sessions/checkout` - Check-out kèm upload ảnh
+- `GET /api/staff/reservations/by-plate?plateNumber=XXX` - Tìm reservation theo biển số (OCR)
 
 ---
 

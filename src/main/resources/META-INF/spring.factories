@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+  fpt.swp391.parkingmanagement.config.DotenvProcessor

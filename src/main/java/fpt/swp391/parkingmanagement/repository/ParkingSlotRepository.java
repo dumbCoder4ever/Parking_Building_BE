@@ -67,7 +67,9 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     /**
      * Tìm slot trống theo building + vehicleType (ưu tiên tầng thấp).
      * Dùng Pageable.ofSize(1) khi chỉ cần 1 slot để tránh load toàn bộ bảng.
+     * FIX N+1: Added EntityGraph to fetch zone->floor->building chain.
      */
+    @EntityGraph(attributePaths = {"zone.floor.building", "zone.floor.vehicleType"})
     @Query("SELECT ps FROM ParkingSlot ps " +
             "JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
             "WHERE b.buildingId = :buildingId " +

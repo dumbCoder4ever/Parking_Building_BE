@@ -69,11 +69,11 @@ public class ParkingSession {
     @Column(name = "guest_phone", length = 20)
     private String guestPhone;
 
-    @Column(name = "checkin_image_url")
-    private String checkinImageUrl;
+    @Column(name = "checkin_vehicle_image")
+    private String checkinVehicleImage;
 
-    @Column(name = "checkout_image_url")
-    private String checkoutImageUrl;
+    @Column(name = "checkout_vehicle_image")
+    private String checkoutVehicleImage;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
