@@ -198,6 +198,30 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     // ============ DASHBOARD STATS ============
 
+    /**
+     * One table scan for admin dashboard session counters + avg duration/fee.
+     */
+    @Query("""
+            SELECT new fpt.swp391.parkingmanagement.repository.SessionDashboardStats(
+                COALESCE(SUM(CASE WHEN ps.sessionStatus = 'ACTIVE' THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.checkinTime >= :startOfToday AND ps.checkinTime < :endOfToday THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.checkinTime >= :startOfMonth AND ps.checkinTime < :now THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NULL AND ps.checkinTime >= :startOfToday AND ps.checkinTime < :endOfToday THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NULL THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NOT NULL THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NOT NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') THEN 1L ELSE 0L END), 0L),
+                AVG(CASE WHEN ps.sessionStatus = 'COMPLETED' THEN ps.parkingDuration ELSE NULL END),
+                AVG(CASE WHEN ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0 THEN ps.totalFee ELSE NULL END)
+            )
+            FROM ParkingSession ps
+            """)
+    SessionDashboardStats aggregateDashboardSessionCounts(
+            @Param("startOfToday") LocalDateTime startOfToday,
+            @Param("endOfToday") LocalDateTime endOfToday,
+            @Param("startOfMonth") LocalDateTime startOfMonth,
+            @Param("now") LocalDateTime now);
+
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.sessionStatus = :status")
     long countBySessionStatus(@Param("status") String status);
 

@@ -209,6 +209,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
 
     // ============ DASHBOARD STATS ============
 
+    @Query("SELECT r.reservationStatus, COUNT(r) FROM Reservation r GROUP BY r.reservationStatus")
+    List<Object[]> countGroupedByReservationStatus();
+
     @Query("SELECT COUNT(r) FROM Reservation r WHERE r.reservationStatus = :status")
     long countByReservationStatus(@Param("status") String status);
 

@@ -37,6 +37,13 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     // ============ DASHBOARD STATS ============
 
+    @Query("""
+            SELECT u.role, COUNT(u) FROM User u
+            WHERE (u.isDeleted IS NULL OR u.isDeleted = false)
+            GROUP BY u.role
+            """)
+    List<Object[]> countActiveGroupedByRole();
+
     @Query("SELECT COUNT(u) FROM User u WHERE u.role = :role AND (u.isDeleted IS NULL OR u.isDeleted = false)")
     long countActiveByRole(@Param("role") String role);
 
