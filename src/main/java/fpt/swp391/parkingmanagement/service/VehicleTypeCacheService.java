@@ -22,12 +22,12 @@ public class VehicleTypeCacheService {
 
     private final VehicleTypeRepository vehicleTypeRepository;
 
-    @Cacheable(value = "vehicleTypes", key = "#vehicleTypeId", unless = "#result == null || !#result.isPresent()")
+    @Cacheable(value = "vehicleTypes", key = "#vehicleTypeId")
     public Optional<VehicleType> findById(String vehicleTypeId) {
         return vehicleTypeRepository.findById(vehicleTypeId);
     }
 
-    @Cacheable(value = "vehicleTypes", key = "'all'", unless = "#result == null || #result.isEmpty()")
+    @Cacheable(value = "vehicleTypes", key = "'all'")
     public List<VehicleType> findAll() {
         return vehicleTypeRepository.findAll();
     }
