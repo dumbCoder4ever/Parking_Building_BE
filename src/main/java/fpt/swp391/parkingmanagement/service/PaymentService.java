@@ -43,6 +43,7 @@ public class PaymentService {
     private final UserRepository userRepository;
     private final TicketRepository ticketRepository;
     private final NotificationService notificationService;
+    private final AuditLogService auditLogService;
 
     @Autowired
     private VnPayService vnPayService;
@@ -198,6 +199,16 @@ public class PaymentService {
             ));
         }
 
+        auditLogService.record(
+                "PAYMENT_PAID",
+                "PAYMENT",
+                updatedPayment.getPaymentId(),
+                resolveBuildingId(session),
+                "PENDING",
+                "PAID",
+                "Payment confirmed " + updatedPayment.getTransactionCode(),
+                null);
+
         return response;
     }
 
@@ -216,6 +227,16 @@ public class PaymentService {
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
         session.setPaymentStatus("FAILED");
         parkingSessionRepository.save(session);
+
+        auditLogService.record(
+                "PAYMENT_FAILED",
+                "PAYMENT",
+                updatedPayment.getPaymentId(),
+                resolveBuildingId(session),
+                "PENDING",
+                "FAILED",
+                "Payment failed: " + reason,
+                null);
 
         return PaymentResponseDTO.builder()
                 .paymentId(updatedPayment.getPaymentId())
@@ -288,5 +309,20 @@ public class PaymentService {
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .build();
+    }
+
+    private String resolveBuildingId(ParkingSession session) {
+        try {
+            if (session == null || session.getSlot() == null) {
+                return null;
+            }
+            var zone = session.getSlot().getZone();
+            if (zone == null || zone.getFloor() == null || zone.getFloor().getBuilding() == null) {
+                return null;
+            }
+            return zone.getFloor().getBuilding().getBuildingId();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

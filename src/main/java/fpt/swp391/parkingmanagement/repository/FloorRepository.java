@@ -16,6 +16,9 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
     @EntityGraph(attributePaths = {"building", "vehicleType"})
     List<Floor> findByBuildingBuildingIdOrderByFloorLevelAsc(String buildingId);
 
+    @EntityGraph(attributePaths = {"building"})
+    List<Floor> findByStatusIgnoreCase(String status);
+
     @EntityGraph(attributePaths = {"building", "vehicleType"})
     List<Floor> findByBuildingBuildingIdInOrderByFloorLevelAsc(Collection<String> buildingIds);
 

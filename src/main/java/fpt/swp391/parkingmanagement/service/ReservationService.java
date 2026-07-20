@@ -85,6 +85,10 @@ public class ReservationService {
     private final PricingPolicyRepository pricingPolicyRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final CloudinaryService cloudinaryService;
+    private final BuildingRuleService buildingRuleService;
+    private final PeakHourService peakHourService;
+    private final AuditLogService auditLogService;
+    private final SystemConfigService systemConfigService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -103,7 +107,11 @@ public class ReservationService {
             PricingService pricingService,
             PricingPolicyRepository pricingPolicyRepository,
             ParkingSessionRepository parkingSessionRepository,
-            CloudinaryService cloudinaryService) {
+            CloudinaryService cloudinaryService,
+            BuildingRuleService buildingRuleService,
+            PeakHourService peakHourService,
+            AuditLogService auditLogService,
+            SystemConfigService systemConfigService) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -120,6 +128,10 @@ public class ReservationService {
         this.pricingPolicyRepository = pricingPolicyRepository;
         this.parkingSessionRepository = parkingSessionRepository;
         this.cloudinaryService = cloudinaryService;
+        this.buildingRuleService = buildingRuleService;
+        this.peakHourService = peakHourService;
+        this.auditLogService = auditLogService;
+        this.systemConfigService = systemConfigService;
     }
 
     @Transactional(readOnly = true)
@@ -321,8 +333,10 @@ public class ReservationService {
             if (b.getOperatingStartTime() != null && b.getOperatingEndTime() != null) {
                 enr.operatingHoursDisplay = b.getOperatingStartTime() + " - " + b.getOperatingEndTime();
             }
+            enr.parkingRules = buildingRuleService.resolveParkingRulesText(b.getBuildingId());
+        } else {
+            enr.parkingRules = buildingRuleService.resolveParkingRulesText(null);
         }
-        enr.parkingRules = "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
 
         return enr;
     }
@@ -460,11 +474,17 @@ public class ReservationService {
     /**
      * Tìm reservation PENDING/APPROVED theo biển số xe.
      * Dùng khi staff check-in bằng OCR: nhận diện biển số → tìm reservation của driver.
+     * So khớp theo biển số đã chuẩn hóa (29D225555 == 29D2-25555).
      */
     @Transactional(readOnly = true)
     public List<ReservationResponse> findReservationsByPlateNumber(String staffEmail, String plateNumber) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
-        List<Reservation> reservations = reservationRepository.findPendingByPlateNumber(plateNumber.trim().toUpperCase());
+        String normalizedPlate = plateNumber == null ? ""
+                : plateNumber.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+        if (normalizedPlate.isBlank()) {
+            return List.of();
+        }
+        List<Reservation> reservations = reservationRepository.findPendingByNormalizedPlateNumber(normalizedPlate);
 
         // Filter chỉ lấy reservation thuộc building của staff
         List<Reservation> filtered = reservations.stream()
@@ -661,6 +681,21 @@ public class ReservationService {
             sendStatusChangeNotification(reservation, oldStatus, "CANCELLED");
         }
 
+        String buildingId = null;
+        if (slot != null && slot.getZone() != null && slot.getZone().getFloor() != null
+                && slot.getZone().getFloor().getBuilding() != null) {
+            buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
+        }
+        auditLogService.record(
+                "RESERVATION_CANCEL",
+                "RESERVATION",
+                reservation.getReservationId(),
+                buildingId,
+                oldStatus,
+                "CANCELLED",
+                reason,
+                null);
+
         log.info("RESERVATION CANCELLED: code={}, reason={}", reservation.getReservationCode(), reason);
         return response;
     }
@@ -673,6 +708,9 @@ public class ReservationService {
         Vehicle vehicle = resolveVehicle(email, user, req);
         ParkingSlot slot = findSlot(req.getSlotId());
         validateSlotSelection(slot, vehicle);
+
+        Building building = slot.getZone().getFloor().getBuilding();
+        buildingRuleService.validateForEntry(building, vehicle.getVehicleType(), req.getReservationStart());
 
         // Check if slot already has an active reservation
         var activeReservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
@@ -695,6 +733,8 @@ public class ReservationService {
         reservation.setUser(user);
         reservation.setVehicle(vehicle);
         reservation.setReservationStatus("PENDING");
+        reservation.setGracePeriodMinutes(
+                systemConfigService.getInt(SystemConfigService.GRACE_PERIOD_MINUTES, 15));
         reservation = reservationRepository.save(reservation);
 
         Ticket ticket = new Ticket();
@@ -706,9 +746,11 @@ public class ReservationService {
 
         // Get building name for notification
         String buildingName = "";
+        String buildingId = null;
         if (slot.getZone() != null && slot.getZone().getFloor() != null
                 && slot.getZone().getFloor().getBuilding() != null) {
             buildingName = slot.getZone().getFloor().getBuilding().getBuildingName();
+            buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
         }
         Integer gracePeriod = reservation.getGracePeriodMinutes() != null
                 ? reservation.getGracePeriodMinutes() : 15;
@@ -721,10 +763,17 @@ public class ReservationService {
                 "gracePeriodMinutes", gracePeriod
         ));
 
+        if (buildingId != null && peakHourService.isPeakHour(buildingId, req.getReservationStart())) {
+            notificationService.sendToUser(user.getUsername(), "PEAK_HOUR_WARN", Map.of(
+                    "buildingId", buildingId,
+                    "buildingName", buildingName,
+                    "reservationStart", req.getReservationStart().toString(),
+                    "message", "Building đang trong khung giờ cao điểm"
+            ));
+        }
+
         // Notify staff of the building about new reservation
-        if (slot.getZone() != null && slot.getZone().getFloor() != null
-                && slot.getZone().getFloor().getBuilding() != null) {
-            String buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
+        if (buildingId != null) {
             notificationService.sendToStaffBuilding(buildingId, "NEW_RESERVATION", Map.of(
                     "reservationCode", reservation.getReservationCode(),
                     "buildingName", buildingName,
@@ -732,6 +781,16 @@ public class ReservationService {
                     "plateNumber", vehicle.getPlateNumber()
             ));
         }
+
+        auditLogService.record(
+                "RESERVATION_CREATE",
+                "RESERVATION",
+                reservation.getReservationId(),
+                buildingId,
+                null,
+                "PENDING",
+                "Reservation created " + reservation.getReservationCode(),
+                null);
 
         log.info("RESERVATION CREATED: code={}, user={}, slot={}", reservation.getReservationCode(), email, slot.getSlotName());
         return response;
@@ -818,6 +877,19 @@ public class ReservationService {
                 parkingSlotRepository.save(slot);
 
                 sendAutoExpireNotification(reservation, "EXPIRED");
+                String buildingId = null;
+                if (slot.getZone() != null && slot.getZone().getFloor() != null
+                        && slot.getZone().getFloor().getBuilding() != null) {
+                    buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
+                }
+                auditLogService.recordSystem(
+                        "RESERVATION_EXPIRE",
+                        "RESERVATION",
+                        reservation.getReservationId(),
+                        buildingId,
+                        "PENDING",
+                        "EXPIRED",
+                        "Auto-expired reservation " + reservation.getReservationCode());
                 expiredCount++;
             }
         }

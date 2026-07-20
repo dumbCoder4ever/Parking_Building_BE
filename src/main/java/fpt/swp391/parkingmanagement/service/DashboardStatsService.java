@@ -46,8 +46,8 @@ public class DashboardStatsService {
         this.dashboardExecutor = dashboardExecutor;
     }
 
-    @Cacheable(value = "dashboardStats", key = "#fromDay + '_' + #toDay")
-    public DashboardStatsResponse getStats(LocalDate fromDay, LocalDate toDay) {
+    @Cacheable(value = "dashboardStats", key = "#fromDay + '_' + #toDay + '_' + (#buildingId ?: 'ALL')")
+    public DashboardStatsResponse getStats(LocalDate fromDay, LocalDate toDay, String buildingId) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime startOfToday = now.toLocalDate().atStartOfDay();
         LocalDateTime endOfToday = startOfToday.plusDays(1);
@@ -58,9 +58,11 @@ public class DashboardStatsService {
         LocalDateTime trendFrom = resolvedFrom.atStartOfDay();
         LocalDateTime trendTo = resolvedTo.atTime(23, 59, 59);
 
+        String scopedBuildingId = (buildingId == null || buildingId.isBlank()) ? null : buildingId.trim();
+
         // Parallel DB reads — remote MySQL RTT dominates; wall-clock ≈ max(query)
         CompletableFuture<OccupancyStatsResponse> occupancyF =
-                CompletableFuture.supplyAsync(this::buildOccupancyStats, dashboardExecutor);
+                CompletableFuture.supplyAsync(() -> buildOccupancyStats(scopedBuildingId), dashboardExecutor);
         CompletableFuture<SessionStatsResponse> sessionsF =
                 CompletableFuture.supplyAsync(
                         () -> buildSessionStats(startOfToday, endOfToday, startOfMonth, now),
@@ -99,8 +101,17 @@ public class DashboardStatsService {
                 .build();
     }
 
-    private OccupancyStatsResponse buildOccupancyStats() {
+    public DashboardStatsResponse getStats(LocalDate fromDay, LocalDate toDay) {
+        return getStats(fromDay, toDay, null);
+    }
+
+    private OccupancyStatsResponse buildOccupancyStats(String buildingId) {
         List<BuildingOccupancyCount> rows = parkingSlotRepository.aggregateOccupancyByBuilding();
+        if (buildingId != null) {
+            rows = rows.stream()
+                    .filter(r -> buildingId.equals(r.getBuildingId()))
+                    .collect(Collectors.toList());
+        }
 
         long total = 0;
         long available = 0;
@@ -149,6 +160,10 @@ public class DashboardStatsService {
                 .occupancyRate(rate)
                 .buildings(buildingList)
                 .build();
+    }
+
+    private OccupancyStatsResponse buildOccupancyStats() {
+        return buildOccupancyStats(null);
     }
 
     private SessionStatsResponse buildSessionStats(LocalDateTime startOfToday, LocalDateTime endOfToday,

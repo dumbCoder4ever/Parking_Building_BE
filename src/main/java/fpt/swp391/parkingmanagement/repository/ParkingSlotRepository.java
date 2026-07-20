@@ -55,6 +55,10 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
 
     List<ParkingSlot> findBySlotStatusIgnoreCase(String slotStatus);
 
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building"})
+    @Query("SELECT ps FROM ParkingSlot ps WHERE UPPER(ps.slotStatus) = UPPER(:status)")
+    List<ParkingSlot> findBySlotStatusIgnoreCaseFetchingBuilding(@Param("status") String status);
+
     @Query("SELECT COUNT(ps) FROM ParkingSlot ps WHERE UPPER(ps.slotStatus) = UPPER(:status)")
     long countBySlotStatus(@Param("status") String status);
 

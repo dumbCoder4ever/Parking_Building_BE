@@ -18,6 +18,9 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
     @Query("SELECT i FROM Incident i ORDER BY i.createdAt DESC")
     List<Incident> findAllFetchingDetails();
 
+    @EntityGraph(attributePaths = {"session", "session.ticket", "session.vehicle"})
+    List<Incident> findByCreatedAtBetweenOrderByCreatedAtDesc(LocalDateTime from, LocalDateTime to);
+
     // ============ DASHBOARD STATS ============
 
     @Query("""

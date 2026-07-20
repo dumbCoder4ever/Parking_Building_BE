@@ -291,4 +291,56 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     long countActiveDriverSessions();
+
+    /**
+     * Peak-hour analysis: check-in counts grouped by hour of day.
+     * When buildingId is null, aggregates all buildings.
+     */
+    @Query("""
+            SELECT HOUR(ps.checkinTime), COUNT(ps)
+            FROM ParkingSession ps
+            JOIN ps.slot s JOIN s.zone z JOIN z.floor f JOIN f.building b
+            WHERE ps.checkinTime >= :from AND ps.checkinTime <= :to
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            GROUP BY HOUR(ps.checkinTime)
+            """)
+    List<Object[]> countCheckinsByHour(
+            @Param("buildingId") String buildingId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /**
+     * Active sessions for scheduler jobs (overstay / payment reminder).
+     */
+    @Query("""
+            SELECT DISTINCT ps FROM ParkingSession ps
+            LEFT JOIN FETCH ps.slot s
+            LEFT JOIN FETCH s.zone z
+            LEFT JOIN FETCH z.floor f
+            LEFT JOIN FETCH f.building b
+            LEFT JOIN FETCH ps.vehicle v
+            LEFT JOIN FETCH ps.reservation r
+            LEFT JOIN FETCH r.user u
+            LEFT JOIN FETCH ps.ticket t
+            WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')
+              AND ps.checkinTime IS NOT NULL
+              AND ps.checkinTime <= :cutoff
+            """)
+    List<ParkingSession> findActiveSessionsCheckedInBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+            SELECT DISTINCT ps FROM ParkingSession ps
+            LEFT JOIN FETCH ps.slot s
+            LEFT JOIN FETCH s.zone z
+            LEFT JOIN FETCH z.floor f
+            LEFT JOIN FETCH f.building b
+            LEFT JOIN FETCH ps.vehicle v
+            LEFT JOIN FETCH ps.reservation r
+            LEFT JOIN FETCH r.user u
+            LEFT JOIN FETCH ps.ticket t
+            WHERE ps.sessionStatus = 'PENDING_PAYMENT'
+              AND ps.checkinTime IS NOT NULL
+              AND ps.checkinTime <= :cutoff
+            """)
+    List<ParkingSession> findPendingPaymentSessionsBefore(@Param("cutoff") LocalDateTime cutoff);
 }

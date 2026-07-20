@@ -17,6 +17,7 @@ import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.IncidentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import fpt.swp391.parkingmanagement.service.AuditLogService;
 import fpt.swp391.parkingmanagement.service.IncidentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class IncidentServiceImpl implements IncidentService {
     private final IncidentRepository incidentRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
 
     @Override
     @Transactional
@@ -82,6 +84,25 @@ public class IncidentServiceImpl implements IncidentService {
         incident.setStatus(normalized);
         Incident saved = incidentRepository.save(incident);
         log.info("Incident {} status -> {} by {}", incidentId, normalized, staffEmail);
+        String buildingId = null;
+        try {
+            if (saved.getSession() != null && saved.getSession().getSlot() != null
+                    && saved.getSession().getSlot().getZone() != null
+                    && saved.getSession().getSlot().getZone().getFloor() != null
+                    && saved.getSession().getSlot().getZone().getFloor().getBuilding() != null) {
+                buildingId = saved.getSession().getSlot().getZone().getFloor().getBuilding().getBuildingId();
+            }
+        } catch (Exception ignored) {
+        }
+        auditLogService.record(
+                "INCIDENT_STATUS_UPDATE",
+                "INCIDENT",
+                incidentId,
+                buildingId,
+                null,
+                normalized,
+                "Incident status updated by " + staffEmail,
+                null);
         return toResponse(saved);
     }
 
