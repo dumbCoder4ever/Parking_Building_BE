@@ -18,6 +18,9 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
     @EntityGraph(attributePaths = {"floor", "floor.building", "floor.vehicleType"})
     List<Zone> findByFloorFloorIdOrderByZoneNameAsc(String floorId);
 
+    @EntityGraph(attributePaths = {"floor", "floor.building"})
+    List<Zone> findByStatusIgnoreCase(String status);
+
     /**
      * Batch load zones for N floors in ONE query — replaces N x findByFloorFloorIdOrderByZoneNameAsc.
      * Used by BuildingService.listFloorsOfBuilding to eliminate N+1.
