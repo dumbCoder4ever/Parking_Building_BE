@@ -20,4 +20,10 @@ public class IncidentResponse {
     private String description;
     private String status;
     private LocalDateTime createdAt;
+    private String reporterId;
+    private String reportSource;
+    private String resolution;
+    private LocalDateTime resolvedAt;
+    private String resolvedBy;
+    private String resolutionAction;
 }
