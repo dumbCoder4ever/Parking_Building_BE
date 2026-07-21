@@ -141,21 +141,24 @@ POST /api/sessions/checkin (plateImage + buildingId)
 6. Occupancy detail reject nếu slot `AVAILABLE` hoặc `MAINTENANCE`.
 7. `force-reset`: mọi status ≠ AVAILABLE → `AVAILABLE` (không check session/reservation còn sống).
 8. Jobs: `SlotStatusSyncJob` (30s) orphan RESERVED/OCCUPIED → AVAILABLE; `AutoCancelReservationJob` (60s) hết grace → EXPIRED.
+9. **Cascade khi set `MAINTENANCE`:**
+   - Building → Floor + Zone + Slot(`AVAILABLE`)
+   - Floor → Zone + Slot(`AVAILABLE`)
+   - Zone → Slot(`AVAILABLE`)
+   - Slot `RESERVED`/`OCCUPIED`/`PENDING_EXIT` giữ nguyên; session vẫn checkout được.
+10. Set lại `ACTIVE`/`INACTIVE` **không** cascade ngược.
+11. **Auto Zone FULL:** hết slot `AVAILABLE` → zone `FULL`; có slot trống lại → `ACTIVE`. Bỏ qua zone `MAINTENANCE`/`INACTIVE`.
 
 ### Flow hiện tại
 ```
 Manager → PATCH Building/Floor/Zone = MAINTENANCE
-→ Availability / Reservation mới bị chặn theo filter
-→ Session đang gửi vẫn checkout/thanh toán bình thường
-→ (Không cascade tự đổi từng Slot)
+→ Cascade xuống các cấp con (Floor/Zone + Slot AVAILABLE)
+→ Availability / Reservation mới bị chặn
+→ Session đang chạy vẫn checkout/thanh toán bình thường
 ```
 
 ### Chưa có
-- API set Slot → `MAINTENANCE`
-- Cascade khi Building/Floor vào MAINTENANCE
-- Rule API chặn bảo trì khi đang RESERVED/OCCUPIED
-- Block check-in khi vừa set MAINTENANCE
-
+- Block check-in khi vừa set MAINTENANCE (session mới vào slot đang OCCUPIED vẫn OK; reservation mới đã bị filter)
 ---
 
 ## GIAI ĐOẠN 6 — MANAGER DASHBOARD
