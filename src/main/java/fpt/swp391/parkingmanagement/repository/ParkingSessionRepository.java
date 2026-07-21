@@ -291,4 +291,14 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     long countActiveDriverSessions();
+
+    // ============ INCIDENT AUTO-CREATE ============
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.slot.slotId = :slotId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    List<ParkingSession> findActiveSessionsBySlotId(@Param("slotId") String slotId);
+
+    @Query("SELECT ps.slot.slotId, COUNT(ps) FROM ParkingSession ps " +
+           "WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') " +
+           "GROUP BY ps.slot.slotId HAVING COUNT(ps) > 1")
+    List<Object[]> findSlotsWithMultipleActiveSessions();
 }

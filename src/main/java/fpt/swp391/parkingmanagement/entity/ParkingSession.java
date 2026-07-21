@@ -75,6 +75,9 @@ public class ParkingSession {
     @Column(name = "checkout_vehicle_image")
     private String checkoutVehicleImage;
 
+    @Column(name = "incident_authorized")
+    private Boolean incidentAuthorized;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     @ToString.Exclude
