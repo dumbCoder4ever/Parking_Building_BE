@@ -8,6 +8,7 @@ import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
+import fpt.swp391.parkingmanagement.service.ZoneStatusSyncService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -23,6 +24,7 @@ public class SlotStatusSyncJob {
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
     private final ParkingSessionRepository parkingSessionRepository;
+    private final ZoneStatusSyncService zoneStatusSyncService;
 
     private static final List<String> ACTIVE_RESERVATION_STATUSES = List.of("PENDING", "APPROVED");
 
@@ -69,6 +71,7 @@ public class SlotStatusSyncJob {
 
             if (!toFix.isEmpty()) {
                 parkingSlotRepository.saveAll(toFix);
+                zoneStatusSyncService.syncFromSlots(toFix);
                 log.info("SlotStatusSyncJob: Fixed {} orphaned slots", toFix.size());
             }
         } catch (Exception e) {

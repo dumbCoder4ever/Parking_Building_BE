@@ -77,6 +77,7 @@ public class ParkingSessionService {
     private final NotificationService notificationService;
     private final BuildingRuleService buildingRuleService;
     private final AuditLogService auditLogService;
+    private final ZoneStatusSyncService zoneStatusSyncService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
         String userId = userRepository.findByEmail(staffEmail)
@@ -189,8 +190,7 @@ public class ParkingSessionService {
         ticket.setStatus("USED");
         ticketRepository.save(ticket);
 
-        slot.setSlotStatus("OCCUPIED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "OCCUPIED");
 
         // Send checkin notification to driver
         User driver = reservation.getUser();
@@ -313,8 +313,7 @@ public class ParkingSessionService {
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
-            slot.setSlotStatus("AVAILABLE");
-            parkingSlotRepository.save(slot);
+            zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
         }
 
         CheckoutResponse resp = new CheckoutResponse();
@@ -559,8 +558,7 @@ public class ParkingSessionService {
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
-            slot.setSlotStatus("PENDING_EXIT");
-            parkingSlotRepository.save(slot);
+            zoneStatusSyncService.updateSlotStatus(slot, "PENDING_EXIT");
         }
 
         CheckoutResponse resp = new CheckoutResponse();
@@ -722,8 +720,7 @@ public class ParkingSessionService {
         saved.setTicket(savedTicket);
         saved = parkingSessionRepository.save(saved);
 
-        slot.setSlotStatus("OCCUPIED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "OCCUPIED");
 
         GuestCheckinResponse resp = new GuestCheckinResponse();
         resp.setSessionId(saved.getSessionId());
@@ -834,8 +831,7 @@ public class ParkingSessionService {
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
-            slot.setSlotStatus("AVAILABLE");
-            parkingSlotRepository.save(slot);
+            zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
         }
 
         CheckoutResponse resp = new CheckoutResponse();
@@ -963,8 +959,7 @@ public class ParkingSessionService {
         saved = parkingSessionRepository.save(saved);
 
         // 9. Cáº­p nháº­t slot
-        slot.setSlotStatus("OCCUPIED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "OCCUPIED");
 
         // 10. Build response
         GuestCheckinResponse resp = new GuestCheckinResponse();
@@ -1093,8 +1088,7 @@ public class ParkingSessionService {
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
-            slot.setSlotStatus("AVAILABLE");
-            parkingSlotRepository.save(slot);
+            zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
         }
 
         CheckoutResponse resp = new CheckoutResponse();
@@ -1625,8 +1619,7 @@ public class ParkingSessionService {
         reservationRepository.save(matched);
 
         // 10. Cáº­p nháº­t slot
-        slot.setSlotStatus("OCCUPIED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "OCCUPIED");
 
         // 11. Build response
         QuickCheckinResponse resp = new QuickCheckinResponse();
@@ -1764,8 +1757,7 @@ public class ParkingSessionService {
         saved = parkingSessionRepository.save(saved);
 
         // 9. Cáº­p nháº­t slot
-        slot.setSlotStatus("OCCUPIED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "OCCUPIED");
 
         // 10. Build response
         QuickCheckinResponse resp = new QuickCheckinResponse();

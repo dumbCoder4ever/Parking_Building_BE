@@ -74,7 +74,10 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateBuilding(buildingId, request)));
     }
 
-    @Operation(summary = "Update building status")
+    @Operation(
+            summary = "Update building status",
+            description = "Allowed: ACTIVE, INACTIVE, MAINTENANCE. "
+                    + "MAINTENANCE cascades to all floors, zones, and AVAILABLE slots under the building.")
     @PatchMapping("/buildings/{buildingId}/status")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateBuildingStatus(
             @PathVariable String buildingId,
@@ -122,7 +125,10 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateFloor(floorId, request)));
     }
 
-    @Operation(summary = "Update floor status")
+    @Operation(
+            summary = "Update floor status",
+            description = "Allowed: ACTIVE, INACTIVE, MAINTENANCE. "
+                    + "MAINTENANCE cascades to all zones and AVAILABLE slots under the floor.")
     @PatchMapping("/floors/{floorId}/status")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateFloorStatus(
             @PathVariable String floorId,
@@ -164,7 +170,10 @@ public class ManagerBuildingSetupController {
                 managerBuildingSetupService.updateZone(zoneId, request)));
     }
 
-    @Operation(summary = "Update zone status")
+    @Operation(
+            summary = "Update zone status",
+            description = "Allowed: ACTIVE, INACTIVE, FULL, MAINTENANCE. "
+                    + "MAINTENANCE cascades to AVAILABLE slots under the zone.")
     @PatchMapping("/zones/{zoneId}/status")
     public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateZoneStatus(
             @PathVariable String zoneId,
