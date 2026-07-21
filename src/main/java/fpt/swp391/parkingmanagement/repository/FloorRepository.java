@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -102,4 +103,24 @@ public interface FloorRepository extends JpaRepository<Floor, String> {
     List<FloorZoneAvailabilityRow> findFloorZoneAvailability(
             @Param("buildingId") String buildingId,
             @Param("vehicleTypeId") String vehicleTypeId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE floors f
+            SET f.status = :status, f.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE f.building_id = :buildingId
+            AND (f.status IS NULL OR UPPER(f.status) <> UPPER(:status))
+            """, nativeQuery = true)
+    int bulkUpdateStatusByBuildingId(
+            @Param("buildingId") String buildingId,
+            @Param("status") String status);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE floors f
+            SET f.status = 'ACTIVE', f.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE f.building_id = :buildingId
+            AND UPPER(f.status) IN ('MAINTENANCE', 'INACTIVE')
+            """, nativeQuery = true)
+    int bulkReopenClosedByBuildingId(@Param("buildingId") String buildingId);
 }
