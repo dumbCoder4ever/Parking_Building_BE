@@ -26,4 +26,7 @@ public class IncidentResponse {
     private LocalDateTime resolvedAt;
     private String resolvedBy;
     private String resolutionAction;
+    private String verificationResult;
+    private LocalDateTime verifiedAt;
+    private String verifiedBy;
 }
