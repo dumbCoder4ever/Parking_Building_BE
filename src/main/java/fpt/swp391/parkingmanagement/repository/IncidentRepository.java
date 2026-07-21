@@ -40,4 +40,20 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
 
     @Query("SELECT COUNT(i) FROM Incident i WHERE i.createdAt >= :from AND i.createdAt < :to")
     long countInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    // ============ DRIVER REPORTS ============
+
+    @EntityGraph(attributePaths = {"session", "session.ticket", "session.vehicle"})
+    List<Incident> findByReporterId(String reporterId);
+
+    @EntityGraph(attributePaths = {"session", "session.ticket", "session.vehicle"})
+    @Query("SELECT i FROM Incident i WHERE i.reportSource = 'DRIVER' ORDER BY i.createdAt DESC")
+    List<Incident> findAllDriverReports();
+
+    // ============ SLOT CONFLICT CHECK ============
+
+    @Query("SELECT i FROM Incident i WHERE i.session.slot.slotId = :slotId " +
+           "AND i.incidentType = 'SLOT_CONFLICT' " +
+           "AND i.status IN ('OPEN', 'IN_PROGRESS')")
+    List<Incident> findActiveSlotConflictBySlotId(@Param("slotId") String slotId);
 }
