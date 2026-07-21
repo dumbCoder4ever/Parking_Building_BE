@@ -89,6 +89,7 @@ public class ReservationService {
     private final PeakHourService peakHourService;
     private final AuditLogService auditLogService;
     private final SystemConfigService systemConfigService;
+    private final ZoneStatusSyncService zoneStatusSyncService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -111,7 +112,8 @@ public class ReservationService {
             BuildingRuleService buildingRuleService,
             PeakHourService peakHourService,
             AuditLogService auditLogService,
-            SystemConfigService systemConfigService) {
+            SystemConfigService systemConfigService,
+            ZoneStatusSyncService zoneStatusSyncService) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -132,6 +134,7 @@ public class ReservationService {
         this.peakHourService = peakHourService;
         this.auditLogService = auditLogService;
         this.systemConfigService = systemConfigService;
+        this.zoneStatusSyncService = zoneStatusSyncService;
     }
 
     @Transactional(readOnly = true)
@@ -670,8 +673,7 @@ public class ReservationService {
         // Giải phóng slot
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
-            slot.setSlotStatus("AVAILABLE");
-            parkingSlotRepository.save(slot);
+            zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
         }
 
         ReservationResponse response = toReservationResponse(reservation);
@@ -723,8 +725,7 @@ public class ReservationService {
         String vehicleTypeName = vehicle.getVehicleType().getTypeName();
         validateNoActiveReservationByVehicleType(user.getUserId(), vehicleTypeName);
 
-        slot.setSlotStatus("RESERVED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "RESERVED");
 
         Reservation reservation = new Reservation();
         reservation.setReservationCode("RS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
@@ -815,8 +816,7 @@ public class ReservationService {
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
             if ("CANCELLED".equals(normalizedStatus) || "EXPIRED".equals(normalizedStatus) || "COMPLETED".equals(normalizedStatus)) {
-                slot.setSlotStatus("AVAILABLE");
-                parkingSlotRepository.save(slot);
+                zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
             }
         }
 
@@ -873,8 +873,7 @@ public class ReservationService {
                 reservation.setNote("Auto-expired: driver did not check-in before grace period");
                 reservationRepository.save(reservation);
 
-                slot.setSlotStatus("AVAILABLE");
-                parkingSlotRepository.save(slot);
+                zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
 
                 sendAutoExpireNotification(reservation, "EXPIRED");
                 String buildingId = null;
