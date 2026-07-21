@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -49,4 +50,78 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
 
     @Query("SELECT z.floor.floorId, COUNT(z) FROM Zone z WHERE z.floor.building.buildingId = :buildingId GROUP BY z.floor.floorId")
     List<Object[]> countGroupedByFloorForBuilding(@Param("buildingId") String buildingId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE zones z
+            INNER JOIN floors f ON f.floor_id = z.floor_id
+            SET z.status = :status, z.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE f.building_id = :buildingId
+            AND (z.status IS NULL OR UPPER(z.status) <> UPPER(:status))
+            """, nativeQuery = true)
+    int bulkUpdateStatusByBuildingId(
+            @Param("buildingId") String buildingId,
+            @Param("status") String status);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE zones z
+            SET z.status = :status, z.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE z.floor_id = :floorId
+            AND (z.status IS NULL OR UPPER(z.status) <> UPPER(:status))
+            """, nativeQuery = true)
+    int bulkUpdateStatusByFloorId(
+            @Param("floorId") String floorId,
+            @Param("status") String status);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE zones z
+            INNER JOIN floors f ON f.floor_id = z.floor_id
+            SET z.status = 'ACTIVE', z.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE f.building_id = :buildingId
+            AND UPPER(z.status) IN ('MAINTENANCE', 'INACTIVE')
+            """, nativeQuery = true)
+    int bulkReopenClosedByBuildingId(@Param("buildingId") String buildingId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE zones z
+            SET z.status = 'ACTIVE', z.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE z.floor_id = :floorId
+            AND UPPER(z.status) IN ('MAINTENANCE', 'INACTIVE')
+            """, nativeQuery = true)
+    int bulkReopenClosedByFloorId(@Param("floorId") String floorId);
+
+    /**
+     * After reopening closed zones to ACTIVE: mark FULL when zone has slots but none AVAILABLE.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE zones z
+            INNER JOIN floors f ON f.floor_id = z.floor_id
+            SET z.status = 'FULL', z.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE f.building_id = :buildingId
+            AND UPPER(z.status) = 'ACTIVE'
+            AND EXISTS (SELECT 1 FROM parking_slots ps WHERE ps.zone_id = z.zone_id)
+            AND NOT EXISTS (
+                SELECT 1 FROM parking_slots ps
+                WHERE ps.zone_id = z.zone_id AND UPPER(ps.slot_status) = 'AVAILABLE'
+            )
+            """, nativeQuery = true)
+    int bulkMarkFullWhenNoAvailableByBuildingId(@Param("buildingId") String buildingId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE zones z
+            SET z.status = 'FULL', z.updated_at = CURRENT_TIMESTAMP(6)
+            WHERE z.floor_id = :floorId
+            AND UPPER(z.status) = 'ACTIVE'
+            AND EXISTS (SELECT 1 FROM parking_slots ps WHERE ps.zone_id = z.zone_id)
+            AND NOT EXISTS (
+                SELECT 1 FROM parking_slots ps
+                WHERE ps.zone_id = z.zone_id AND UPPER(ps.slot_status) = 'AVAILABLE'
+            )
+            """, nativeQuery = true)
+    int bulkMarkFullWhenNoAvailableByFloorId(@Param("floorId") String floorId);
 }
