@@ -166,6 +166,28 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             @Param("buildingId") String buildingId,
             @Param("vehicleTypeId") String vehicleTypeId);
 
+    /**
+     * Tim top 3 slot trong cho guest auto-assignment preview.
+     * Uu tien tang thap nhat truoc.
+     */
+    @EntityGraph(attributePaths = {"zone.floor.building", "zone.floor.vehicleType"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE b.buildingId = :buildingId " +
+            "AND vt.vehicleTypeId = :vehicleTypeId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "ORDER BY f.floorLevel ASC, ps.slotName ASC")
+    List<ParkingSlot> findTop3AvailableByBuildingAndVehicleType(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId,
+            org.springframework.data.domain.Pageable pageable);
+
+    default List<ParkingSlot> findTop3AvailableByBuildingAndVehicleType(
+            String buildingId, String vehicleTypeId) {
+        return findAvailableByBuildingAndVehicleType(
+                buildingId, vehicleTypeId, org.springframework.data.domain.PageRequest.of(0, 3));
+    }
+
     @Query("SELECT b.buildingId, COUNT(ps) FROM ParkingSlot ps " +
             "JOIN ps.zone z JOIN z.floor f JOIN f.building b " +
             "GROUP BY b.buildingId")

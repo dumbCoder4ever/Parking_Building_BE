@@ -32,6 +32,24 @@ public class Incident {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "reporter_id", length = 100)
+    private String reporterId;
+
+    @Column(name = "report_source", length = 20)
+    private String reportSource;
+
+    @Column(length = 500)
+    private String resolution;
+
+    @Column(name = "resolved_at")
+    private LocalDateTime resolvedAt;
+
+    @Column(name = "resolved_by", length = 100)
+    private String resolvedBy;
+
+    @Column(name = "resolution_action", length = 50)
+    private String resolutionAction;
+
     @PrePersist
     public void prePersist() {
         if (incidentId == null) incidentId = UUID.randomUUID().toString();
