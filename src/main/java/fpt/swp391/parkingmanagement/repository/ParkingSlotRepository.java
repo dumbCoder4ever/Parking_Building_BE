@@ -6,7 +6,6 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -201,64 +200,19 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     @Query("SELECT ps.zone.zoneId, COUNT(ps) FROM ParkingSlot ps WHERE ps.zone.floor.floorId = :floorId GROUP BY ps.zone.zoneId")
     List<Object[]> countGroupedByZoneForFloor(@Param("floorId") String floorId);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            UPDATE parking_slots ps
-            INNER JOIN zones z ON z.zone_id = ps.zone_id
-            INNER JOIN floors f ON f.floor_id = z.floor_id
-            SET ps.slot_status = 'MAINTENANCE', ps.updated_at = CURRENT_TIMESTAMP(6)
-            WHERE f.building_id = :buildingId
-            AND UPPER(ps.slot_status) = 'AVAILABLE'
-            """, nativeQuery = true)
-    int bulkAvailableToMaintenanceByBuildingId(@Param("buildingId") String buildingId);
-
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            UPDATE parking_slots ps
-            INNER JOIN zones z ON z.zone_id = ps.zone_id
-            SET ps.slot_status = 'MAINTENANCE', ps.updated_at = CURRENT_TIMESTAMP(6)
-            WHERE z.floor_id = :floorId
-            AND UPPER(ps.slot_status) = 'AVAILABLE'
-            """, nativeQuery = true)
-    int bulkAvailableToMaintenanceByFloorId(@Param("floorId") String floorId);
-
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            UPDATE parking_slots ps
-            SET ps.slot_status = 'MAINTENANCE', ps.updated_at = CURRENT_TIMESTAMP(6)
-            WHERE ps.zone_id = :zoneId
-            AND UPPER(ps.slot_status) = 'AVAILABLE'
-            """, nativeQuery = true)
-    int bulkAvailableToMaintenanceByZoneId(@Param("zoneId") String zoneId);
-
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            UPDATE parking_slots ps
-            INNER JOIN zones z ON z.zone_id = ps.zone_id
-            INNER JOIN floors f ON f.floor_id = z.floor_id
-            SET ps.slot_status = 'AVAILABLE', ps.updated_at = CURRENT_TIMESTAMP(6)
-            WHERE f.building_id = :buildingId
-            AND UPPER(ps.slot_status) = 'MAINTENANCE'
-            """, nativeQuery = true)
-    int bulkMaintenanceToAvailableByBuildingId(@Param("buildingId") String buildingId);
-
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            UPDATE parking_slots ps
-            INNER JOIN zones z ON z.zone_id = ps.zone_id
-            SET ps.slot_status = 'AVAILABLE', ps.updated_at = CURRENT_TIMESTAMP(6)
-            WHERE z.floor_id = :floorId
-            AND UPPER(ps.slot_status) = 'MAINTENANCE'
-            """, nativeQuery = true)
-    int bulkMaintenanceToAvailableByFloorId(@Param("floorId") String floorId);
-
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = """
-            UPDATE parking_slots ps
-            SET ps.slot_status = 'AVAILABLE', ps.updated_at = CURRENT_TIMESTAMP(6)
-            WHERE ps.zone_id = :zoneId
-            AND UPPER(ps.slot_status) = 'MAINTENANCE'
-            """, nativeQuery = true)
-    int bulkMaintenanceToAvailableByZoneId(@Param("zoneId") String zoneId);
+    /**
+     * Lay cac slot AVAILABLE trong cung floor, loai tru danh sach slot truyen vao.
+     * Dung trong incident DRIVER_SLOT_OCCUPIED de staff chi thay slot cung floor voi reservation moi nhat.
+     */
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f " +
+            "WHERE f.floorId = :floorId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "AND (:excludeSlotIds IS NULL OR ps.slotId NOT IN :excludeSlotIds) " +
+            "ORDER BY ps.slotName ASC")
+    List<ParkingSlot> findAvailableByFloorIdExcludingSlots(
+            @Param("floorId") String floorId,
+            @Param("excludeSlotIds") java.util.Collection<String> excludeSlotIds);
 
 }

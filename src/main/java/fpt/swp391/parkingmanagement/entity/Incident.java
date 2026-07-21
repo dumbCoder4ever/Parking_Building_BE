@@ -50,6 +50,26 @@ public class Incident {
     @Column(name = "resolution_action", length = 50)
     private String resolutionAction;
 
+    // Verification fields (for DRIVER_LOST_TICKET)
+    @Column(name = "verified_plate_number", length = 20)
+    private String verifiedPlateNumber;
+
+    @Column(name = "verified_ticket_code", length = 50)
+    private String verifiedTicketCode;
+
+    @Column(name = "verification_result", length = 20)
+    private String verificationResult;  // MATCH / MISMATCH / PENDING
+
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
+
+    @Column(name = "verified_by", length = 100)
+    private String verifiedBy;
+
+    // Workflow tracking
+    @Column(name = "previous_status", length = 20)
+    private String previousStatus;
+
     @PrePersist
     public void prePersist() {
         if (incidentId == null) incidentId = UUID.randomUUID().toString();
