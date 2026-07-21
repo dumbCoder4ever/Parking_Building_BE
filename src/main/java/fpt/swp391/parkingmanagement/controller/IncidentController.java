@@ -18,9 +18,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.dto.AvailableSlotResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentRequest;
 import fpt.swp391.parkingmanagement.dto.IncidentResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentUpdateRequest;
+import fpt.swp391.parkingmanagement.dto.LatestReservationResponse;
+import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckRequest;
+import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckResponse;
+import fpt.swp391.parkingmanagement.dto.VerifyVehicleRequest;
+import fpt.swp391.parkingmanagement.dto.VerifyVehicleResponse;
 import fpt.swp391.parkingmanagement.service.IncidentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -112,5 +118,65 @@ public class IncidentController {
     public ResponseEntity<ApiResponse<List<IncidentResponse>>> listAllDriverReports() {
         List<IncidentResponse> reports = incidentService.getAllDriverReports();
         return ResponseEntity.ok(ApiResponse.ok("All driver reports retrieved", reports));
+    }
+
+    // ======================== STAFF VERIFICATION & VALIDATION ENDPOINTS ========================
+
+    @PostMapping("/{incidentId}/verify-vehicle")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    @Operation(summary = "Verify vehicle ownership for DRIVER_LOST_TICKET incident",
+            description = "Staff nhap bien so va/hoac ma ve de xac minh nguoi dung co phai la chu xe hay khong")
+    public ResponseEntity<VerifyVehicleResponse> verifyVehicleOwnership(
+            Authentication auth,
+            @PathVariable String incidentId,
+            @RequestBody VerifyVehicleRequest request) {
+        VerifyVehicleResponse response = incidentService.verifyVehicleOwnership(
+                incidentId, request, auth.getName());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/validate-reassign")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    @Operation(summary = "Validate slot availability for reassignment",
+            description = "Kiem tra xem slot moi co the su dung de thay the hay khong")
+    public ResponseEntity<SlotAvailabilityCheckResponse> validateSlotReassignment(
+            Authentication auth,
+            @RequestParam String incidentId,
+            @RequestParam String newSlotId) {
+        SlotAvailabilityCheckResponse response = incidentService.checkSlotAvailabilityForReassignment(
+                incidentId, newSlotId);
+        return ResponseEntity.ok(response);
+    }
+
+    // ======================== STAFF EVIDENCE ENDPOINTS ========================
+
+    /**
+     * Lay reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua driver theo incident.
+     * Dung lam bang chung cho ca 4 flow incident (mat ve, sai phi, slot bi chiem, khong tim thay xe).
+     */
+    @GetMapping("/{incidentId}/latest-reservation")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    @Operation(summary = "Get driver's latest active reservation for an incident",
+            description = "Staff xem bang chung reservation moi nhat cua driver de cross-check voi incident report")
+    public ResponseEntity<ApiResponse<LatestReservationResponse>> getLatestReservation(
+            Authentication auth,
+            @PathVariable String incidentId) {
+        LatestReservationResponse response = incidentService.getLatestReservationForIncident(incidentId);
+        return ResponseEntity.ok(ApiResponse.ok("Latest reservation retrieved", response));
+    }
+
+    /**
+     * Lay danh sach slot AVAILABLE trong cung floor voi reservation moi nhat cua driver.
+     * Dung cho flow DRIVER_SLOT_OCCUPIED - staff chi reassign slot trong cung floor.
+     */
+    @GetMapping("/{incidentId}/available-slots-for-reassign")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    @Operation(summary = "Get available slots in driver's reserved floor for reassignment",
+            description = "Staff lay danh slot trong cung floor voi reservation moi nhat de reassign cho driver")
+    public ResponseEntity<ApiResponse<List<AvailableSlotResponse>>> getAvailableSlotsForReassign(
+            Authentication auth,
+            @PathVariable String incidentId) {
+        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign(incidentId);
+        return ResponseEntity.ok(ApiResponse.ok("Available slots retrieved", slots));
     }
 }

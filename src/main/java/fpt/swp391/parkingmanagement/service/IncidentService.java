@@ -2,9 +2,14 @@ package fpt.swp391.parkingmanagement.service;
 
 import java.util.List;
 
+import fpt.swp391.parkingmanagement.dto.AvailableSlotResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentRequest;
 import fpt.swp391.parkingmanagement.dto.IncidentResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentUpdateRequest;
+import fpt.swp391.parkingmanagement.dto.LatestReservationResponse;
+import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckResponse;
+import fpt.swp391.parkingmanagement.dto.VerifyVehicleRequest;
+import fpt.swp391.parkingmanagement.dto.VerifyVehicleResponse;
 
 public interface IncidentService {
     IncidentResponse createIncident(String staffEmail, IncidentRequest request);
@@ -28,4 +33,16 @@ public interface IncidentService {
     List<IncidentResponse> getDriverReports(String driverEmail);
 
     IncidentResponse createSystemIncident(String sessionId, String incidentType, String description);
+
+    // Vehicle verification for DRIVER_LOST_TICKET
+    VerifyVehicleResponse verifyVehicleOwnership(String incidentId, VerifyVehicleRequest request, String staffEmail);
+
+    // Slot availability check for reassignment
+    SlotAvailabilityCheckResponse checkSlotAvailabilityForReassignment(String incidentId, String newSlotId);
+
+    // Latest reservation evidence cho staff xem (4 flow incident)
+    LatestReservationResponse getLatestReservationForIncident(String incidentId);
+
+    // Danh sach slot trong cung floor voi reservation moi nhat (DRIVER_SLOT_OCCUPIED)
+    List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId);
 }

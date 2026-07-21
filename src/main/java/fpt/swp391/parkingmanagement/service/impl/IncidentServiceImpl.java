@@ -6,14 +6,20 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import fpt.swp391.parkingmanagement.dto.AvailableSlotResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentRequest;
 import fpt.swp391.parkingmanagement.dto.IncidentResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentUpdateRequest;
+import fpt.swp391.parkingmanagement.dto.LatestReservationResponse;
+import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckResponse;
+import fpt.swp391.parkingmanagement.dto.VerifyVehicleRequest;
+import fpt.swp391.parkingmanagement.dto.VerifyVehicleResponse;
 import fpt.swp391.parkingmanagement.entity.Incident;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
@@ -27,6 +33,7 @@ import fpt.swp391.parkingmanagement.service.IncidentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Service
@@ -34,6 +41,7 @@ import java.time.LocalDateTime;
 @Slf4j
 public class IncidentServiceImpl implements IncidentService {
 
+    // Resolution action constants
     public static final String RESOLUTION_ACTION_AUTHORIZE_CHECKOUT = "AUTHORIZE_CHECKOUT";
     public static final String RESOLUTION_ACTION_PROVIDE_VEHICLE_LOCATION = "PROVIDE_VEHICLE_LOCATION";
     public static final String RESOLUTION_ACTION_UPDATE_PAYMENT = "UPDATE_PAYMENT";
@@ -41,14 +49,20 @@ public class IncidentServiceImpl implements IncidentService {
     public static final String RESOLUTION_ACTION_REASSIGN_SLOT = "REASSIGN_SLOT";
     public static final String RESOLUTION_ACTION_NO_SLOT_AVAILABLE = "NO_SLOT_AVAILABLE";
 
+    // Active reservation statuses
+    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
+
     private static final Set<String> ALLOWED_INCIDENT_TYPES = Set.of(
             "LOST_TICKET", "PLATE_MISMATCH", "OVERTIME", "WRONG_ZONE", "UNPAID_EXIT", "OTHER",
             "SLOT_CONFLICT", "RESERVATION_NO_SHOW", "PAYMENT_EXCEPTION",
             "UNAUTHORIZED_PARKING", "MAINTENANCE_CONFLICT");
-    private static final Set<String> ALLOWED_STATUSES = Set.of("OPEN", "IN_PROGRESS", "PENDING", "RESOLVED", "CLOSED", "CANCELLED");
+
     private static final Set<String> DRIVER_REPORT_TYPES = Set.of(
             "DRIVER_LOST_TICKET", "DRIVER_CANNOT_FIND_VEHICLE",
             "DRIVER_INCORRECT_FEE", "DRIVER_SLOT_OCCUPIED");
+
+    // Max multiplier for adjusted payment (10x estimated fee)
+    private static final BigDecimal MAX_PAYMENT_MULTIPLIER = BigDecimal.TEN;
 
     private final IncidentRepository incidentRepository;
     private final ParkingSessionRepository parkingSessionRepository;
@@ -74,13 +88,12 @@ public class IncidentServiceImpl implements IncidentService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Parking session not found: " + request.getSessionId()));
 
-        User staff = userRepository.findByEmail(staffEmail).orElse(null);
-
         Incident incident = new Incident();
         incident.setSession(session);
         incident.setIncidentType(incidentType);
         incident.setDescription(request.getDescription());
         incident.setStatus("OPEN");
+        incident.setVerificationResult("PENDING");
 
         Incident saved = incidentRepository.save(incident);
         log.info("Incident created by staff {} for session {} type={}",
@@ -101,13 +114,19 @@ public class IncidentServiceImpl implements IncidentService {
             throw new BaseAPIException(ErrorCode.BAD_REQUEST, "status is required");
         }
         String normalized = status.trim().toUpperCase();
-        if (!ALLOWED_STATUSES.contains(normalized)) {
+        if (!isValidStatus(normalized)) {
             throw new BaseAPIException(ErrorCode.BAD_REQUEST,
-                    "Invalid status. Allowed: " + ALLOWED_STATUSES);
+                    "Invalid status. Allowed: OPEN, IN_PROGRESS, RESOLVED, CLOSED, CANCELLED");
         }
 
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        // Enforce workflow: OPEN -> IN_PROGRESS -> RESOLVED
+        validateStatusTransition(incident.getStatus(), normalized, incident.getIncidentType());
+
+        // Save previous status for tracking
+        incident.setPreviousStatus(incident.getStatus());
         incident.setStatus(normalized);
 
         if (request != null) {
@@ -126,6 +145,35 @@ public class IncidentServiceImpl implements IncidentService {
         return toResponse(saved);
     }
 
+    /**
+     * Validate status transition based on workflow rules.
+     * OPEN -> IN_PROGRESS (OK)
+     * IN_PROGRESS -> RESOLVED (OK)
+     * OPEN -> RESOLVED (NOT ALLOWED - must go through IN_PROGRESS)
+     * RESOLVED -> CLOSED (OK)
+     */
+    private void validateStatusTransition(String currentStatus, String newStatus, String incidentType) {
+        if ("OPEN".equals(currentStatus) && "RESOLVED".equals(newStatus)) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Must transition through IN_PROGRESS before RESOLVED. Please process the incident first.");
+        }
+
+        if ("CLOSED".equals(currentStatus) || "CANCELLED".equals(currentStatus)) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Cannot change status of a closed or cancelled incident.");
+        }
+    }
+
+    /**
+     * Check if status is valid.
+     */
+    private boolean isValidStatus(String status) {
+        return Set.of("OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED", "CANCELLED").contains(status);
+    }
+
+    /**
+     * Execute resolution action based on action type.
+     */
     private void executeResolutionAction(Incident incident, IncidentUpdateRequest request) {
         ParkingSession session = incident.getSession();
         String action = request.getResolutionAction();
@@ -140,6 +188,7 @@ public class IncidentServiceImpl implements IncidentService {
 
             case RESOLUTION_ACTION_UPDATE_PAYMENT:
                 if (session != null && request.getAdjustedAmount() != null) {
+                    validateAdjustedAmount(session, request.getAdjustedAmount());
                     session.setEstimatedFee(request.getAdjustedAmount());
                     session.setTotalFee(request.getAdjustedAmount());
                     parkingSessionRepository.save(session);
@@ -148,27 +197,125 @@ public class IncidentServiceImpl implements IncidentService {
 
             case RESOLUTION_ACTION_REASSIGN_SLOT:
                 if (session != null && request.getNewSlotId() != null) {
-                    ParkingSlot newSlot = parkingSlotRepository.findById(request.getNewSlotId())
-                            .orElseThrow(() -> new ResourceNotFoundException("Slot not found: " + request.getNewSlotId()));
-
-                    session.setSlot(newSlot);
-
-                    Reservation reservation = session.getReservation();
-                    if (reservation != null) {
-                        reservation.setSlot(newSlot);
-                        reservationRepository.save(reservation);
-                    }
-
-                    parkingSessionRepository.save(session);
+                    validateAndExecuteSlotReassignment(incident, session, request);
                 }
                 break;
 
             case RESOLUTION_ACTION_PROVIDE_VEHICLE_LOCATION:
-            case RESOLUTION_ACTION_REJECT:
-            case RESOLUTION_ACTION_NO_SLOT_AVAILABLE:
-            default:
+                // Just log - no special action needed
+                log.info("Providing vehicle location for incident {}", incident.getIncidentId());
                 break;
+
+            case RESOLUTION_ACTION_REJECT:
+                // Just log - incident will be marked as CANCELLED
+                log.info("Incident {} rejected by staff", incident.getIncidentId());
+                break;
+
+            case RESOLUTION_ACTION_NO_SLOT_AVAILABLE:
+                // Just log - staff indicates no slot available
+                log.info("No slot available for incident {}", incident.getIncidentId());
+                break;
+
+            default:
+                log.warn("Unknown resolution action: {}", action);
         }
+    }
+
+    /**
+     * Validate adjusted payment amount.
+     * - Amount must not be negative
+     * - Amount must not exceed 10x the estimated fee
+     */
+    private void validateAdjustedAmount(ParkingSession session, BigDecimal amount) {
+        if (amount.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Adjusted amount cannot be negative");
+        }
+
+        BigDecimal estimatedFee = session.getEstimatedFee();
+        if (estimatedFee == null) {
+            estimatedFee = BigDecimal.ZERO;
+        }
+
+        BigDecimal maxAllowed = estimatedFee.multiply(MAX_PAYMENT_MULTIPLIER);
+        if (amount.compareTo(maxAllowed) > 0) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Adjusted amount exceeds maximum allowed (" + maxAllowed + "). Please verify the amount.");
+        }
+    }
+
+    /**
+     * Validate and execute slot reassignment.
+     * - New slot must be AVAILABLE
+     * - New slot must not have active reservation
+     * - New slot must be in the same building (always)
+     * - New slot should be in the same floor as the driver's latest reservation (if available)
+     */
+    private void validateAndExecuteSlotReassignment(Incident incident, ParkingSession session, IncidentUpdateRequest request) {
+        ParkingSlot currentSlot = session.getSlot();
+        if (currentSlot == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Session does not have a slot assigned");
+        }
+
+        ParkingSlot newSlot = parkingSlotRepository.findById(request.getNewSlotId())
+                .orElseThrow(() -> new ResourceNotFoundException("Slot not found: " + request.getNewSlotId()));
+
+        // Validation 1: New slot must be AVAILABLE
+        if (!"AVAILABLE".equals(newSlot.getSlotStatus())) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Slot is not available. Current status: " + newSlot.getSlotStatus());
+        }
+
+        // Validation 2: New slot must not have active reservation
+        boolean hasActiveReservation = reservationRepository.existsActiveReservationBySlotId(newSlot.getSlotId());
+        if (hasActiveReservation) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Slot has an active reservation. Cannot reassign to this slot.");
+        }
+
+        // Validation 3: New slot must be in the same building
+        String oldBuildingId = currentSlot.getZone().getFloor().getBuilding().getBuildingId();
+        String newBuildingId = newSlot.getZone().getFloor().getBuilding().getBuildingId();
+        if (!oldBuildingId.equals(newBuildingId)) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Replacement slot must be in the same building. Current building: " + oldBuildingId);
+        }
+
+        // Validation 4 (NEW): New slot should be in the same floor as driver's latest reservation
+        // - If driver has an active reservation (PENDING/APPROVED/CHECKED_IN), the slot MUST be on that floor
+        // - If driver has no reservation, fall back to same-building rule only
+        String driverUserId = resolveDriverUserId(session);
+        if (driverUserId != null) {
+            reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId)
+                    .ifPresent(reservation -> {
+                        if (reservation.getSlot() != null
+                                && reservation.getSlot().getZone() != null
+                                && reservation.getSlot().getZone().getFloor() != null) {
+                            String reservationFloorId = reservation.getSlot().getZone().getFloor().getFloorId();
+                            String newSlotFloorId = newSlot.getZone().getFloor().getFloorId();
+                            if (!reservationFloorId.equals(newSlotFloorId)) {
+                                throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                                        "Replacement slot must be in the same floor as driver's reservation. "
+                                                + "Expected floorId: " + reservationFloorId
+                                                + ", new slot floorId: " + newSlotFloorId);
+                            }
+                        }
+                    });
+        }
+
+        // Execute reassignment
+        session.setSlot(newSlot);
+
+        Reservation reservation = session.getReservation();
+        if (reservation != null) {
+            reservation.setSlot(newSlot);
+            reservationRepository.save(reservation);
+        }
+
+        parkingSessionRepository.save(session);
+        log.info("Reassigned slot for session {} from {} to {}",
+                session.getSessionId(), currentSlot.getSlotId(), newSlot.getSlotId());
     }
 
     @Override
@@ -210,8 +357,137 @@ public class IncidentServiceImpl implements IncidentService {
     }
 
     /**
+     * Verify vehicle ownership for DRIVER_LOST_TICKET incident.
+     * Compares provided plate number and ticket code with session data.
+     */
+    @Transactional
+    public VerifyVehicleResponse verifyVehicleOwnership(String incidentId, VerifyVehicleRequest request, String staffEmail) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        // Only allow verification for DRIVER_LOST_TICKET incidents
+        if (!"DRIVER_LOST_TICKET".equals(incident.getIncidentType())) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Vehicle verification is only applicable for DRIVER_LOST_TICKET incidents");
+        }
+
+        ParkingSession session = incident.getSession();
+        if (session == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Incident does not have an associated session");
+        }
+
+        String sessionPlateNumber = null;
+        String sessionTicketCode = null;
+
+        if (session.getVehicle() != null) {
+            sessionPlateNumber = session.getVehicle().getPlateNumber();
+        }
+        if (session.getTicket() != null) {
+            sessionTicketCode = session.getTicket().getTicketCode();
+        }
+
+        String providedPlateNumber = request.getPlateNumber();
+        String providedTicketCode = request.getTicketCode();
+
+        // Perform verification
+        boolean plateMatch = sessionPlateNumber != null &&
+                sessionPlateNumber.equalsIgnoreCase(providedPlateNumber);
+        boolean ticketMatch = sessionTicketCode != null &&
+                sessionTicketCode.equalsIgnoreCase(providedTicketCode);
+
+        // Determine result
+        // If ticketCode is provided, both must match. Otherwise, only plate must match.
+        boolean overallMatch;
+        String resultMessage;
+
+        if (providedTicketCode != null && !providedTicketCode.isBlank()) {
+            overallMatch = plateMatch && ticketMatch;
+            resultMessage = overallMatch
+                    ? "Vehicle ownership verified successfully"
+                    : "Vehicle ownership verification failed: " +
+                      (plateMatch ? "" : "Ticket code does not match. ") +
+                      (!plateMatch ? "Plate number does not match." : "");
+        } else {
+            overallMatch = plateMatch;
+            resultMessage = overallMatch
+                    ? "Vehicle ownership verified successfully (plate number matches)"
+                    : "Vehicle ownership verification failed: Plate number does not match.";
+        }
+
+        String verificationResult = overallMatch ? "MATCH" : "MISMATCH";
+
+        // Update incident with verification result
+        incident.setVerifiedPlateNumber(providedPlateNumber);
+        incident.setVerifiedTicketCode(providedTicketCode);
+        incident.setVerificationResult(verificationResult);
+        incident.setVerifiedAt(LocalDateTime.now());
+        incident.setVerifiedBy(staffEmail);
+        incidentRepository.save(incident);
+
+        log.info("Vehicle verification for incident {}: {} (staff: {})",
+                incidentId, verificationResult, staffEmail);
+
+        return VerifyVehicleResponse.builder()
+                .incidentId(incidentId)
+                .verificationResult(verificationResult)
+                .sessionPlateNumber(sessionPlateNumber)
+                .sessionTicketCode(sessionTicketCode)
+                .providedPlateNumber(providedPlateNumber)
+                .providedTicketCode(providedTicketCode)
+                .message(resultMessage)
+                .build();
+    }
+
+    /**
+     * Check slot availability for reassignment.
+     * Validates that the slot is available and can be used as replacement.
+     */
+    @Transactional(readOnly = true)
+    public SlotAvailabilityCheckResponse checkSlotAvailabilityForReassignment(String incidentId, String newSlotId) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        ParkingSession session = incident.getSession();
+        if (session == null || session.getSlot() == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Incident session does not have a slot assigned");
+        }
+
+        ParkingSlot currentSlot = session.getSlot();
+        ParkingSlot newSlot = parkingSlotRepository.findById(newSlotId)
+                .orElseThrow(() -> new ResourceNotFoundException("Slot not found: " + newSlotId));
+
+        String currentBuildingId = currentSlot.getZone().getFloor().getBuilding().getBuildingId();
+        String newBuildingId = newSlot.getZone().getFloor().getBuilding().getBuildingId();
+        boolean isInSameBuilding = currentBuildingId.equals(newBuildingId);
+
+        boolean isAvailable = "AVAILABLE".equals(newSlot.getSlotStatus());
+        boolean hasActiveReservation = reservationRepository.existsActiveReservationBySlotId(newSlotId);
+
+        String message;
+        if (!isAvailable) {
+            message = "Slot is not available. Current status: " + newSlot.getSlotStatus();
+        } else if (hasActiveReservation) {
+            message = "Slot has an active reservation";
+        } else if (!isInSameBuilding) {
+            message = "Slot is in a different building";
+        } else {
+            message = "Slot is available for reassignment";
+        }
+
+        return SlotAvailabilityCheckResponse.builder()
+                .slotId(newSlotId)
+                .slotName(newSlot.getSlotName())
+                .isAvailable(isAvailable && !hasActiveReservation && isInSameBuilding)
+                .hasActiveReservation(hasActiveReservation)
+                .isInSameBuilding(isInSameBuilding)
+                .message(message)
+                .build();
+    }
+
+    /**
      * Tao incident tu he thong (auto-create).
-     * Dung trong IncidentAutoCreateJob.
      */
     @Transactional
     public IncidentResponse createSystemIncident(String sessionId, String incidentType, String description) {
@@ -230,6 +506,7 @@ public class IncidentServiceImpl implements IncidentService {
         incident.setDescription(description);
         incident.setStatus("OPEN");
         incident.setReportSource("SYSTEM");
+        incident.setVerificationResult("PENDING");
 
         Incident saved = incidentRepository.save(incident);
         log.info("System created incident {} for session {} type={}", saved.getIncidentId(), sessionId, incidentType);
@@ -262,6 +539,7 @@ public class IncidentServiceImpl implements IncidentService {
         incident.setStatus("OPEN");
         incident.setReportSource("DRIVER");
         incident.setReporterId(driverEmail);
+        incident.setVerificationResult("PENDING");
 
         Incident saved = incidentRepository.save(incident);
         log.info("Driver {} created report {} for session {} type={}", driverEmail, saved.getIncidentId(), request.getSessionId(), incidentType);
@@ -276,6 +554,166 @@ public class IncidentServiceImpl implements IncidentService {
         return incidentRepository.findByReporterId(driverEmail).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    /**
+     * Lay thong tin reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua driver theo incident.
+     * Dung lam bang chung cho 4 flow: mat ve, sai phi, slot bi chiem, khong tim thay xe.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public LatestReservationResponse getLatestReservationForIncident(String incidentId) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        ParkingSession session = incident.getSession();
+        if (session == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Incident does not have an associated session");
+        }
+
+        String driverUserId = resolveDriverUserId(session);
+        if (driverUserId == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Cannot resolve driver user for this session");
+        }
+
+        Reservation reservation = reservationRepository
+                .findFirstLatestActiveReservationByUserId(driverUserId)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
+                        "Driver has no active reservation. Cannot verify evidence."));
+
+        return toLatestReservationResponse(reservation);
+    }
+
+    /**
+     * Lay danh sach slot AVAILABLE trong cung floor voi reservation moi nhat cua driver.
+     * Dung cho DRIVER_SLOT_OCCUPIED: staff chi thay slot cung floor de khong di chuyen xe qua tang khac.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId) {
+        Incident incident = incidentRepository.findById(incidentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        ParkingSession session = incident.getSession();
+        if (session == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Incident does not have an associated session");
+        }
+
+        String driverUserId = resolveDriverUserId(session);
+        if (driverUserId == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Cannot resolve driver user for this session");
+        }
+
+        Reservation reservation = reservationRepository
+                .findFirstLatestActiveReservationByUserId(driverUserId)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
+                        "Driver has no active reservation. Cannot suggest slots."));
+
+        if (reservation.getSlot() == null
+                || reservation.getSlot().getZone() == null
+                || reservation.getSlot().getZone().getFloor() == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Latest reservation has no slot/floor assigned");
+        }
+
+        String floorId = reservation.getSlot().getZone().getFloor().getFloorId();
+
+        // Exclude current session slot to avoid picking the same slot
+        java.util.Collection<String> excludeIds = new java.util.ArrayList<>();
+        if (session.getSlot() != null && session.getSlot().getSlotId() != null) {
+            excludeIds.add(session.getSlot().getSlotId());
+        }
+
+        List<ParkingSlot> slots = parkingSlotRepository
+                .findAvailableByFloorIdExcludingSlots(floorId, excludeIds);
+
+        return slots.stream()
+                .map(s -> toAvailableSlotResponse(s, false))
+                .toList();
+    }
+
+    /**
+     * Resolve driver userId tu session (uu tien reservation gan nhat, neu khong co thi qua vehicle.user).
+     */
+    private String resolveDriverUserId(ParkingSession session) {
+        // 1. Uu tien reservation trong session neu co (CHECKED_IN reservation)
+        if (session.getReservation() != null
+                && session.getReservation().getUser() != null
+                && session.getReservation().getUser().getUserId() != null) {
+            return session.getReservation().getUser().getUserId();
+        }
+        // 2. Fall back qua vehicle owner
+        if (session.getVehicle() != null
+                && session.getVehicle().getUser() != null
+                && session.getVehicle().getUser().getUserId() != null) {
+            return session.getVehicle().getUser().getUserId();
+        }
+        return null;
+    }
+
+    private LatestReservationResponse toLatestReservationResponse(Reservation r) {
+        LatestReservationResponse.LatestReservationResponseBuilder b = LatestReservationResponse.builder()
+                .reservationId(r.getReservationId())
+                .reservationCode(r.getReservationCode())
+                .reservationStatus(r.getReservationStatus())
+                .reservationStart(r.getReservationStart())
+                .createdAt(r.getCreatedAt());
+
+        if (r.getSlot() != null) {
+            ParkingSlot s = r.getSlot();
+            b.slotId(s.getSlotId()).slotName(s.getSlotName());
+            if (s.getZone() != null) {
+                b.zoneId(s.getZone().getZoneId()).zoneName(s.getZone().getZoneName());
+                if (s.getZone().getFloor() != null) {
+                    Floor f = s.getZone().getFloor();
+                    b.floorId(f.getFloorId())
+                            .floorName(f.getFloorName())
+                            .floorLevel(f.getFloorLevel());
+                    if (f.getBuilding() != null) {
+                        b.buildingId(f.getBuilding().getBuildingId())
+                                .buildingName(f.getBuilding().getBuildingName());
+                    }
+                }
+            }
+        }
+        if (r.getVehicle() != null) {
+            b.vehicleId(r.getVehicle().getVehicleId())
+                    .vehiclePlate(r.getVehicle().getPlateNumber());
+            if (r.getVehicle().getVehicleType() != null) {
+                b.vehicleType(r.getVehicle().getVehicleType().getTypeName());
+            }
+        }
+        if (r.getUser() != null) {
+            b.driverUserId(r.getUser().getUserId())
+                    .driverEmail(r.getUser().getEmail())
+                    .driverFullName(r.getUser().getFullName());
+        }
+        return b.build();
+    }
+
+    private AvailableSlotResponse toAvailableSlotResponse(ParkingSlot s, boolean hasActiveReservation) {
+        AvailableSlotResponse.AvailableSlotResponseBuilder b = AvailableSlotResponse.builder()
+                .slotId(s.getSlotId())
+                .slotName(s.getSlotName())
+                .slotStatus(s.getSlotStatus())
+                .hasActiveReservation(hasActiveReservation);
+        if (s.getZone() != null) {
+            b.zoneId(s.getZone().getZoneId()).zoneName(s.getZone().getZoneName());
+            if (s.getZone().getFloor() != null) {
+                b.floorId(s.getZone().getFloor().getFloorId())
+                        .floorName(s.getZone().getFloor().getFloorName())
+                        .floorLevel(s.getZone().getFloor().getFloorLevel());
+                if (s.getZone().getFloor().getBuilding() != null) {
+                    b.buildingId(s.getZone().getFloor().getBuilding().getBuildingId())
+                            .buildingName(s.getZone().getFloor().getBuilding().getBuildingName());
+                }
+            }
+        }
+        return b.build();
     }
 
     private IncidentResponse toResponse(Incident incident) {
@@ -297,6 +735,9 @@ public class IncidentServiceImpl implements IncidentService {
                 .resolvedAt(incident.getResolvedAt())
                 .resolvedBy(incident.getResolvedBy())
                 .resolutionAction(incident.getResolutionAction())
+                .verificationResult(incident.getVerificationResult())
+                .verifiedAt(incident.getVerifiedAt())
+                .verifiedBy(incident.getVerifiedBy())
                 .build();
     }
 }
