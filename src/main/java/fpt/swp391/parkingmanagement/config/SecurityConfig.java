@@ -11,6 +11,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpMethod;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -65,6 +66,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/enums").permitAll()
                         .requestMatchers("/api/test/auth-check").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        // Driver/Staff can read building rules (read-only). Write ops remain manager-only.
+                        // Note: buildingId is a single path segment -> use '*' instead of '**' (Spring PathPattern rules).
+                        .requestMatchers(HttpMethod.GET, "/api/manager/buildings/*/rules")
+                        .hasAnyRole("DRIVER", "STAFF", "MANAGER", "ADMIN")
                         .requestMatchers(
                                 "/api/payments/vnpay/**",
                                 "/api/payments/payos/**"
