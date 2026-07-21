@@ -22,6 +22,7 @@ import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import fpt.swp391.parkingmanagement.service.AuditLogService;
 import fpt.swp391.parkingmanagement.service.IncidentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +55,7 @@ public class IncidentServiceImpl implements IncidentService {
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
 
     @Override
     @Transactional

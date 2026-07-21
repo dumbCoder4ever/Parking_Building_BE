@@ -11,9 +11,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.dto.BuildingRuleResponse;
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
 import fpt.swp391.parkingmanagement.dto.FloorDto;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
+import fpt.swp391.parkingmanagement.service.BuildingRuleService;
 import fpt.swp391.parkingmanagement.service.BuildingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -36,6 +38,7 @@ import lombok.RequiredArgsConstructor;
 public class BuildingController {
 
     private final BuildingService buildingService;
+    private final BuildingRuleService buildingRuleService;
 
     // =========================================================================
     // (1) List available buildings (minimal data, fast)
@@ -87,5 +90,20 @@ public class BuildingController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Building floors retrieved successfully",
                 buildingService.listFloorsOfBuilding(buildingId, vehicleTypeId)));
+    }
+
+    // =========================================================================
+    // (4) Building rules: read-only for drivers before reservation
+    // =========================================================================
+    @GetMapping("/buildings/{buildingId}/rules")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
+    @Operation(
+            summary = "List active building rules",
+            description = "Returns ACTIVE parking rules for a building. Drivers use this before creating a reservation; managers manage rules via /api/manager/buildings/{buildingId}/rules.")
+    public ResponseEntity<ApiResponse<List<BuildingRuleResponse>>> getActiveBuildingRules(
+            @Parameter(description = "Building id") @PathVariable String buildingId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Building rules retrieved successfully",
+                buildingRuleService.listActiveByBuilding(buildingId)));
     }
 }

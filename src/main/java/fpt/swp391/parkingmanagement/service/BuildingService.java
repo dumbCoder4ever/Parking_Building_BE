@@ -46,6 +46,7 @@ public class BuildingService {
     private final PricingService pricingService;
     private final PricingPolicyRepository pricingPolicyRepository;
     private final FloorRepository floorRepository;
+    private final BuildingRuleService buildingRuleService;
 
     public BuildingService(BuildingRepository buildingRepository,
                           ZoneRepository zoneRepository,
@@ -53,7 +54,8 @@ public class BuildingService {
                           ReservationRepository reservationRepository,
                           PricingService pricingService,
                           PricingPolicyRepository pricingPolicyRepository,
-                          FloorRepository floorRepository) {
+                          FloorRepository floorRepository,
+                          BuildingRuleService buildingRuleService) {
         this.buildingRepository = buildingRepository;
         this.zoneRepository = zoneRepository;
         this.parkingSlotRepository = parkingSlotRepository;
@@ -61,6 +63,7 @@ public class BuildingService {
         this.pricingService = pricingService;
         this.pricingPolicyRepository = pricingPolicyRepository;
         this.floorRepository = floorRepository;
+        this.buildingRuleService = buildingRuleService;
     }
 
     // =============================================================================
@@ -125,7 +128,7 @@ public class BuildingService {
                     .operatingStartTime(b.getOperatingStartTime())
                     .operatingEndTime(b.getOperatingEndTime())
                     .operatingHoursDisplay(operatingDisplay)
-                    .parkingRules("Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.")
+                    .parkingRules(buildingRuleService.resolveParkingRulesText(b.getBuildingId()))
                     .totalSlots(total)
                     .availableSlots(available)
                     .vehicleTypes(vehicleTypeNames)

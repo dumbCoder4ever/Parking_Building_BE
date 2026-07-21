@@ -54,6 +54,8 @@ public class ManagerBuildingSetupService {
 
     private static final Set<String> BUILDING_FLOOR_STATUSES = Set.of("ACTIVE", "INACTIVE", "MAINTENANCE");
     private static final Set<String> ZONE_STATUSES = Set.of("ACTIVE", "INACTIVE", "FULL", "MAINTENANCE");
+    private static final Set<String> SLOT_MANAGEABLE_STATUSES = Set.of("AVAILABLE", "MAINTENANCE");
+    private static final Set<String> SLOT_BLOCKED_FOR_MAINTENANCE = Set.of("RESERVED", "OCCUPIED", "PENDING_EXIT");
     private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "CHECKED_IN");
 
     private final BuildingRepository buildingRepository;
@@ -64,6 +66,7 @@ public class ManagerBuildingSetupService {
     private final ReservationRepository reservationRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final TicketRepository ticketRepository;
+    private final AuditLogService auditLogService;
 
     @Cacheable(value = "managerBuildings", key = "'all'")
     @Transactional(readOnly = true)
@@ -173,6 +176,43 @@ public class ManagerBuildingSetupService {
             @CacheEvict(value = "managerSlots", allEntries = true)
     })
     @Transactional
+    public ManagerSetupResponse updateSlotStatus(String slotId, String status) {
+        ParkingSlot slot = findSlot(slotId);
+        String normalized = validateSlotStatus(status);
+        String current = slot.getSlotStatus() == null ? "" : slot.getSlotStatus().trim().toUpperCase();
+
+        if ("MAINTENANCE".equals(normalized) && SLOT_BLOCKED_FOR_MAINTENANCE.contains(current)) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Cannot set MAINTENANCE while slot is " + current);
+        }
+        if (!SLOT_MANAGEABLE_STATUSES.contains(current) && !"MAINTENANCE".equals(current)
+                && "AVAILABLE".equals(normalized)) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Use force-reset for slots in " + current + " status");
+        }
+
+        slot.setSlotStatus(normalized);
+        ParkingSlot saved = parkingSlotRepository.save(slot);
+        String buildingId = resolveBuildingId(saved);
+        auditLogService.record(
+                "SLOT_STATUS_UPDATE",
+                "PARKING_SLOT",
+                saved.getSlotId(),
+                buildingId,
+                current,
+                normalized,
+                "Slot status updated",
+                null);
+        return toSlotResponse(saved);
+    }
+
+    @Caching(evict = {
+            @CacheEvict(value = "managerBuildings", allEntries = true),
+            @CacheEvict(value = "managerSlots", allEntries = true)
+    })
+    @Transactional
     public void forceResetSlotStatus(String slotId) {
         ParkingSlot slot = findSlot(slotId);
         String currentStatus = slot.getSlotStatus();
@@ -181,6 +221,15 @@ public class ManagerBuildingSetupService {
         }
         slot.setSlotStatus("AVAILABLE");
         parkingSlotRepository.save(slot);
+        auditLogService.record(
+                "SLOT_FORCE_RESET",
+                "PARKING_SLOT",
+                slot.getSlotId(),
+                resolveBuildingId(slot),
+                currentStatus,
+                "AVAILABLE",
+                "Slot force-reset to AVAILABLE",
+                null);
     }
 
     @Caching(evict = {
@@ -232,8 +281,20 @@ public class ManagerBuildingSetupService {
     @Transactional
     public ManagerSetupResponse updateBuildingStatus(String buildingId, String status) {
         Building building = findBuilding(buildingId);
-        building.setStatus(validateBuildingOrFloorStatus(status));
-        return toBuildingDetail(buildingRepository.save(building));
+        String oldStatus = building.getStatus();
+        String normalized = validateBuildingOrFloorStatus(status);
+        building.setStatus(normalized);
+        Building saved = buildingRepository.save(building);
+        auditLogService.record(
+                "BUILDING_STATUS_UPDATE",
+                "BUILDING",
+                buildingId,
+                buildingId,
+                oldStatus,
+                normalized,
+                "Building status updated",
+                null);
+        return toBuildingDetail(saved);
     }
 
     @Caching(evict = {
@@ -306,8 +367,21 @@ public class ManagerBuildingSetupService {
     @Transactional
     public ManagerSetupResponse updateFloorStatus(String floorId, String status) {
         Floor floor = findFloor(floorId);
-        floor.setStatus(validateBuildingOrFloorStatus(status));
-        return toFloorResponse(floorRepository.save(floor));
+        String oldStatus = floor.getStatus();
+        String normalized = validateBuildingOrFloorStatus(status);
+        floor.setStatus(normalized);
+        Floor saved = floorRepository.save(floor);
+        String buildingId = saved.getBuilding() != null ? saved.getBuilding().getBuildingId() : null;
+        auditLogService.record(
+                "FLOOR_STATUS_UPDATE",
+                "FLOOR",
+                floorId,
+                buildingId,
+                oldStatus,
+                normalized,
+                "Floor status updated",
+                null);
+        return toFloorResponse(saved);
     }
 
     @Caching(evict = {
@@ -402,8 +476,24 @@ public class ManagerBuildingSetupService {
     @Transactional
     public ManagerSetupResponse updateZoneStatus(String zoneId, String status) {
         Zone zone = findZone(zoneId);
-        zone.setStatus(validateZoneStatus(status));
-        return toZoneResponse(zoneRepository.save(zone));
+        String oldStatus = zone.getStatus();
+        String normalized = validateZoneStatus(status);
+        zone.setStatus(normalized);
+        Zone saved = zoneRepository.save(zone);
+        String buildingId = null;
+        if (saved.getFloor() != null && saved.getFloor().getBuilding() != null) {
+            buildingId = saved.getFloor().getBuilding().getBuildingId();
+        }
+        auditLogService.record(
+                "ZONE_STATUS_UPDATE",
+                "ZONE",
+                zoneId,
+                buildingId,
+                oldStatus,
+                normalized,
+                "Zone status updated",
+                null);
+        return toZoneResponse(saved);
     }
 
     private Building findBuilding(String buildingId) {
@@ -566,6 +656,24 @@ public class ManagerBuildingSetupService {
             throw new RuntimeException("Invalid status. Allowed values: ACTIVE, INACTIVE, FULL, MAINTENANCE");
         }
         return normalized;
+    }
+
+    private String validateSlotStatus(String status) {
+        String normalized = status == null ? null : status.trim().toUpperCase();
+        if (normalized == null || !SLOT_MANAGEABLE_STATUSES.contains(normalized)) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Invalid slot status. Allowed values: AVAILABLE, MAINTENANCE");
+        }
+        return normalized;
+    }
+
+    private String resolveBuildingId(ParkingSlot slot) {
+        if (slot == null || slot.getZone() == null || slot.getZone().getFloor() == null
+                || slot.getZone().getFloor().getBuilding() == null) {
+            return null;
+        }
+        return slot.getZone().getFloor().getBuilding().getBuildingId();
     }
 
     private ManagerSetupResponse toBuildingSummary(Building building) {
