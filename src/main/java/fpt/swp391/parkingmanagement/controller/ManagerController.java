@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.controller;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -17,13 +18,19 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.dto.DashboardStatsResponse;
 import fpt.swp391.parkingmanagement.dto.DriverSummaryResponse;
+import fpt.swp391.parkingmanagement.dto.PeakHourAnalysisResponse;
 import fpt.swp391.parkingmanagement.dto.RevenueDashboardResponse;
+import fpt.swp391.parkingmanagement.dto.SlotSuggestionResponse;
 import fpt.swp391.parkingmanagement.dto.TransferVehicleOwnerRequest;
 import fpt.swp391.parkingmanagement.dto.UpdateVehicleStatusRequest;
 import fpt.swp391.parkingmanagement.dto.VehicleResponse;
+import fpt.swp391.parkingmanagement.service.DashboardStatsService;
 import fpt.swp391.parkingmanagement.service.ManagerDriverService;
+import fpt.swp391.parkingmanagement.service.PeakHourService;
 import fpt.swp391.parkingmanagement.service.RevenueDashboardService;
+import fpt.swp391.parkingmanagement.service.SlotSuggestionService;
 import fpt.swp391.parkingmanagement.service.VehicleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,6 +46,9 @@ public class ManagerController {
     private final ManagerDriverService managerDriverService;
     private final VehicleService vehicleService;
     private final RevenueDashboardService revenueDashboardService;
+    private final DashboardStatsService dashboardStatsService;
+    private final PeakHourService peakHourService;
+    private final SlotSuggestionService slotSuggestionService;
 
     @Operation(summary = "Get all drivers", description = "Returns drivers for manager to select and view their vehicles.")
     @GetMapping("/drivers")
@@ -131,6 +141,44 @@ public class ManagerController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Revenue dashboard retrieved successfully",
                 revenueDashboardService.getRevenueDashboard(from, to)));
+    }
+
+    @Operation(
+            summary = "Manager dashboard stats",
+            description = "Occupancy, sessions, reservations, users, incidents, revenue trend. "
+                    + "Optional buildingId filters occupancy to that building.")
+    @GetMapping("/dashboard/stats")
+    public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboardStats(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDay,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDay,
+            @RequestParam(required = false) String buildingId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Dashboard stats retrieved successfully",
+                dashboardStatsService.getStats(fromDay, toDay, buildingId)));
+    }
+
+    @Operation(summary = "Peak hour analysis", description = "Hourly check-in distribution and peak hours.")
+    @GetMapping("/dashboard/peak-hours")
+    public ResponseEntity<ApiResponse<PeakHourAnalysisResponse>> getPeakHours(
+            @RequestParam(required = false) String buildingId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDay,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDay) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Peak hour analysis retrieved successfully",
+                peakHourService.analyze(buildingId, fromDay, toDay)));
+    }
+
+    @Operation(
+            summary = "Heuristic slot suggestions",
+            description = "Suggest available slots by lower floor and lower zone occupancy.")
+    @GetMapping("/analytics/slot-suggestion")
+    public ResponseEntity<ApiResponse<List<SlotSuggestionResponse>>> suggestSlots(
+            @RequestParam String buildingId,
+            @RequestParam String vehicleTypeId,
+            @RequestParam(defaultValue = "5") int limit) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Slot suggestions retrieved successfully",
+                slotSuggestionService.suggest(buildingId, vehicleTypeId, limit)));
     }
 
 }

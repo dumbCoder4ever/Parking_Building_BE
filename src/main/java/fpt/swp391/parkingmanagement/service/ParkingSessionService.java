@@ -75,6 +75,8 @@ public class ParkingSessionService {
     private final VehicleTypeRepository vehicleTypeRepository;
     private final PlateRecognizerService ocrService;
     private final NotificationService notificationService;
+    private final BuildingRuleService buildingRuleService;
+    private final AuditLogService auditLogService;
 
     private void checkStaffBuildingAssignment(String staffEmail, String buildingId) {
         String userId = userRepository.findByEmail(staffEmail)
@@ -86,6 +88,10 @@ public class ParkingSessionService {
     }
 
     private String resolveBuildingId(ParkingSlot slot) {
+        return resolveBuilding(slot).getBuildingId();
+    }
+
+    private Building resolveBuilding(ParkingSlot slot) {
         if (slot == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND);
         Zone zone = slot.getZone();
         if (zone == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND, "Slot has no zone");
@@ -93,7 +99,7 @@ public class ParkingSessionService {
         if (floor == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND, "Zone has no floor");
         Building building = floor.getBuilding();
         if (building == null) throw new BaseAPIException(ErrorCode.SLOT_NOT_FOUND, "Floor has no building");
-        return building.getBuildingId();
+        return building;
     }
 
     @Transactional
@@ -119,12 +125,13 @@ public class ParkingSessionService {
         System.out.println("[DEBUG-6b654b] Reservation: " + reservation.getReservationId() + ", status: " + reservation.getReservationStatus());
 
         String resStatus = reservation.getReservationStatus();
-        if (!"PENDING".equalsIgnoreCase(resStatus)) {
+        if (!isCheckinEligibleStatus(resStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED);
         }
 
-        if (req.getPlateNumber() != null && reservation.getVehicle() != null) {
-            if (!req.getPlateNumber().equalsIgnoreCase(reservation.getVehicle().getPlateNumber())) {
+        if (req.getPlateNumber() != null && reservation.getVehicle() != null
+                && reservation.getVehicle().getPlateNumber() != null) {
+            if (!platesMatch(req.getPlateNumber(), reservation.getVehicle().getPlateNumber())) {
                 throw new BaseAPIException(ErrorCode.PLATE_NUMBER_MISMATCH);
             }
         }
@@ -217,6 +224,16 @@ public class ParkingSessionService {
         }
         applyHierarchy(resp, slot);
 
+        auditLogService.record(
+                "CHECKIN",
+                "PARKING_SESSION",
+                saved.getSessionId(),
+                buildingId,
+                null,
+                "PENDING_PAYMENT",
+                "Driver check-in ticket " + ticket.getTicketCode(),
+                null);
+
         return resp;
     }
 
@@ -241,7 +258,7 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
         long minutes = calculateParkingMinutes(session, now);
-        int hours = (int) Math.ceil(minutes / 60.0);
+        int hours = Math.max(1, (int) Math.ceil(minutes / 60.0));
 
         BigDecimal total = BigDecimal.ZERO;
         PricingPolicy policy = null;
@@ -336,6 +353,16 @@ public class ParkingSessionService {
             ));
         }
 
+        auditLogService.record(
+                "CHECKOUT",
+                "PARKING_SESSION",
+                saved.getSessionId(),
+                buildingId,
+                "ACTIVE",
+                "COMPLETED",
+                "Checkout completed, fee=" + total,
+                null);
+
         return resp;
     }
 
@@ -351,7 +378,7 @@ public class ParkingSessionService {
 
         LocalDateTime now = LocalDateTime.now();
         long minutes = calculateParkingMinutes(session, now);
-        int hours = (int) Math.ceil(minutes / 60.0);
+        int hours = Math.max(1, (int) Math.ceil(minutes / 60.0));
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
@@ -468,7 +495,7 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
         long minutes = calculateParkingMinutes(session, now);
-        int hours = (int) Math.ceil(minutes / 60.0);
+        int hours = Math.max(1, (int) Math.ceil(minutes / 60.0));
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
@@ -629,6 +656,7 @@ public class ParkingSessionService {
     public GuestCheckinResponse guestCheckin(String staffEmail, GuestCheckinRequest req) {
         String plateNumber = req.getPlateNumber().toUpperCase();
 
+        assertNoActiveReservationForPlate(plateNumber);
         validateNoActiveSessionForPlate(plateNumber);
 
         ParkingSlot slot = parkingSlotRepository.findBySlotId(req.getSlotId())
@@ -642,9 +670,11 @@ public class ParkingSessionService {
         checkStaffBuildingAssignment(staffEmail, buildingId);
 
         VehicleType vehicleType = resolveVehicleTypeFromSlot(slot);
+        Building building = resolveBuilding(slot);
+        buildingRuleService.validateForEntry(building, vehicleType, LocalDateTime.now());
 
-        // FIX N+1: Use graph query to load vehicle with vehicleType
-        Vehicle vehicle = vehicleRepository.findByPlateNumberGraph(plateNumber)
+        // FIX N+1: fuzzy plate lookup để không tạo vehicle trùng khi format biển số khác nhau
+        Vehicle vehicle = resolveVehicleByPlate(plateNumber)
                 .orElseGet(() -> {
                     Vehicle v = new Vehicle();
                     v.setPlateNumber(plateNumber);
@@ -710,6 +740,16 @@ public class ParkingSessionService {
         resp.setHourlyRate(hourlyRate);
         applyHierarchyGuest(resp, slot);
 
+        auditLogService.record(
+                "GUEST_CHECKIN",
+                "PARKING_SESSION",
+                saved.getSessionId(),
+                buildingId,
+                null,
+                "PENDING_PAYMENT",
+                "Guest check-in plate " + vehicle.getPlateNumber(),
+                null);
+
         return resp;
     }
 
@@ -743,7 +783,7 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
         long minutes = calculateParkingMinutes(session, now);
-        int hours = (int) Math.ceil(minutes / 60.0);
+        int hours = Math.max(1, (int) Math.ceil(minutes / 60.0));
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
@@ -1005,7 +1045,7 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.CHECKIN_TIME_MISSING);
         }
         long minutes = calculateParkingMinutes(session, now);
-        int hours = (int) Math.ceil(minutes / 60.0);
+        int hours = Math.max(1, (int) Math.ceil(minutes / 60.0));
 
         PricingPolicy policy = null;
         BigDecimal total = BigDecimal.ZERO;
@@ -1269,6 +1309,35 @@ public class ParkingSessionService {
         return plateNumber.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
     }
 
+    private boolean platesMatch(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return normalizePlateLookup(left).equals(normalizePlateLookup(right));
+    }
+
+    private boolean isCheckinEligibleStatus(String status) {
+        return "PENDING".equalsIgnoreCase(status) || "APPROVED".equalsIgnoreCase(status);
+    }
+
+    private void assertNoActiveReservationForPlate(String plateNumber) {
+        List<Reservation> existingReservations = resolveVehicleByPlate(plateNumber)
+                .map(vehicle -> reservationRepository.findByVehicleVehicleId(vehicle.getVehicleId()))
+                .orElseGet(List::of);
+        List<Reservation> activeReservations = existingReservations.stream()
+                .filter(r -> !List.of("COMPLETED", "CANCELLED", "EXPIRED").contains(r.getReservationStatus()))
+                .toList();
+        if (!activeReservations.isEmpty()) {
+            Reservation r = activeReservations.get(0);
+            System.out.println("[DEBUG-6b654b] GUEST checkin REJECTED - plate has ACTIVE reservation: "
+                    + r.getReservationCode() + ", status: " + r.getReservationStatus());
+            throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
+                    "Biển số " + plateNumber + " đã có reservation đang hoạt động (mã: "
+                            + r.getReservationCode() + ", trạng thái: " + r.getReservationStatus()
+                            + "). Vui lòng dùng chế độ DRIVER để checkin.");
+        }
+    }
+
     private boolean matchesBuilding(Reservation reservation, String buildingId) {
         if (buildingId == null || buildingId.isBlank()) {
             return true;
@@ -1282,10 +1351,18 @@ public class ParkingSessionService {
     }
 
     private List<Reservation> findPendingReservationsByPlate(String plateNumber) {
-        return resolveVehicleByPlate(plateNumber)
-                .flatMap(vehicle -> reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId()))
-                .map(List::of)
-                .orElseGet(List::of);
+        Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(plateNumber);
+        if (vehicleOpt.isPresent()) {
+            return reservationRepository.findFirstPendingByVehicleId(vehicleOpt.get().getVehicleId())
+                    .map(List::of)
+                    .orElseGet(List::of);
+        }
+        // Fallback: query trực tiếp theo biển số chuẩn hóa (phòng vehicle resolve miss)
+        String normalized = normalizePlateLookup(plateNumber);
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+        return reservationRepository.findPendingByNormalizedPlateNumber(normalized);
     }
 
     private ReservationResponse toReservationPreview(Reservation reservation) {
@@ -1454,14 +1531,7 @@ public class ParkingSessionService {
         String normalizedPlate = plateNumber.toUpperCase();
         List<Reservation> candidates = findPendingReservationsByPlate(normalizedPlate);
         Reservation matched = candidates.stream()
-                .filter(r -> {
-                    String bId = r.getSlot() != null && r.getSlot().getZone() != null
-                            && r.getSlot().getZone().getFloor() != null
-                            && r.getSlot().getZone().getFloor().getBuilding() != null
-                            ? r.getSlot().getZone().getFloor().getBuilding().getBuildingId()
-                            : null;
-                    return req.getBuildingId().equals(bId);
-                })
+                .filter(r -> matchesBuilding(r, req.getBuildingId()))
                 .findFirst()
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
                         "KhÃ´ng tÃ¬m tháº¥y reservation nÃ o cho biá»ƒn sá»‘ " + normalizedPlate + " táº¡i building nÃ y. "
@@ -1487,7 +1557,7 @@ public class ParkingSessionService {
 
         // 4. Validate reservation status
         String status = matched.getReservationStatus();
-        if (!"PENDING".equalsIgnoreCase(status)) {
+        if (!isCheckinEligibleStatus(status)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED,
                     "Reservation khÃ´ng á»Ÿ tráº¡ng thÃ¡i PENDING (hiá»‡n táº¡i: " + status + ")");
         }
@@ -1592,6 +1662,10 @@ public class ParkingSessionService {
      */
     @Transactional
     public QuickCheckinResponse quickGuestCheckin(String staffEmail, QuickCheckinRequest req) {
+        return quickGuestCheckin(staffEmail, req, resolvePlateNumber(req));
+    }
+
+    private QuickCheckinResponse quickGuestCheckin(String staffEmail, QuickCheckinRequest req, String plateNumber) {
         // [DEBUG] Log entry for quickGuestCheckin
         System.out.println("[DEBUG-6b654b] quickGuestCheckin called - staffEmail: " + staffEmail + ", buildingId: " + req.getBuildingId() + ", vehicleTypeId: " + req.getVehicleTypeId());
 
@@ -1607,8 +1681,7 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
                         "KhÃ´ng tÃ¬m tháº¥y loáº¡i xe: " + req.getVehicleTypeId()));
 
-        // 3. Resolve plate number báº±ng OCR
-        String plateNumber = resolvePlateNumber(req);
+        // 3. Plate number already resolved by caller (OCR / request)
         String normalizedPlate = plateNumber.toUpperCase();
         
         // [DEBUG] Log OCR result and validation

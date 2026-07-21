@@ -183,9 +183,20 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     }
 
     /**
-     * Tìm reservation PENDING/APPROVED theo biển số xe (case-insensitive).
-     * Dùng trong quick checkin: staff quét biển số → hệ thống tự tìm reservation phù hợp.
+     * Tìm reservation PENDING/APPROVED theo biển số (đã chuẩn hóa: bỏ -, space, dấu chấm).
+     * Dùng trong quick checkin / staff by-plate: OCR thường trả 29D225555 trong khi DB lưu 29D2-25555.
      */
+    @Query("SELECT r FROM Reservation r " +
+           "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+           "JOIN FETCH r.user " +
+           "WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '') = :normalizedPlate " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED') " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findPendingByNormalizedPlateNumber(@Param("normalizedPlate") String normalizedPlate);
+
+    /** @deprecated dùng {@link #findPendingByNormalizedPlateNumber(String)} */
+    @Deprecated
     @Query("SELECT r FROM Reservation r " +
            "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
            "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +

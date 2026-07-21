@@ -197,6 +197,19 @@ public class ManagerBuildingSetupController {
     }
 
     @Operation(
+            summary = "Update parking slot status",
+            description = "Allowed values: AVAILABLE, MAINTENANCE. "
+                    + "Cannot set MAINTENANCE while slot is RESERVED, OCCUPIED, or PENDING_EXIT.")
+    @PatchMapping("/slots/{slotId}/status")
+    public ResponseEntity<ApiResponse<ManagerSetupResponse>> updateSlotStatus(
+            @PathVariable String slotId,
+            @Valid @RequestBody UpdateSetupStatusRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Slot status updated successfully",
+                managerBuildingSetupService.updateSlotStatus(slotId, request.getStatus())));
+    }
+
+    @Operation(
             summary = "Force-reset a stuck slot to AVAILABLE",
             description = "Emergency reset for slots stuck in OCCUPIED/RESERVED/PENDING_EXIT "
                     + "with no corresponding active session or reservation.")
