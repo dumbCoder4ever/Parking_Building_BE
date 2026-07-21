@@ -30,7 +30,7 @@ public class BuildingRuleController {
 
     private final BuildingRuleService buildingRuleService;
 
-    @Operation(summary = "List building rules")
+    @Operation(summary = "List building rules (manager, includes INACTIVE)")
     @GetMapping
     public ResponseEntity<ApiResponse<List<BuildingRuleResponse>>> list(@PathVariable String buildingId) {
         return ResponseEntity.ok(ApiResponse.ok(

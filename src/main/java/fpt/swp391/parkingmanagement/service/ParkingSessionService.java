@@ -1681,8 +1681,7 @@ public class ParkingSessionService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
                         "KhÃ´ng tÃ¬m tháº¥y loáº¡i xe: " + req.getVehicleTypeId()));
 
-        // 3. Resolve plate number báº±ng OCR
-        String plateNumber = resolvePlateNumber(req);
+        // 3. Plate number already resolved by caller (OCR / request)
         String normalizedPlate = plateNumber.toUpperCase();
         
         // [DEBUG] Log OCR result and validation
@@ -1873,13 +1872,6 @@ public class ParkingSessionService {
             System.out.println("[DEBUG-6b654b] quickAutoCheckin - DETECTED GUEST");
             return quickGuestCheckin(staffEmail, req);
         }
-
-        if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
-            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
-                    "vehicleTypeId là bắt buộc cho chế độ Guest");
-        }
-        System.out.println("[DEBUG-6b654b] quickAutoCheckin - DETECTED GUEST");
-        return quickGuestCheckin(staffEmail, req, plateNumber);
     }
 
     // ======================== END QUICK CHECKIN FLOW ========================

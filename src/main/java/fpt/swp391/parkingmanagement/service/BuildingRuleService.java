@@ -51,6 +51,7 @@ public class BuildingRuleService {
 
     @Transactional(readOnly = true)
     public List<BuildingRuleResponse> listActiveByBuilding(String buildingId) {
+        findBuilding(buildingId);
         return buildingRuleRepository.findActiveByBuildingId(buildingId).stream()
                 .map(this::toResponse)
                 .toList();
