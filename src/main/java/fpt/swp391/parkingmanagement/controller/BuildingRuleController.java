@@ -25,17 +25,17 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/manager/buildings/{buildingId}/rules")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
 public class BuildingRuleController {
 
     private final BuildingRuleService buildingRuleService;
 
-    @Operation(summary = "List building rules (manager, includes INACTIVE)")
+    @Operation(summary = "List active building rules (driver/staff read-only)")
     @GetMapping
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<List<BuildingRuleResponse>>> list(@PathVariable String buildingId) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Building rules retrieved successfully",
-                buildingRuleService.listByBuilding(buildingId)));
+                buildingRuleService.listActiveByBuilding(buildingId)));
     }
 
     @Operation(
@@ -43,6 +43,7 @@ public class BuildingRuleController {
             description = "Allowed ruleCode: NO_OVERNIGHT, MAX_PARKING_HOURS, OPERATING_HOURS, VEHICLE_TYPE_CURFEW. "
                     + "VEHICLE_TYPE_CURFEW ruleValue format: TypeName:HH:mm (e.g. Truck:22:00).")
     @PostMapping
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<BuildingRuleResponse>> create(
             @PathVariable String buildingId,
             @Valid @RequestBody CreateBuildingRuleRequest request) {
@@ -53,6 +54,7 @@ public class BuildingRuleController {
 
     @Operation(summary = "Update building rule")
     @PutMapping("/{ruleId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<BuildingRuleResponse>> update(
             @PathVariable String buildingId,
             @PathVariable String ruleId,
@@ -64,6 +66,7 @@ public class BuildingRuleController {
 
     @Operation(summary = "Delete building rule")
     @DeleteMapping("/{ruleId}")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String buildingId,
             @PathVariable String ruleId) {
