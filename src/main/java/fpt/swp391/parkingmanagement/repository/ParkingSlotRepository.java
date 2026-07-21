@@ -196,4 +196,19 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     @Query("SELECT ps.zone.zoneId, COUNT(ps) FROM ParkingSlot ps WHERE ps.zone.floor.floorId = :floorId GROUP BY ps.zone.zoneId")
     List<Object[]> countGroupedByZoneForFloor(@Param("floorId") String floorId);
 
+    /**
+     * Lay cac slot AVAILABLE trong cung floor, loai tru danh sach slot truyen vao.
+     * Dung trong incident DRIVER_SLOT_OCCUPIED de staff chi thay slot cung floor voi reservation moi nhat.
+     */
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f " +
+            "WHERE f.floorId = :floorId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "AND (:excludeSlotIds IS NULL OR ps.slotId NOT IN :excludeSlotIds) " +
+            "ORDER BY ps.slotName ASC")
+    List<ParkingSlot> findAvailableByFloorIdExcludingSlots(
+            @Param("floorId") String floorId,
+            @Param("excludeSlotIds") java.util.Collection<String> excludeSlotIds);
+
 }

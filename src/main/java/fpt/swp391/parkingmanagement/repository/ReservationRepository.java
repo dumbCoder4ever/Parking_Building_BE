@@ -226,4 +226,34 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
 
     @Query("SELECT COUNT(r) FROM Reservation r WHERE r.createdAt >= :from AND r.createdAt < :to")
     long countReservationsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    // ============ INCIDENT VALIDATION ============
+
+    /**
+     * Kiểm tra xem slot có active reservation (PENDING hoặc APPROVED) hay không.
+     * Dùng trong validate REASSIGN_SLOT để đảm bảo slot thay thế không có reservation đặt trước.
+     */
+    @Query("SELECT COUNT(r) > 0 FROM Reservation r " +
+           "WHERE r.slot.slotId = :slotId " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED')")
+    boolean existsActiveReservationBySlotId(@Param("slotId") String slotId);
+
+    /**
+     * Lay reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua 1 user.
+     * Dung trong incident de staff xem bang chung reservation gan nhat cua driver.
+     */
+    @Query("SELECT r FROM Reservation r JOIN FETCH r.slot s JOIN FETCH s.zone z " +
+           "JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType JOIN FETCH r.user " +
+           "WHERE r.user.userId = :userId " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED', 'CHECKED_IN') " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findLatestActiveReservationByUserId(@Param("userId") String userId,
+                                                          Pageable pageable);
+
+    default Optional<Reservation> findFirstLatestActiveReservationByUserId(String userId) {
+        return findLatestActiveReservationByUserId(userId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
 }
