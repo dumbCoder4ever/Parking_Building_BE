@@ -173,9 +173,9 @@ public class ManagerController {
             description = "Suggest available slots by lower floor and lower zone occupancy.")
     @GetMapping("/analytics/slot-suggestion")
     public ResponseEntity<ApiResponse<List<SlotSuggestionResponse>>> suggestSlots(
-            @RequestParam String buildingId,
-            @RequestParam String vehicleTypeId,
-            @RequestParam(defaultValue = "5") int limit) {
+            @Parameter(description = "ID của building", example = "") @RequestParam String buildingId,
+            @Parameter(description = "ID loại xe", example = "") @RequestParam String vehicleTypeId,
+            @Parameter(description = "Số slot gợi ý (mặc định 5, tối đa 20)") @RequestParam(defaultValue = "5") int limit) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Slot suggestions retrieved successfully",
                 slotSuggestionService.suggest(buildingId, vehicleTypeId, limit)));
