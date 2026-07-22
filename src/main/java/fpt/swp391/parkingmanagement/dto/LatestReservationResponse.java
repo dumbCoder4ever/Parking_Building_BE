@@ -35,4 +35,9 @@ public class LatestReservationResponse {
     // THEM: ticketCode va estimatedFee
     private String ticketCode;
     private BigDecimal estimatedFee;
+
+    // THEM: session fees de hien thi cho staff biet gia tri hien tai cua session
+    private BigDecimal sessionEstimatedFee;
+    private BigDecimal sessionTotalFee;
+    private String sessionPaymentStatus;
 }

@@ -1063,7 +1063,7 @@ curl -X GET "http://localhost:8080/api/incidents/by-session/SESSION-LOST-TICKET"
 
 # UNIT TEST RESULTS
 
-## IncidentServiceImplTest (37 tests - ALL PASS)
+## IncidentServiceImplTest (45 tests - ALL PASS)
 
 | Test Case | Status |
 |-----------|--------|
@@ -1080,12 +1080,11 @@ curl -X GET "http://localhost:8080/api/incidents/by-session/SESSION-LOST-TICKET"
 | Latest reservation returns data | ✅ PASS |
 | Latest reservation no reservation (fail) | ✅ PASS |
 | Latest reservation incident not found (fail) | ✅ PASS |
-| Available slots filters by floor | ✅ PASS |
+| Available slots filters by vehicle type | ✅ PASS |
 | Available slots excludes current slot | ✅ PASS |
 | Available slots no reservation (fail) | ✅ PASS |
-| Reassign different floor (fail) | ✅ PASS |
-| Reassign no reservation fallback | ✅ PASS |
-| Reassign same floor (success) | ✅ PASS |
+| Reassign different vehicle type (fail) | ✅ PASS |
+| Reassign same vehicle type different floor (success) | ✅ PASS |
 | Cancel without reason (fail) | ✅ PASS |
 | Cancel blank reason (fail) | ✅ PASS |
 | Cancel with reason (success) | ✅ PASS |
@@ -1094,9 +1093,9 @@ curl -X GET "http://localhost:8080/api/incidents/by-session/SESSION-LOST-TICKET"
 | Status RESOLVED -> CANCELLED (fail) | ✅ PASS |
 | Status CLOSED -> any (fail) | ✅ PASS |
 | Status CANCELLED -> any (fail) | ✅ PASS |
-| LatestReservation includes ticketCode & estimatedFee | ✅ PASS |
+| LatestReservation includes ticketCode, estimatedFee, session fees | ✅ PASS |
 | Available slots filter active reservations | ✅ PASS |
-| Available slots set available=false for occupied | ✅ PASS |
+| Available slots all occupied returns empty | ✅ PASS |
 
 ## ParkingSessionServiceTest (8 tests - ALL PASS)
 
@@ -1113,4 +1112,4 @@ curl -X GET "http://localhost:8080/api/incidents/by-session/SESSION-LOST-TICKET"
 
 ---
 
-**Tong: 45 unit tests - ALL PASS**
+**Tong: 53 unit tests - ALL PASS**

@@ -51,6 +51,8 @@ class IncidentServiceImplTest {
     private Building testBuilding2;
     private User testDriver;
     private User testStaff;
+    private VehicleType carVehicleType;
+    private VehicleType motorbikeVehicleType;
 
     @BeforeEach
     void setUp() {
@@ -58,11 +60,21 @@ class IncidentServiceImplTest {
         testBuilding = new Building();
         testBuilding.setBuildingId("building-1");
         testBuilding.setBuildingName("Building A");
+
+        carVehicleType = new VehicleType();
+        carVehicleType.setVehicleTypeId("VT-CAR");
+        carVehicleType.setTypeName("Car");
+
+        motorbikeVehicleType = new VehicleType();
+        motorbikeVehicleType.setVehicleTypeId("VT-MOTO");
+        motorbikeVehicleType.setTypeName("Motorbike");
+
         testFloor = new Floor();
         testFloor.setFloorId("floor-1");
         testFloor.setFloorName("Floor 1");
         testFloor.setFloorLevel(1);
         testFloor.setBuilding(testBuilding);
+        testFloor.setVehicleType(carVehicleType);
         testZone = new Zone();
         testZone.setZoneId("zone-1");
         testZone.setZoneName("Zone A");
@@ -73,19 +85,20 @@ class IncidentServiceImplTest {
         testSlot.setSlotStatus("OCCUPIED");
         testSlot.setZone(testZone);
 
-        // Same building, same floor - for reassign success
+        // Same building, same floor (Car) - for reassign success
         testNewSlot = new ParkingSlot();
         testNewSlot.setSlotId("slot-2");
         testNewSlot.setSlotName("A-02");
         testNewSlot.setSlotStatus("AVAILABLE");
         testNewSlot.setZone(testZone);
 
-        // Same building but different floor (for "different floor" test)
+        // Same building but different vehicle type (Motorbike floor) - for vehicle type test
         testFloor2 = new Floor();
         testFloor2.setFloorId("floor-2");
         testFloor2.setFloorName("Floor 2");
         testFloor2.setFloorLevel(2);
         testFloor2.setBuilding(testBuilding);
+        testFloor2.setVehicleType(motorbikeVehicleType); // Different vehicle type!
         testZone2 = new Zone();
         testZone2.setZoneId("zone-2");
         testZone2.setZoneName("Zone B");
@@ -132,6 +145,7 @@ class IncidentServiceImplTest {
         testSession.setReservation(testReservation);
         testSession.setEstimatedFee(new BigDecimal("50000"));
         testSession.setTotalFee(new BigDecimal("50000"));
+        testSession.setPaymentStatus("UNPAID");
         testSession.setIncidentAuthorized(false);
 
         // Latest active reservation
@@ -320,10 +334,10 @@ class IncidentServiceImplTest {
     // ======================== NEW: Latest Reservation Evidence ========================
 
     @Test
-    @DisplayName("Should return latest reservation for incident")
+    @DisplayName("Should return latest reservation for incident with session fees")
     void testGetLatestReservation_ReturnsLatestActiveReservation() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -346,13 +360,17 @@ class IncidentServiceImplTest {
         assertThat(response.getVehicleType()).isEqualTo("Car");
         assertThat(response.getDriverUserId()).isEqualTo("user-driver-1");
         assertThat(response.getDriverEmail()).isEqualTo("driver@test.com");
+        // New: session fees should be included
+        assertThat(response.getSessionEstimatedFee()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(response.getSessionTotalFee()).isEqualByComparingTo(new BigDecimal("50000"));
+        assertThat(response.getSessionPaymentStatus()).isEqualTo("UNPAID");
     }
 
     @Test
     @DisplayName("Should throw when driver has no active reservation")
     void testGetLatestReservation_NoReservation_Throws() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -366,7 +384,7 @@ class IncidentServiceImplTest {
     @Test
     @DisplayName("Should throw when incident not found")
     void testGetLatestReservation_IncidentNotFound_Throws() {
-        when(incidentRepository.findById("incident-x")).thenReturn(Optional.empty());
+        when(incidentRepository.findByIdFetchingFullChain("incident-x")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> incidentService.getLatestReservationForIncident("incident-x", "staff@test.com"))
                 .isInstanceOf(Exception.class);
@@ -375,17 +393,18 @@ class IncidentServiceImplTest {
     // ======================== NEW: Available slots for reassign ========================
 
     @Test
-    @DisplayName("Should return slots filtered by reservation floor")
-    void testGetAvailableSlotsForReassign_FiltersByFloor() {
+    @DisplayName("Should return slots filtered by vehicle type (same floor level)")
+    void testGetAvailableSlotsForReassign_FiltersByVehicleType() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
-        when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(
-                eq("floor-1"), any()))
+        when(parkingSlotRepository.findAllByFloorAndVehicleType(
+                eq("floor-1"), eq("VT-CAR")))
                 .thenReturn(List.of(testNewSlot));
+        when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of());
 
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
@@ -399,28 +418,29 @@ class IncidentServiceImplTest {
     @DisplayName("Should exclude current session slot from available list")
     void testGetAvailableSlotsForReassign_ExcludesCurrentSlot() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
 
-        org.mockito.ArgumentCaptor<java.util.Collection<String>> excludeCaptor =
-                org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
-        when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(
-                eq("floor-1"), excludeCaptor.capture()))
+        when(parkingSlotRepository.findAllByFloorAndVehicleType(
+                eq("floor-1"), eq("VT-CAR")))
                 .thenReturn(List.of(testNewSlot));
+        when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of());
 
-        incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
+        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
-        assertThat(excludeCaptor.getValue()).contains("slot-1");
+        assertThat(slots).hasSize(1);
+        // New slot is not current, so it should be marked as available
+        assertThat(slots.get(0).isAvailable()).isTrue();
     }
 
     @Test
     @DisplayName("Should throw when no latest reservation for available slots")
     void testGetAvailableSlotsForReassign_NoReservation_Throws() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -431,11 +451,11 @@ class IncidentServiceImplTest {
                 .hasMessageContaining("no active reservation");
     }
 
-    // ======================== NEW: Reassign validation - same floor ========================
+    // ======================== NEW: Reassign validation - same vehicle type ========================
 
     @Test
-    @DisplayName("Should NOT allow reassign to slot in different floor when reservation exists")
-    void testReassignSlot_DifferentFloorFromReservation_Fails() {
+    @DisplayName("Should NOT allow reassign to slot with different vehicle type")
+    void testReassignSlot_DifferentVehicleType_Fails() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
@@ -451,42 +471,37 @@ class IncidentServiceImplTest {
 
         assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "RESOLVED", request))
                 .isInstanceOf(BaseAPIException.class)
-                .hasMessageContaining("same floor");
+                .hasMessageContaining("vehicle type");
     }
 
     @Test
-    @DisplayName("Should fall back to same-building rule when driver has no reservation")
-    void testReassignSlot_NoReservation_FallsbackToSameBuilding() {
+    @DisplayName("Should allow reassign to slot with same vehicle type (even different floor)")
+    void testReassignSlot_SameVehicleType_Success() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
-        // different floor but same building - should succeed because no reservation rule
+        // Create a slot on floor-2 but with same vehicle type (Car)
+        Floor carFloor2 = new Floor();
+        carFloor2.setFloorId("floor-2b");
+        carFloor2.setFloorName("Floor 2b (Car)");
+        carFloor2.setFloorLevel(2);
+        carFloor2.setBuilding(testBuilding);
+        carFloor2.setVehicleType(carVehicleType);
+
+        Zone carZone2 = new Zone();
+        carZone2.setZoneId("zone-2b");
+        carZone2.setZoneName("Zone B (Car)");
+        carZone2.setFloor(carFloor2);
+
+        ParkingSlot sameTypeDifferentFloorSlot = new ParkingSlot();
+        sameTypeDifferentFloorSlot.setSlotId("slot-4");
+        sameTypeDifferentFloorSlot.setSlotName("C-01");
+        sameTypeDifferentFloorSlot.setSlotStatus("AVAILABLE");
+        sameTypeDifferentFloorSlot.setZone(carZone2);
+
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
-        when(parkingSlotRepository.findById("slot-3")).thenReturn(Optional.of(testDifferentFloorSlot));
-        when(reservationRepository.existsActiveReservationBySlotId("slot-3")).thenReturn(false);
-        when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
-                .thenReturn(Optional.empty());
-        when(parkingSessionRepository.save(any(ParkingSession.class))).thenReturn(testSession);
-        when(reservationRepository.save(any(Reservation.class))).thenReturn(testReservation);
-        when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
-
-        IncidentUpdateRequest request = new IncidentUpdateRequest();
-        request.setResolutionAction("REASSIGN_SLOT");
-        request.setNewSlotId("slot-3");
-
-        IncidentResponse response = incidentService.updateIncidentStatus("staff@test.com", "incident-1", "RESOLVED", request);
-        assertThat(testSession.getSlot()).isEqualTo(testDifferentFloorSlot);
-    }
-
-    @Test
-    @DisplayName("Should allow reassign to slot in same floor as reservation")
-    void testReassignSlot_SameFloorAsReservation_Success() {
-        testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
-        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
-        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
-        when(parkingSlotRepository.findById("slot-2")).thenReturn(Optional.of(testNewSlot));
-        when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(false);
+        when(parkingSlotRepository.findById("slot-4")).thenReturn(Optional.of(sameTypeDifferentFloorSlot));
+        when(reservationRepository.existsActiveReservationBySlotId("slot-4")).thenReturn(false);
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
         when(parkingSessionRepository.save(any(ParkingSession.class))).thenReturn(testSession);
@@ -495,10 +510,10 @@ class IncidentServiceImplTest {
 
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("REASSIGN_SLOT");
-        request.setNewSlotId("slot-2");
+        request.setNewSlotId("slot-4");
 
         IncidentResponse response = incidentService.updateIncidentStatus("staff@test.com", "incident-1", "RESOLVED", request);
-        assertThat(testSession.getSlot()).isEqualTo(testNewSlot);
+        assertThat(testSession.getSlot()).isEqualTo(sameTypeDifferentFloorSlot);
     }
 
     // ======================== NEW: Cancel with reason ========================
@@ -637,7 +652,7 @@ class IncidentServiceImplTest {
 
         testLatestReservation.setEstimatedFee(new BigDecimal("50000"));
 
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -656,40 +671,44 @@ class IncidentServiceImplTest {
     @DisplayName("Should filter out slots with active reservations from available list")
     void testGetAvailableSlotsForReassign_FiltersSlotsWithActiveReservations() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
 
         // testNewSlot is returned by repository but has active reservation
-        when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(eq("floor-1"), any()))
+        when(parkingSlotRepository.findAllByFloorAndVehicleType(eq("floor-1"), eq("VT-CAR")))
                 .thenReturn(List.of(testNewSlot));
-        when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(true);  // Has active reservation
+        // TOI UUU: Batch query returns slotIds with active reservations
+        when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of("slot-2"));
 
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
-        // slot-2 should be filtered out because it has an active reservation
-        assertThat(slots).isEmpty();
+        // slot-2 should be marked as not available because it has an active reservation
+        assertThat(slots).hasSize(1);
+        assertThat(slots.get(0).isAvailable()).isFalse();
     }
 
     @Test
-    @DisplayName("Should set available=false for slots that are not truly available")
-    void testGetAvailableSlotsForReassign_SetsAvailableFalseForOccupiedSlots() {
+    @DisplayName("Should return empty list when all slots have active reservations")
+    void testGetAvailableSlotsForReassign_AllSlotsOccupied() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
-        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(incidentRepository.findByIdFetchingFullChain("incident-1")).thenReturn(Optional.of(testIncident));
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
 
         // Slot returned by repo but has active reservation
-        when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(eq("floor-1"), any()))
+        when(parkingSlotRepository.findAllByFloorAndVehicleType(eq("floor-1"), eq("VT-CAR")))
                 .thenReturn(List.of(testNewSlot));
-        when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(true);
+        // TOI UUU: Batch query returns slotIds with active reservations
+        when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of("slot-2"));
 
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
-        assertThat(slots).isEmpty();  // Should be filtered out entirely
+        assertThat(slots).hasSize(1);
+        assertThat(slots.get(0).isAvailable()).isFalse();
     }
 }

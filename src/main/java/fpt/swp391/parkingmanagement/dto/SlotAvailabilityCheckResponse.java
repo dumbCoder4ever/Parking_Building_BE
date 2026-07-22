@@ -15,5 +15,6 @@ public class SlotAvailabilityCheckResponse {
     private boolean isAvailable;
     private boolean hasActiveReservation;
     private boolean isInSameBuilding;
+    private boolean isSameVehicleType;
     private String message;
 }

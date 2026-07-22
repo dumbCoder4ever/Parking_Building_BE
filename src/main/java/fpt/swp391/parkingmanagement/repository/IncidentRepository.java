@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -56,4 +57,19 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
            "AND i.incidentType = 'SLOT_CONFLICT' " +
            "AND i.status IN ('OPEN', 'IN_PROGRESS')")
     List<Incident> findActiveSlotConflictBySlotId(@Param("slotId") String slotId);
+
+    // ============ SINGLE INCIDENT FETCH WITH FULL CHAIN ============
+    // TOI UU: Lay incident voi full chain slot->zone->floor->building trong 1 query
+    // Tranh N+1 khi goi getLatestReservationForIncident()
+
+    @Query("SELECT i FROM Incident i " +
+           "LEFT JOIN FETCH i.session s " +
+           "LEFT JOIN FETCH s.slot slot " +
+           "LEFT JOIN FETCH slot.zone z " +
+           "LEFT JOIN FETCH z.floor f " +
+           "LEFT JOIN FETCH f.building " +
+           "LEFT JOIN FETCH s.ticket " +
+           "LEFT JOIN FETCH s.vehicle v " +
+           "WHERE i.incidentId = :incidentId")
+    Optional<Incident> findByIdFetchingFullChain(@Param("incidentId") String incidentId);
 }
