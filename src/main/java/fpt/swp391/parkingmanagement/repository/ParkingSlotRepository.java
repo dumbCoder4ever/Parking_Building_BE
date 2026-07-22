@@ -217,7 +217,7 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             @Param("excludeSlotIds") java.util.Collection<String> excludeSlotIds);
 
     /**
-     * Lay tat ca slot trong zone cua 1 floor, loc theo vehicle type.
+     * Lay TAT CA slot trong zone cua 1 floor, loc theo vehicle type.
      * Dung trong incident de staff xem zone goc (gom ca available va occupied de staff thay context).
      * Don gian: chi can zone + vehicleType.
      */
@@ -230,6 +230,24 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     List<ParkingSlot> findAllByFloorAndVehicleType(
             @Param("floorId") String floorId,
             @Param("vehicleTypeId") String vehicleTypeId);
+
+    /**
+     * Lay slot AVAILABLE (status = 'AVAILABLE') trong zone, loc theo vehicle type, loai tru current slot.
+     * Dung cho DRIVER_SLOT_OCCUPIED: chi tra slot AVAILABLE cho staff chon.
+     * Bo qua PENDING_EXIT, OCCUPIED, va cac status khac.
+     */
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f " +
+            "WHERE f.floorId = :floorId " +
+            "AND f.vehicleType.vehicleTypeId = :vehicleTypeId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "AND (:excludeSlotId IS NULL OR ps.slotId <> :excludeSlotId) " +
+            "ORDER BY z.zoneName ASC, ps.slotName ASC")
+    List<ParkingSlot> findAvailableByFloorAndVehicleType(
+            @Param("floorId") String floorId,
+            @Param("vehicleTypeId") String vehicleTypeId,
+            @Param("excludeSlotId") String excludeSlotId);
 
     /**
      * Lay cac slot AVAILABLE trong building, loc theo vehicle type, loai tru danh sach slot truyen vao.

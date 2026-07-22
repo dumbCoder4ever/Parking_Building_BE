@@ -401,8 +401,8 @@ class IncidentServiceImplTest {
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
-        when(parkingSlotRepository.findAllByFloorAndVehicleType(
-                eq("floor-1"), eq("VT-CAR")))
+        when(parkingSlotRepository.findAvailableByFloorAndVehicleType(
+                eq("floor-1"), eq("VT-CAR"), eq("slot-1")))
                 .thenReturn(List.of(testNewSlot));
         when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of());
 
@@ -424,15 +424,14 @@ class IncidentServiceImplTest {
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
 
-        when(parkingSlotRepository.findAllByFloorAndVehicleType(
-                eq("floor-1"), eq("VT-CAR")))
+        when(parkingSlotRepository.findAvailableByFloorAndVehicleType(
+                eq("floor-1"), eq("VT-CAR"), eq("slot-1")))
                 .thenReturn(List.of(testNewSlot));
         when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of());
 
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
         assertThat(slots).hasSize(1);
-        // New slot is not current, so it should be marked as available
         assertThat(slots.get(0).isAvailable()).isTrue();
     }
 
@@ -678,16 +677,15 @@ class IncidentServiceImplTest {
                 .thenReturn(Optional.of(testLatestReservation));
 
         // testNewSlot is returned by repository but has active reservation
-        when(parkingSlotRepository.findAllByFloorAndVehicleType(eq("floor-1"), eq("VT-CAR")))
+        when(parkingSlotRepository.findAvailableByFloorAndVehicleType(eq("floor-1"), eq("VT-CAR"), eq("slot-1")))
                 .thenReturn(List.of(testNewSlot));
         // TOI UUU: Batch query returns slotIds with active reservations
         when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of("slot-2"));
 
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
-        // slot-2 should be marked as not available because it has an active reservation
-        assertThat(slots).hasSize(1);
-        assertThat(slots.get(0).isAvailable()).isFalse();
+        // slot-2 should be filtered out because it has an active reservation
+        assertThat(slots).isEmpty();
     }
 
     @Test
@@ -701,14 +699,13 @@ class IncidentServiceImplTest {
                 .thenReturn(Optional.of(testLatestReservation));
 
         // Slot returned by repo but has active reservation
-        when(parkingSlotRepository.findAllByFloorAndVehicleType(eq("floor-1"), eq("VT-CAR")))
+        when(parkingSlotRepository.findAvailableByFloorAndVehicleType(eq("floor-1"), eq("VT-CAR"), eq("slot-1")))
                 .thenReturn(List.of(testNewSlot));
         // TOI UUU: Batch query returns slotIds with active reservations
         when(reservationRepository.findActiveSlotIdsBySlotIds(any())).thenReturn(List.of("slot-2"));
 
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
-        assertThat(slots).hasSize(1);
-        assertThat(slots.get(0).isAvailable()).isFalse();
+        assertThat(slots).isEmpty();
     }
 }

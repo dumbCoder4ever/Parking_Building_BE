@@ -371,18 +371,52 @@ public class IncidentServiceImpl implements IncidentService {
     public List<IncidentResponse> getAllIncidents(String staffEmail) {
         Set<String> authorizedBuildingIds = getStaffAuthorizedBuildingIds(staffEmail);
         return incidentRepository.findAllFetchingDetails().stream()
-                .filter(incident -> {
-                    if (incident.getSession() == null || incident.getSession().getSlot() == null
-                            || incident.getSession().getSlot().getZone() == null
-                            || incident.getSession().getSlot().getZone().getFloor() == null
-                            || incident.getSession().getSlot().getZone().getFloor().getBuilding() == null) {
-                        return false;
-                    }
-                    String buildingId = incident.getSession().getSlot().getZone().getFloor().getBuilding().getBuildingId();
-                    return authorizedBuildingIds.contains(buildingId);
-                })
+                .filter(incident -> resolveIncidentBuildingId(incident)
+                        .map(authorizedBuildingIds::contains)
+                        .orElse(false))
                 .map(this::toResponse)
                 .toList();
+    }
+
+    /**
+     * Resolve buildingId cua incident tu session slot hoac reservation slot (fallback).
+     * Neu khong lay duoc buildingId (session chua co slot, khong co reservation) -> empty.
+     */
+    private java.util.Optional<String> resolveIncidentBuildingId(Incident incident) {
+        ParkingSession session = incident.getSession();
+        if (session == null) return java.util.Optional.empty();
+
+        // Uu tien 1: session.slot
+        if (session.getSlot() != null
+                && session.getSlot().getZone() != null
+                && session.getSlot().getZone().getFloor() != null
+                && session.getSlot().getZone().getFloor().getBuilding() != null) {
+            return java.util.Optional.of(
+                    session.getSlot().getZone().getFloor().getBuilding().getBuildingId());
+        }
+
+        // Fallback 2: session.reservation.slot
+        if (session.getReservation() != null
+                && session.getReservation().getSlot() != null
+                && session.getReservation().getSlot().getZone() != null
+                && session.getReservation().getSlot().getZone().getFloor() != null
+                && session.getReservation().getSlot().getZone().getFloor().getBuilding() != null) {
+            return java.util.Optional.of(
+                    session.getReservation().getSlot().getZone().getFloor().getBuilding().getBuildingId());
+        }
+
+        // Fallback 3: latest active reservation cua driver
+        String driverUserId = resolveDriverUserId(session);
+        if (driverUserId != null) {
+            return reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId)
+                    .filter(r -> r.getSlot() != null
+                            && r.getSlot().getZone() != null
+                            && r.getSlot().getZone().getFloor() != null
+                            && r.getSlot().getZone().getFloor().getBuilding() != null)
+                    .map(r -> r.getSlot().getZone().getFloor().getBuilding().getBuildingId());
+        }
+
+        return java.util.Optional.empty();
     }
 
     @Override
@@ -672,9 +706,8 @@ public class IncidentServiceImpl implements IncidentService {
     }
 
     /**
-     * Lay danh sach slot trong zone cua driver (cung vehicle type, cung building) de staff xem va chon.
-     * Logic don gian: lay zone/slot cua vehicleType cua driver trong building do.
-     * Khong phuc tap hoa - staff se thay context day du de chon slot thay the.
+     * Lay danh sach slot AVAILABLE trong zone cua driver (cung vehicle type, cung building) de staff chon.
+     * Logic don gian: chi lay slot co status = AVAILABLE, bo qua cac slot khac (PENDING_EXIT, OCCUPIED, ...).
      */
     @Override
     @Transactional(readOnly = true)
@@ -717,16 +750,13 @@ public class IncidentServiceImpl implements IncidentService {
         Floor sourceFloor = sourceSlot.getZone().getFloor();
         String vehicleTypeId = sourceFloor.getVehicleType().getVehicleTypeId();
         String floorId = sourceFloor.getFloorId();
-        String buildingId = sourceFloor.getBuilding().getBuildingId();
 
-        // Verify staff co quyen trong building nay
-        // (validateStaffBuildingAccessFromIncident da check o tren roi)
-
-        // Lay TAT CA slot trong zone cua floor cung vehicle type
-        List<ParkingSlot> slots = parkingSlotRepository.findAllByFloorAndVehicleType(floorId, vehicleTypeId);
-
-        // Lay current session slot id de danh dau
+        // Lay current session slot id de loai tru
         String currentSlotId = session.getSlot() != null ? session.getSlot().getSlotId() : null;
+
+        // Lay chi slot AVAILABLE trong zone cung vehicle type
+        List<ParkingSlot> slots = parkingSlotRepository
+                .findAvailableByFloorAndVehicleType(floorId, vehicleTypeId, currentSlotId);
 
         // Lay cac slotId co active reservation trong 1 query
         java.util.Set<String> slotIds = slots.stream()
@@ -735,16 +765,10 @@ public class IncidentServiceImpl implements IncidentService {
         java.util.Set<String> activeSlotIds = new java.util.HashSet<>(
                 reservationRepository.findActiveSlotIdsBySlotIds(slotIds));
 
+        // Loc bo slot co active reservation (PENDING/APPROVED)
         return slots.stream()
-                .map(s -> {
-                    boolean hasActiveRes = activeSlotIds.contains(s.getSlotId());
-                    boolean isCurrent = s.getSlotId().equals(currentSlotId);
-                    // Chi danh dau slot nao available de staff chon
-                    boolean actuallyAvailable = "AVAILABLE".equals(s.getSlotStatus())
-                            && !hasActiveRes
-                            && !isCurrent;
-                    return toAvailableSlotResponse(s, hasActiveRes, actuallyAvailable);
-                })
+                .filter(s -> !activeSlotIds.contains(s.getSlotId()))
+                .map(s -> toAvailableSlotResponse(s, false, true))
                 .toList();
     }
 
@@ -813,10 +837,23 @@ public class IncidentServiceImpl implements IncidentService {
             b.ticketCode(session.getTicket().getTicketCode());
         }
         // THEM: session fees de staff thay gia tri hien tai cua session
+        // Neu session chua checkout (totalFee = 0), fallback dung estimatedFee (gia uoc tinh luc reservation)
         if (session != null) {
-            b.sessionEstimatedFee(session.getEstimatedFee())
-                    .sessionTotalFee(session.getTotalFee())
-                    .sessionPaymentStatus(session.getPaymentStatus());
+            java.math.BigDecimal estimatedFee = session.getEstimatedFee() != null
+                    ? session.getEstimatedFee() : java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalFee = session.getTotalFee() != null
+                    ? session.getTotalFee() : java.math.BigDecimal.ZERO;
+            String paymentStatus = session.getPaymentStatus() != null
+                    ? session.getPaymentStatus() : "UNPAID";
+
+            // Neu totalFee = 0 (chua checkout), hien thi estimatedFee cho sessionTotalFee
+            // de staff thay gia tri uoc tinh, tranh hien "0 dong"
+            java.math.BigDecimal displayTotalFee = totalFee.compareTo(java.math.BigDecimal.ZERO) > 0
+                    ? totalFee : estimatedFee;
+
+            b.sessionEstimatedFee(estimatedFee)
+                    .sessionTotalFee(displayTotalFee)
+                    .sessionPaymentStatus(paymentStatus);
         }
         return b.build();
     }
@@ -884,14 +921,12 @@ public class IncidentServiceImpl implements IncidentService {
             return;
         }
 
-        ParkingSession session = incident.getSession();
-        if (session.getSlot() == null || session.getSlot().getZone() == null
-                || session.getSlot().getZone().getFloor() == null
-                || session.getSlot().getZone().getFloor().getBuilding() == null) {
-            return;
+        java.util.Optional<String> incidentBuildingIdOpt = resolveIncidentBuildingId(incident);
+        if (incidentBuildingIdOpt.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Cannot determine building for this incident");
         }
-
-        String incidentBuildingId = session.getSlot().getZone().getFloor().getBuilding().getBuildingId();
+        String incidentBuildingId = incidentBuildingIdOpt.get();
 
         List<String> staffBuildingIds = buildingStaffRepository.findBuildingIdsByUserId(
                 userRepository.findByEmail(staffEmail)
@@ -925,18 +960,12 @@ public class IncidentServiceImpl implements IncidentService {
      * Chi goi them query userRepository khi can staff info.
      */
     private void validateStaffBuildingAccessFromIncident(Incident incident, String staffEmail) {
-        if (incident == null || incident.getSession() == null) {
-            return;
+        java.util.Optional<String> incidentBuildingIdOpt = resolveIncidentBuildingId(incident);
+        if (incidentBuildingIdOpt.isEmpty()) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Cannot determine building for this incident");
         }
-
-        ParkingSession session = incident.getSession();
-        if (session.getSlot() == null || session.getSlot().getZone() == null
-                || session.getSlot().getZone().getFloor() == null
-                || session.getSlot().getZone().getFloor().getBuilding() == null) {
-            return;
-        }
-
-        String incidentBuildingId = session.getSlot().getZone().getFloor().getBuilding().getBuildingId();
+        String incidentBuildingId = incidentBuildingIdOpt.get();
 
         User staff = userRepository.findByEmail(staffEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Staff not found: " + staffEmail));
