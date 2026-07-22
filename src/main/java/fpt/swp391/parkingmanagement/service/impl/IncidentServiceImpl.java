@@ -287,8 +287,8 @@ public class IncidentServiceImpl implements IncidentService {
      * Validate and execute slot reassignment.
      * - New slot must be AVAILABLE
      * - New slot must not have active reservation
-     * - New slot must be in the same building (always)
-     * - New slot should be in the same floor as the driver's latest reservation (if available)
+     * - New slot must be in the same building
+     * - New slot must have the same vehicle type as driver's reservation
      */
     private void validateAndExecuteSlotReassignment(Incident incident, ParkingSession session, IncidentUpdateRequest request) {
         ParkingSlot currentSlot = session.getSlot();
@@ -321,23 +321,23 @@ public class IncidentServiceImpl implements IncidentService {
                     "Replacement slot must be in the same building. Current building: " + oldBuildingId);
         }
 
-        // Validation 4 (NEW): New slot should be in the same floor as driver's latest reservation
-        // - If driver has an active reservation (PENDING/APPROVED/CHECKED_IN), the slot MUST be on that floor
-        // - If driver has no reservation, fall back to same-building rule only
+        // Validation 4: New slot must have same vehicle type as driver's reservation
+        // If driver has an active reservation, validate vehicle type
         String driverUserId = resolveDriverUserId(session);
         if (driverUserId != null) {
             reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId)
                     .ifPresent(reservation -> {
                         if (reservation.getSlot() != null
                                 && reservation.getSlot().getZone() != null
-                                && reservation.getSlot().getZone().getFloor() != null) {
-                            String reservationFloorId = reservation.getSlot().getZone().getFloor().getFloorId();
-                            String newSlotFloorId = newSlot.getZone().getFloor().getFloorId();
-                            if (!reservationFloorId.equals(newSlotFloorId)) {
+                                && reservation.getSlot().getZone().getFloor() != null
+                                && reservation.getSlot().getZone().getFloor().getVehicleType() != null) {
+                            String reservationVehicleTypeId = reservation.getSlot().getZone().getFloor().getVehicleType().getVehicleTypeId();
+                            String newSlotVehicleTypeId = newSlot.getZone().getFloor().getVehicleType().getVehicleTypeId();
+                            if (!reservationVehicleTypeId.equals(newSlotVehicleTypeId)) {
                                 throw new BaseAPIException(ErrorCode.BAD_REQUEST,
-                                        "Replacement slot must be in the same floor as driver's reservation. "
-                                                + "Expected floorId: " + reservationFloorId
-                                                + ", new slot floorId: " + newSlotFloorId);
+                                        "Replacement slot must have the same vehicle type as driver's reservation. "
+                                                + "Expected vehicle type: " + reservationVehicleTypeId
+                                                + ", new slot vehicle type: " + newSlotVehicleTypeId);
                             }
                         }
                     });
@@ -522,6 +522,26 @@ public class IncidentServiceImpl implements IncidentService {
         boolean isAvailable = "AVAILABLE".equals(newSlot.getSlotStatus());
         boolean hasActiveReservation = reservationRepository.existsActiveReservationBySlotId(newSlotId);
 
+        // Check vehicle type - slot must match driver's reservation vehicle type
+        final boolean[] isSameVehicleType = {true};
+        String driverUserId = resolveDriverUserId(session);
+        if (driverUserId != null) {
+            reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId)
+                    .ifPresent(reservation -> {
+                        if (reservation.getSlot() != null
+                                && reservation.getSlot().getZone() != null
+                                && reservation.getSlot().getZone().getFloor() != null
+                                && reservation.getSlot().getZone().getFloor().getVehicleType() != null
+                                && newSlot.getZone().getFloor().getVehicleType() != null) {
+                            String reservationVehicleTypeId = reservation.getSlot().getZone().getFloor().getVehicleType().getVehicleTypeId();
+                            String newSlotVehicleTypeId = newSlot.getZone().getFloor().getVehicleType().getVehicleTypeId();
+                            if (!reservationVehicleTypeId.equals(newSlotVehicleTypeId)) {
+                                isSameVehicleType[0] = false;
+                            }
+                        }
+                    });
+        }
+
         String message;
         if (!isAvailable) {
             message = "Slot is not available. Current status: " + newSlot.getSlotStatus();
@@ -529,6 +549,8 @@ public class IncidentServiceImpl implements IncidentService {
             message = "Slot has an active reservation";
         } else if (!isInSameBuilding) {
             message = "Slot is in a different building";
+        } else if (!isSameVehicleType[0]) {
+            message = "Slot vehicle type does not match driver's reservation vehicle type";
         } else {
             message = "Slot is available for reassignment";
         }
@@ -536,9 +558,10 @@ public class IncidentServiceImpl implements IncidentService {
         return SlotAvailabilityCheckResponse.builder()
                 .slotId(newSlotId)
                 .slotName(newSlot.getSlotName())
-                .isAvailable(isAvailable && !hasActiveReservation && isInSameBuilding)
+                .isAvailable(isAvailable && !hasActiveReservation && isInSameBuilding && isSameVehicleType[0])
                 .hasActiveReservation(hasActiveReservation)
                 .isInSameBuilding(isInSameBuilding)
+                .isSameVehicleType(isSameVehicleType[0])
                 .message(message)
                 .build();
     }
@@ -616,15 +639,17 @@ public class IncidentServiceImpl implements IncidentService {
     /**
      * Lay thong tin reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua driver theo incident.
      * Dung lam bang chung cho 4 flow: mat ve, sai phi, slot bi chiem, khong tim thay xe.
+     * TOI UU: Su dung findByIdFetchingFullChain de tranh N+1 queries.
      */
     @Override
     @Transactional(readOnly = true)
     public LatestReservationResponse getLatestReservationForIncident(String incidentId, String staffEmail) {
-        Incident incident = incidentRepository.findById(incidentId)
+        // TOI UU: Lay incident voi full chain trong 1 query thay vi N+1
+        Incident incident = incidentRepository.findByIdFetchingFullChain(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
 
         // Kiem tra staff co quyen xu ly incident nay
-        validateStaffBuildingAccess(staffEmail, incident);
+        validateStaffBuildingAccessFromIncident(incident, staffEmail);
 
         ParkingSession session = incident.getSession();
         if (session == null) {
@@ -647,17 +672,19 @@ public class IncidentServiceImpl implements IncidentService {
     }
 
     /**
-     * Lay danh sach slot AVAILABLE trong cung floor voi reservation moi nhat cua driver.
-     * Dung cho DRIVER_SLOT_OCCUPIED: staff chi thay slot cung floor de khong di chuyen xe qua tang khac.
+     * Lay danh sach slot trong zone cua driver (cung vehicle type, cung building) de staff xem va chon.
+     * Logic don gian: lay zone/slot cua vehicleType cua driver trong building do.
+     * Khong phuc tap hoa - staff se thay context day du de chon slot thay the.
      */
     @Override
     @Transactional(readOnly = true)
     public List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId, String staffEmail) {
-        Incident incident = incidentRepository.findById(incidentId)
+        // TOI UU: Lay incident voi full chain trong 1 query thay vi N+1
+        Incident incident = incidentRepository.findByIdFetchingFullChain(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
 
         // Kiem tra staff co quyen xu ly incident nay
-        validateStaffBuildingAccess(staffEmail, incident);
+        validateStaffBuildingAccessFromIncident(incident, staffEmail);
 
         ParkingSession session = incident.getSession();
         if (session == null) {
@@ -676,31 +703,48 @@ public class IncidentServiceImpl implements IncidentService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
                         "Driver has no active reservation. Cannot suggest slots."));
 
-        if (reservation.getSlot() == null
-                || reservation.getSlot().getZone() == null
-                || reservation.getSlot().getZone().getFloor() == null) {
+        // Lay zone/floor/building tu reservation, fallback qua session neu reservation da CHECKED_IN
+        ParkingSlot sourceSlot = reservation.getSlot() != null
+                ? reservation.getSlot()
+                : (session.getSlot() != null ? session.getSlot() : null);
+
+        if (sourceSlot == null || sourceSlot.getZone() == null
+                || sourceSlot.getZone().getFloor() == null) {
             throw new BaseAPIException(ErrorCode.BAD_REQUEST,
                     "Latest reservation has no slot/floor assigned");
         }
 
-        String floorId = reservation.getSlot().getZone().getFloor().getFloorId();
+        Floor sourceFloor = sourceSlot.getZone().getFloor();
+        String vehicleTypeId = sourceFloor.getVehicleType().getVehicleTypeId();
+        String floorId = sourceFloor.getFloorId();
+        String buildingId = sourceFloor.getBuilding().getBuildingId();
 
-        // Exclude current session slot to avoid picking the same slot
-        java.util.Collection<String> excludeIds = new java.util.ArrayList<>();
-        if (session.getSlot() != null && session.getSlot().getSlotId() != null) {
-            excludeIds.add(session.getSlot().getSlotId());
-        }
+        // Verify staff co quyen trong building nay
+        // (validateStaffBuildingAccessFromIncident da check o tren roi)
 
-        List<ParkingSlot> slots = parkingSlotRepository
-                .findAvailableByFloorIdExcludingSlots(floorId, excludeIds);
+        // Lay TAT CA slot trong zone cua floor cung vehicle type
+        List<ParkingSlot> slots = parkingSlotRepository.findAllByFloorAndVehicleType(floorId, vehicleTypeId);
+
+        // Lay current session slot id de danh dau
+        String currentSlotId = session.getSlot() != null ? session.getSlot().getSlotId() : null;
+
+        // Lay cac slotId co active reservation trong 1 query
+        java.util.Set<String> slotIds = slots.stream()
+                .map(ParkingSlot::getSlotId)
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> activeSlotIds = new java.util.HashSet<>(
+                reservationRepository.findActiveSlotIdsBySlotIds(slotIds));
 
         return slots.stream()
-                .filter(s -> {
-                    // Exclude slots that have active reservations (occupied by other drivers)
-                    boolean hasActiveRes = reservationRepository.existsActiveReservationBySlotId(s.getSlotId());
-                    return !hasActiveRes;
+                .map(s -> {
+                    boolean hasActiveRes = activeSlotIds.contains(s.getSlotId());
+                    boolean isCurrent = s.getSlotId().equals(currentSlotId);
+                    // Chi danh dau slot nao available de staff chon
+                    boolean actuallyAvailable = "AVAILABLE".equals(s.getSlotStatus())
+                            && !hasActiveRes
+                            && !isCurrent;
+                    return toAvailableSlotResponse(s, hasActiveRes, actuallyAvailable);
                 })
-                .map(s -> toAvailableSlotResponse(s, false, true))
                 .toList();
     }
 
@@ -724,6 +768,9 @@ public class IncidentServiceImpl implements IncidentService {
     }
 
     private LatestReservationResponse toLatestReservationResponse(Reservation r, ParkingSession session) {
+        // Lay zone/floor/building tu reservation neu co, neu khong thi fallback qua session
+        ParkingSlot effectiveSlot = r.getSlot() != null ? r.getSlot() : (session != null ? session.getSlot() : null);
+
         LatestReservationResponse.LatestReservationResponseBuilder b = LatestReservationResponse.builder()
                 .reservationId(r.getReservationId())
                 .reservationCode(r.getReservationCode())
@@ -732,8 +779,8 @@ public class IncidentServiceImpl implements IncidentService {
                 .createdAt(r.getCreatedAt())
                 .estimatedFee(r.getEstimatedFee());  // THEM: estimatedFee
 
-        if (r.getSlot() != null) {
-            ParkingSlot s = r.getSlot();
+        if (effectiveSlot != null) {
+            ParkingSlot s = effectiveSlot;
             b.slotId(s.getSlotId()).slotName(s.getSlotName());
             if (s.getZone() != null) {
                 b.zoneId(s.getZone().getZoneId()).zoneName(s.getZone().getZoneName());
@@ -765,19 +812,24 @@ public class IncidentServiceImpl implements IncidentService {
         if (session != null && session.getTicket() != null) {
             b.ticketCode(session.getTicket().getTicketCode());
         }
+        // THEM: session fees de staff thay gia tri hien tai cua session
+        if (session != null) {
+            b.sessionEstimatedFee(session.getEstimatedFee())
+                    .sessionTotalFee(session.getTotalFee())
+                    .sessionPaymentStatus(session.getPaymentStatus());
+        }
         return b.build();
     }
 
-    private AvailableSlotResponse toAvailableSlotResponse(ParkingSlot s, boolean hasActiveReservation, boolean inSameBuilding) {
-        boolean actuallyAvailable = "AVAILABLE".equals(s.getSlotStatus()) && !hasActiveReservation;
+    private AvailableSlotResponse toAvailableSlotResponse(ParkingSlot s, boolean hasActiveReservation, boolean availableForReassign) {
         AvailableSlotResponse.AvailableSlotResponseBuilder b = AvailableSlotResponse.builder()
                 .slotId(s.getSlotId())
                 .slotName(s.getSlotName())
                 .slotStatus(s.getSlotStatus())
                 .hasActiveReservation(hasActiveReservation)
-                .available(actuallyAvailable)
-                .inSameBuilding(inSameBuilding)
-                .message(actuallyAvailable ? "Slot is available for reassignment" : "Slot is not available");
+                .available(availableForReassign)
+                .inSameBuilding(availableForReassign)
+                .message(availableForReassign ? "Slot is available for reassignment" : "Slot is not available for reassignment");
         if (s.getZone() != null) {
             b.zoneId(s.getZone().getZoneId()).zoneName(s.getZone().getZoneName());
             if (s.getZone().getFloor() != null) {
@@ -865,5 +917,36 @@ public class IncidentServiceImpl implements IncidentService {
 
         List<String> buildingIds = buildingStaffRepository.findBuildingIdsByUserId(staff.getUserId());
         return Set.copyOf(buildingIds);
+    }
+
+    /**
+     * TOI UU: Kiem tra staff building access tu incident da fetch full chain.
+     * Khong can them query vi buildingId da co trong incident.
+     * Chi goi them query userRepository khi can staff info.
+     */
+    private void validateStaffBuildingAccessFromIncident(Incident incident, String staffEmail) {
+        if (incident == null || incident.getSession() == null) {
+            return;
+        }
+
+        ParkingSession session = incident.getSession();
+        if (session.getSlot() == null || session.getSlot().getZone() == null
+                || session.getSlot().getZone().getFloor() == null
+                || session.getSlot().getZone().getFloor().getBuilding() == null) {
+            return;
+        }
+
+        String incidentBuildingId = session.getSlot().getZone().getFloor().getBuilding().getBuildingId();
+
+        User staff = userRepository.findByEmail(staffEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff not found: " + staffEmail));
+
+        List<String> staffBuildingIds = buildingStaffRepository.findBuildingIdsByUserId(staff.getUserId());
+
+        if (!staffBuildingIds.contains(incidentBuildingId)) {
+            throw new BaseAPIException(ErrorCode.FORBIDDEN,
+                    "You do not have permission to access this incident. "
+                            + "This incident belongs to a different building.");
+        }
     }
 }

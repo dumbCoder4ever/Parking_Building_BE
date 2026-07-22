@@ -250,6 +250,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     boolean existsActiveReservationBySlotId(@Param("slotId") String slotId);
 
     /**
+     * Batch check: lay slotIds co active reservation trong 1 query thay vi N queries.
+     * Dung trong getAvailableSlotsForReassign() de tranh N+1.
+     */
+    @Query("SELECT r.slot.slotId FROM Reservation r " +
+           "WHERE r.slot.slotId IN :slotIds " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED')")
+    List<String> findActiveSlotIdsBySlotIds(@Param("slotIds") Collection<String> slotIds);
+
+    /**
      * Lay reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua 1 user.
      * Dung trong incident de staff xem bang chung reservation gan nhat cua driver.
      */

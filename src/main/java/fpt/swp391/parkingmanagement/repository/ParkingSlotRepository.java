@@ -216,6 +216,39 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             @Param("floorId") String floorId,
             @Param("excludeSlotIds") java.util.Collection<String> excludeSlotIds);
 
+    /**
+     * Lay tat ca slot trong zone cua 1 floor, loc theo vehicle type.
+     * Dung trong incident de staff xem zone goc (gom ca available va occupied de staff thay context).
+     * Don gian: chi can zone + vehicleType.
+     */
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f " +
+            "WHERE f.floorId = :floorId " +
+            "AND f.vehicleType.vehicleTypeId = :vehicleTypeId " +
+            "ORDER BY z.zoneName ASC, ps.slotName ASC")
+    List<ParkingSlot> findAllByFloorAndVehicleType(
+            @Param("floorId") String floorId,
+            @Param("vehicleTypeId") String vehicleTypeId);
+
+    /**
+     * Lay cac slot AVAILABLE trong building, loc theo vehicle type, loai tru danh sach slot truyen vao.
+     * Dung trong incident DRIVER_SLOT_OCCUPIED de staff chi thay slot cung vehicle type (Car/Motorbike).
+     *Uu tien floor co floorLevel thap hon (tang thap hon).
+     */
+    @EntityGraph(attributePaths = {"zone", "zone.floor", "zone.floor.building"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f " +
+            "WHERE f.building.buildingId = :buildingId " +
+            "AND f.vehicleType.vehicleTypeId = :vehicleTypeId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "AND (:excludeSlotIds IS NULL OR ps.slotId NOT IN :excludeSlotIds) " +
+            "ORDER BY f.floorLevel ASC, ps.slotName ASC")
+    List<ParkingSlot> findAvailableByBuildingAndVehicleTypeExcludingSlots(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId,
+            @Param("excludeSlotIds") java.util.Collection<String> excludeSlotIds);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             UPDATE parking_slots ps
