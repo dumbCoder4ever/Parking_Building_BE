@@ -31,6 +31,7 @@ class IncidentServiceImplTest {
     @Mock private ParkingSlotRepository parkingSlotRepository;
     @Mock private ReservationRepository reservationRepository;
     @Mock private UserRepository userRepository;
+    @Mock private BuildingStaffRepository buildingStaffRepository;
     @InjectMocks private IncidentServiceImpl incidentService;
 
     private Incident testIncident;
@@ -49,6 +50,7 @@ class IncidentServiceImplTest {
     private Floor testFloor2;
     private Building testBuilding2;
     private User testDriver;
+    private User testStaff;
 
     @BeforeEach
     void setUp() {
@@ -140,6 +142,12 @@ class IncidentServiceImplTest {
         testLatestReservation.setUser(testDriver);
         testLatestReservation.setVehicle(testVehicle);
         testLatestReservation.setSlot(testSlot);
+
+        // Test staff - assigned to building-1
+        testStaff = new User();
+        testStaff.setUserId("user-staff-1");
+        testStaff.setEmail("staff@test.com");
+        testStaff.setFullName("Test Staff");
     }
 
     private Incident createIncident(String type, String status) {
@@ -160,6 +168,8 @@ class IncidentServiceImplTest {
     void testOpenToInProgress_Success() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("PROVIDE_VEHICLE_LOCATION");
@@ -172,6 +182,8 @@ class IncidentServiceImplTest {
     void testInProgressToResolved_Success() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("AUTHORIZE_CHECKOUT");
@@ -185,6 +197,8 @@ class IncidentServiceImplTest {
     void testOpenToResolved_Fails() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("AUTHORIZE_CHECKOUT");
         assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "RESOLVED", request))
@@ -197,6 +211,8 @@ class IncidentServiceImplTest {
     void testVerifyVehicle_PlateMatches() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
         VerifyVehicleRequest request = new VerifyVehicleRequest();
         request.setPlateNumber("30A-12345");
@@ -209,6 +225,8 @@ class IncidentServiceImplTest {
     void testVerifyVehicle_PlateMismatch() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
         VerifyVehicleRequest request = new VerifyVehicleRequest();
         request.setPlateNumber("30B-99999");
@@ -221,6 +239,8 @@ class IncidentServiceImplTest {
     void testReassignSlot_Available_Success() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSlotRepository.findById("slot-2")).thenReturn(Optional.of(testNewSlot));
         when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(false);
         // No latest reservation -> fallback
@@ -242,6 +262,8 @@ class IncidentServiceImplTest {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
         testNewSlot.setSlotStatus("OCCUPIED");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSlotRepository.findById("slot-2")).thenReturn(Optional.of(testNewSlot));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("REASSIGN_SLOT");
@@ -256,6 +278,8 @@ class IncidentServiceImplTest {
     void testUpdatePayment_NegativeAmount_Fails() {
         testIncident = createIncident("DRIVER_INCORRECT_FEE", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("UPDATE_PAYMENT");
         request.setAdjustedAmount(new BigDecimal("-1000"));
@@ -269,6 +293,8 @@ class IncidentServiceImplTest {
     void testUpdatePayment_ValidAmount_Success() {
         testIncident = createIncident("DRIVER_INCORRECT_FEE", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSessionRepository.save(any(ParkingSession.class))).thenReturn(testSession);
         when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
@@ -283,9 +309,11 @@ class IncidentServiceImplTest {
     void testCheckSlotAvailability_Available() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSlotRepository.findById("slot-2")).thenReturn(Optional.of(testNewSlot));
         when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(false);
-        SlotAvailabilityCheckResponse response = incidentService.checkSlotAvailabilityForReassignment("incident-1", "slot-2");
+        SlotAvailabilityCheckResponse response = incidentService.checkSlotAvailabilityForReassignment("incident-1", "slot-2", "staff@test.com");
         assertThat(response.isAvailable()).isTrue();
     }
 
@@ -296,10 +324,12 @@ class IncidentServiceImplTest {
     void testGetLatestReservation_ReturnsLatestActiveReservation() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
 
-        LatestReservationResponse response = incidentService.getLatestReservationForIncident("incident-1");
+        LatestReservationResponse response = incidentService.getLatestReservationForIncident("incident-1", "staff@test.com");
 
         assertThat(response).isNotNull();
         assertThat(response.getReservationId()).isEqualTo("res-latest");
@@ -323,10 +353,12 @@ class IncidentServiceImplTest {
     void testGetLatestReservation_NoReservation_Throws() {
         testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.getLatestReservationForIncident("incident-1"))
+        assertThatThrownBy(() -> incidentService.getLatestReservationForIncident("incident-1", "staff@test.com"))
                 .isInstanceOf(BaseAPIException.class)
                 .hasMessageContaining("no active reservation");
     }
@@ -336,7 +368,7 @@ class IncidentServiceImplTest {
     void testGetLatestReservation_IncidentNotFound_Throws() {
         when(incidentRepository.findById("incident-x")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.getLatestReservationForIncident("incident-x"))
+        assertThatThrownBy(() -> incidentService.getLatestReservationForIncident("incident-x", "staff@test.com"))
                 .isInstanceOf(Exception.class);
     }
 
@@ -347,13 +379,15 @@ class IncidentServiceImplTest {
     void testGetAvailableSlotsForReassign_FiltersByFloor() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
         when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(
                 eq("floor-1"), any()))
                 .thenReturn(List.of(testNewSlot));
 
-        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1");
+        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
         assertThat(slots).hasSize(1);
         assertThat(slots.get(0).getSlotId()).isEqualTo("slot-2");
@@ -366,6 +400,8 @@ class IncidentServiceImplTest {
     void testGetAvailableSlotsForReassign_ExcludesCurrentSlot() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.of(testLatestReservation));
 
@@ -375,7 +411,7 @@ class IncidentServiceImplTest {
                 eq("floor-1"), excludeCaptor.capture()))
                 .thenReturn(List.of(testNewSlot));
 
-        incidentService.getAvailableSlotsForReassign("incident-1");
+        incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
         assertThat(excludeCaptor.getValue()).contains("slot-1");
     }
@@ -385,10 +421,12 @@ class IncidentServiceImplTest {
     void testGetAvailableSlotsForReassign_NoReservation_Throws() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> incidentService.getAvailableSlotsForReassign("incident-1"))
+        assertThatThrownBy(() -> incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com"))
                 .isInstanceOf(BaseAPIException.class)
                 .hasMessageContaining("no active reservation");
     }
@@ -400,6 +438,8 @@ class IncidentServiceImplTest {
     void testReassignSlot_DifferentFloorFromReservation_Fails() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSlotRepository.findById("slot-3")).thenReturn(Optional.of(testDifferentFloorSlot));
         when(reservationRepository.existsActiveReservationBySlotId("slot-3")).thenReturn(false);
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -420,6 +460,8 @@ class IncidentServiceImplTest {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
         // different floor but same building - should succeed because no reservation rule
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSlotRepository.findById("slot-3")).thenReturn(Optional.of(testDifferentFloorSlot));
         when(reservationRepository.existsActiveReservationBySlotId("slot-3")).thenReturn(false);
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -441,6 +483,8 @@ class IncidentServiceImplTest {
     void testReassignSlot_SameFloorAsReservation_Success() {
         testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "IN_PROGRESS");
         when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSlotRepository.findById("slot-2")).thenReturn(Optional.of(testNewSlot));
         when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(false);
         when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
@@ -455,5 +499,197 @@ class IncidentServiceImplTest {
 
         IncidentResponse response = incidentService.updateIncidentStatus("staff@test.com", "incident-1", "RESOLVED", request);
         assertThat(testSession.getSlot()).isEqualTo(testNewSlot);
+    }
+
+    // ======================== NEW: Cancel with reason ========================
+
+    @Test
+    @DisplayName("Should throw when cancelling incident WITHOUT reason")
+    void testCancelIncident_NoReason_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        IncidentUpdateRequest request = new IncidentUpdateRequest();
+        // No cancelReason set
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "CANCELLED", request))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Cancel reason is required");
+    }
+
+    @Test
+    @DisplayName("Should throw when cancelling incident with blank reason")
+    void testCancelIncident_BlankReason_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        IncidentUpdateRequest request = new IncidentUpdateRequest();
+        request.setCancelReason("   ");
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "CANCELLED", request))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Cancel reason is required");
+    }
+
+    @Test
+    @DisplayName("Should allow cancelling incident WITH reason")
+    void testCancelIncident_WithReason_Success() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+        when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
+
+        IncidentUpdateRequest request = new IncidentUpdateRequest();
+        request.setCancelReason("Driver confirmed they found their ticket");
+
+        IncidentResponse response = incidentService.updateIncidentStatus("staff@test.com", "incident-1", "CANCELLED", request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getStatus()).isEqualTo("CANCELLED");
+        assertThat(testIncident.getResolution()).isEqualTo("Driver confirmed they found their ticket");
+    }
+
+    // ======================== NEW: Status transition validation ========================
+
+    @Test
+    @DisplayName("Should NOT allow OPEN -> CLOSED directly")
+    void testStatusTransition_OPEN_to_CLOSED_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "CLOSED", null))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Must transition through IN_PROGRESS first");
+    }
+
+    @Test
+    @DisplayName("Should NOT allow IN_PROGRESS -> CLOSED directly")
+    void testStatusTransition_IN_PROGRESS_to_CLOSED_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "IN_PROGRESS");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "CLOSED", null))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Must RESOLVE incident before closing");
+    }
+
+    @Test
+    @DisplayName("Should NOT allow RESOLVED -> CANCELLED")
+    void testStatusTransition_RESOLVED_to_CANCELLED_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "RESOLVED");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        IncidentUpdateRequest request = new IncidentUpdateRequest();
+        request.setCancelReason("Some reason");
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "CANCELLED", request))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Cannot cancel a resolved incident");
+    }
+
+    @Test
+    @DisplayName("Should NOT allow CLOSED -> any status")
+    void testStatusTransition_CLOSED_to_Any_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "CLOSED");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "IN_PROGRESS", null))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Cannot change status of a closed or cancelled incident");
+    }
+
+    @Test
+    @DisplayName("Should NOT allow CANCELLED -> any status")
+    void testStatusTransition_CANCELLED_to_Any_Throws() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "CANCELLED");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        assertThatThrownBy(() -> incidentService.updateIncidentStatus("staff@test.com", "incident-1", "IN_PROGRESS", null))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("Cannot change status of a closed or cancelled incident");
+    }
+
+    // ======================== NEW: LatestReservationResponse with fee and ticketCode ========================
+
+    @Test
+    @DisplayName("Should include ticketCode and reservationFee in LatestReservationResponse")
+    void testGetLatestReservation_IncludesFeeAndTicketCode() {
+        testIncident = createIncident("DRIVER_LOST_TICKET", "OPEN");
+        Ticket ticket = new Ticket();
+        ticket.setTicketCode("TICKET-001");
+        ticket.setIsLost(true);
+        testSession.setTicket(ticket);
+
+        testLatestReservation.setEstimatedFee(new BigDecimal("50000"));
+
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+        when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
+                .thenReturn(Optional.of(testLatestReservation));
+
+        LatestReservationResponse response = incidentService.getLatestReservationForIncident("incident-1", "staff@test.com");
+
+        assertThat(response).isNotNull();
+        assertThat(response.getTicketCode()).isEqualTo("TICKET-001");
+        assertThat(response.getEstimatedFee()).isEqualByComparingTo(new BigDecimal("50000"));
+    }
+
+    // ======================== NEW: Available slots - filter by active reservation ========================
+
+    @Test
+    @DisplayName("Should filter out slots with active reservations from available list")
+    void testGetAvailableSlotsForReassign_FiltersSlotsWithActiveReservations() {
+        testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+        when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
+                .thenReturn(Optional.of(testLatestReservation));
+
+        // testNewSlot is returned by repository but has active reservation
+        when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(eq("floor-1"), any()))
+                .thenReturn(List.of(testNewSlot));
+        when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(true);  // Has active reservation
+
+        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
+
+        // slot-2 should be filtered out because it has an active reservation
+        assertThat(slots).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should set available=false for slots that are not truly available")
+    void testGetAvailableSlotsForReassign_SetsAvailableFalseForOccupiedSlots() {
+        testIncident = createIncident("DRIVER_SLOT_OCCUPIED", "OPEN");
+        when(incidentRepository.findById("incident-1")).thenReturn(Optional.of(testIncident));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+        when(reservationRepository.findFirstLatestActiveReservationByUserId("user-driver-1"))
+                .thenReturn(Optional.of(testLatestReservation));
+
+        // Slot returned by repo but has active reservation
+        when(parkingSlotRepository.findAvailableByFloorIdExcludingSlots(eq("floor-1"), any()))
+                .thenReturn(List.of(testNewSlot));
+        when(reservationRepository.existsActiveReservationBySlotId("slot-2")).thenReturn(true);
+
+        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
+
+        assertThat(slots).isEmpty();  // Should be filtered out entirely
     }
 }

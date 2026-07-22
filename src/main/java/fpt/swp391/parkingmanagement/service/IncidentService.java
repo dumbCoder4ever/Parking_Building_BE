@@ -38,11 +38,11 @@ public interface IncidentService {
     VerifyVehicleResponse verifyVehicleOwnership(String incidentId, VerifyVehicleRequest request, String staffEmail);
 
     // Slot availability check for reassignment
-    SlotAvailabilityCheckResponse checkSlotAvailabilityForReassignment(String incidentId, String newSlotId);
+    SlotAvailabilityCheckResponse checkSlotAvailabilityForReassignment(String incidentId, String newSlotId, String staffEmail);
 
     // Latest reservation evidence cho staff xem (4 flow incident)
-    LatestReservationResponse getLatestReservationForIncident(String incidentId);
+    LatestReservationResponse getLatestReservationForIncident(String incidentId, String staffEmail);
 
     // Danh sach slot trong cung floor voi reservation moi nhat (DRIVER_SLOT_OCCUPIED)
-    List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId);
+    List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId, String staffEmail);
 }

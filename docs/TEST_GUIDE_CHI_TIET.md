@@ -1,5 +1,32 @@
 ﻿# Huong Dan Test Chi Tiet - Phase 2 & Phase 3 & Incident Enhancement
 
+## Moi Them (Phase Nay)
+
+### 1. LatestReservationResponse - Them Fields
+- `ticketCode`: Ma ticket tu session
+- `estimatedFee`: Phi reservation
+
+### 2. Available Slots - Loc Slots Co Active Reservation
+- Slots co reservation active se bi loc ra khoi danh sach
+- Response them fields: `available`, `message`, `inSameBuilding`
+
+### 3. Cancellation - Required Reason
+- Khi CANCELLED incident, phai co `cancelReason`
+- Neu khong co hoac blank -> 400 error
+
+### 4. Checkout Authorization
+- Regular `checkout()` giờ check `incidentAuthorized` flag
+- Neu ticket la `isLost=true` va chua `AUTHORIZE_CHECKOUT` -> checkout bi block
+
+### 5. Status Transition Validation
+- OPEN -> CLOSED: FAIL (phai qua IN_PROGRESS)
+- IN_PROGRESS -> CLOSED: FAIL (phai RESOLVE truoc)
+- RESOLVED -> CANCELLED: FAIL (da resolved roi)
+- OPEN -> CANCELLED: OK
+- IN_PROGRESS -> CANCELLED: OK
+
+---
+
 ## Truoc Khi Bat Dau
 
 Dam bao:
@@ -62,45 +89,60 @@ INSERT INTO parking_slots (slot_id, slot_name, slot_status, zone_id)
 VALUES ('SLOT-TEST-003', 'B-207', 'OCCUPIED', 'ZONE-A')
 ON DUPLICATE KEY UPDATE slot_status = 'OCCUPIED';
 
--- 5. Session cho test LOI VE (DRIVER_LOST_TICKET)
+-- 5. Slot 4 (co active reservation - de test filter)
+INSERT INTO parking_slots (slot_id, slot_name, slot_status, zone_id)
+VALUES ('SLOT-TEST-004', 'B-208', 'AVAILABLE', 'ZONE-A')
+ON DUPLICATE KEY UPDATE slot_status = 'AVAILABLE';
+
+-- 6. Session cho test LOI VE (DRIVER_LOST_TICKET)
 INSERT INTO parking_sessions (session_id, slot_id, vehicle_id, session_status, checkin_time, payment_status, incident_authorized, estimated_fee, total_fee)
 VALUES ('SESSION-LOST-TICKET', 'SLOT-TEST-001', 'VEH-TEST-001', 'ACTIVE', NOW(), 'UNPAID', FALSE, 50000, 50000)
 ON DUPLICATE KEY UPDATE session_status = 'ACTIVE', incident_authorized = FALSE;
 
--- 6. Ticket cho session LOI VE
+-- 7. Ticket cho session LOI VE
 INSERT INTO tickets (ticket_id, ticket_code, session_id, status, issued_at)
 VALUES ('TICKET-001', 'TKT-789456', 'SESSION-LOST-TICKET', 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE ticket_code = 'TKT-789456';
 
--- 7. Session cho test SAI PHI (DRIVER_INCORRECT_FEE)
+-- 8. Session cho test SAI PHI (DRIVER_INCORRECT_FEE)
 INSERT INTO parking_sessions (session_id, slot_id, vehicle_id, session_status, checkin_time, payment_status, incident_authorized, estimated_fee, total_fee)
 VALUES ('SESSION-INCORRECT-FEE', 'SLOT-TEST-001', 'VEH-TEST-001', 'ACTIVE', NOW(), 'UNPAID', FALSE, 50000, 50000)
 ON DUPLICATE KEY UPDATE session_status = 'ACTIVE', incident_authorized = FALSE;
 
--- 8. Ticket cho session SAI PHI
+-- 9. Ticket cho session SAI PHI
 INSERT INTO tickets (ticket_id, ticket_code, session_id, status, issued_at)
 VALUES ('TICKET-002', 'TKT-789457', 'SESSION-INCORRECT-FEE', 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE ticket_code = 'TKT-789457';
 
--- 9. Session cho test SLOT BI CHIEM (DRIVER_SLOT_OCCUPIED)
+-- 10. Session cho test SLOT BI CHIEM (DRIVER_SLOT_OCCUPIED)
 INSERT INTO parking_sessions (session_id, slot_id, vehicle_id, session_status, checkin_time, payment_status, incident_authorized, estimated_fee, total_fee)
 VALUES ('SESSION-SLOT-OCCUPIED', 'SLOT-TEST-001', 'VEH-TEST-001', 'ACTIVE', NOW(), 'UNPAID', FALSE, 50000, 50000)
 ON DUPLICATE KEY UPDATE session_status = 'ACTIVE', incident_authorized = FALSE;
 
--- 10. Ticket cho session SLOT BI CHIEM
+-- 11. Ticket cho session SLOT BI CHIEM
 INSERT INTO tickets (ticket_id, ticket_code, session_id, status, issued_at)
 VALUES ('TICKET-003', 'TKT-789458', 'SESSION-SLOT-OCCUPIED', 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE ticket_code = 'TKT-789458';
 
--- 11. Session cho test KHONG TIM THAY XE
+-- 12. Session cho test KHONG TIM THAY XE
 INSERT INTO parking_sessions (session_id, slot_id, vehicle_id, session_status, checkin_time, payment_status, incident_authorized, estimated_fee, total_fee)
 VALUES ('SESSION-NOT-FOUND', 'SLOT-TEST-001', 'VEH-TEST-001', 'ACTIVE', NOW(), 'UNPAID', FALSE, 50000, 50000)
 ON DUPLICATE KEY UPDATE session_status = 'ACTIVE', incident_authorized = FALSE;
 
--- 12. Ticket cho session KHONG TIM THAY XE
+-- 13. Ticket cho session KHONG TIM THAY XE
 INSERT INTO tickets (ticket_id, ticket_code, session_id, status, issued_at)
 VALUES ('TICKET-004', 'TKT-789459', 'SESSION-NOT-FOUND', 'ACTIVE', NOW())
 ON DUPLICATE KEY UPDATE ticket_code = 'TKT-789459';
+
+-- 14. Session cho test CHECKOUT KHONG AUTHORIZE (ve mat nhung chua resolve incident)
+INSERT INTO parking_sessions (session_id, slot_id, vehicle_id, session_status, checkin_time, payment_status, incident_authorized, estimated_fee, total_fee)
+VALUES ('SESSION-UNAUTHORIZED', 'SLOT-TEST-001', 'VEH-TEST-001', 'ACTIVE', NOW(), 'UNPAID', FALSE, 50000, 50000)
+ON DUPLICATE KEY UPDATE session_status = 'ACTIVE', incident_authorized = FALSE;
+
+-- 15. Ticket cho session KHONG AUTHORIZE
+INSERT INTO tickets (ticket_id, ticket_code, session_id, status, is_lost, issued_at)
+VALUES ('TICKET-005', 'TKT-789460', 'SESSION-UNAUTHORIZED', 'ACTIVE', TRUE, NOW())
+ON DUPLICATE KEY UPDATE ticket_code = 'TKT-789460', is_lost = TRUE;
 ```
 
 ---
@@ -544,6 +586,8 @@ curl -X GET "http://localhost:8080/api/incidents/INCIDENT_ID/latest-reservation"
   -H "Authorization: Bearer STAFF_TOKEN"
 ```
 
+**NEW: Response giờ có them `ticketCode` và `estimatedFee`**
+
 Expected Response:
 ```json
 {
@@ -569,7 +613,9 @@ Expected Response:
     "vehicleType": "Car",
     "driverUserId": "user-driver-1",
     "driverEmail": "driver@example.com",
-    "driverFullName": "Test Driver"
+    "driverFullName": "Test Driver",
+    "ticketCode": "TKT-789456",
+    "estimatedFee": 50000
   }
 }
 ```
@@ -578,6 +624,8 @@ Test case:
 - [ ] Lay duoc reservationCode, status, building/floor/zone/slot name
 - [ ] Lay duoc vehiclePlate va vehicleType de cross-check voi plate khi verify
 - [ ] Lay duoc driverEmail, driverFullName
+- [ ] **NEW:** Lay duoc `ticketCode` tu session
+- [ ] **NEW:** Lay duoc `estimatedFee` tu reservation
 
 ## BUOC 19: Lay Available Slots Cho Reassign (rieng DRIVER_SLOT_OCCUPIED)
 
@@ -587,6 +635,8 @@ Test case:
 curl -X GET "http://localhost:8080/api/incidents/INCIDENT_ID/available-slots-for-reassign" \
   -H "Authorization: Bearer STAFF_TOKEN"
 ```
+
+**NEW: Response giờ có them `available`, `message`, `inSameBuilding` fields**
 
 Expected Response:
 ```json
@@ -605,11 +655,33 @@ Expected Response:
       "floorLevel": 1,
       "buildingId": "building-1",
       "buildingName": "Building A",
-      "hasActiveReservation": false
+      "hasActiveReservation": false,
+      "available": true,
+      "inSameBuilding": true,
+      "message": "Slot is available for reassignment"
     }
   ]
 }
 ```
+
+### 19.1. Test Filter - Slot Co Active Reservation (FAIL)
+
+Tao active reservation cho SLOT-TEST-004:
+
+```sql
+INSERT INTO reservations (reservation_id, reservation_code, slot_id, user_id, reservation_status, estimated_fee)
+VALUES ('RES-ACTIVE-001', 'RES-ACTIVE-001', 'SLOT-TEST-004', 'user-driver-1', 'APPROVED', 50000)
+ON DUPLICATE KEY UPDATE reservation_status = 'APPROVED';
+```
+
+```bash
+curl -X GET "http://localhost:8080/api/incidents/INCIDENT_ID/available-slots-for-reassign" \
+  -H "Authorization: Bearer STAFF_TOKEN"
+```
+
+**Slots co reservation active se bi loc ra - khong xuat hien trong danh sach**
+
+---
 
 ## BUOC 20: Validation - Reassign Slot Khac Floor (FAIL)
 
@@ -634,6 +706,8 @@ Expected Response (400):
 }
 ```
 
+---
+
 # PHAN 6: TEST WORKFLOW ENFORCEMENT
 
 ## BUOC 21: Test - Khong Cho Phep OPEN -> RESOLVED truc tiep (FAIL)
@@ -651,13 +725,95 @@ Expected Response (400):
 ```json
 {
   "success": false,
-  "message": "Must transition through IN_PROGRESS before RESOLVED. Please process the incident first."
+  "message": "Must transition through IN_PROGRESS first."
 }
 ```
 
 ---
 
-## BUOC 22: Test - Khong Cho Phep Thay Doi CLOSED Incident (FAIL)
+## BUOC 22: Test - Khong Cho Phep OPEN -> CLOSED truc tiep (FAIL)
+
+**NEW: Gio them validation cho OPEN -> CLOSED**
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CLOSED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{}'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Must transition through IN_PROGRESS first."
+}
+```
+
+---
+
+## BUOC 23: Test - Khong Cho Phep IN_PROGRESS -> CLOSED truc tiep (FAIL)
+
+**NEW: Gio them validation cho IN_PROGRESS -> CLOSED**
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=IN_PROGRESS" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{}'
+```
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CLOSED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{}'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Must RESOLVE incident before closing."
+}
+```
+
+---
+
+## BUOC 24: Test - Khong Cho Phep RESOLVED -> CANCELLED (FAIL)
+
+**NEW: Gio them validation cho RESOLVED -> CANCELLED**
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=RESOLVED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "resolution": "Resolved",
+    "resolutionAction": "AUTHORIZE_CHECKOUT"
+  }'
+```
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CANCELLED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "cancelReason": "Trying to cancel"
+  }'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Cannot cancel a resolved incident."
+}
+```
+
+---
+
+## BUOC 25: Test - Khong Cho Phep Thay Doi CLOSED Incident (FAIL)
 
 ```bash
 curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=OPEN" \
@@ -676,9 +832,168 @@ Expected Response (400):
 
 ---
 
-# PHAN 7: TEST API - Lay Incidents Theo Session
+## BUOC 26: Test - Khong Cho Phep Thay Doi CANCELLED Incident (FAIL)
 
-## BUOC 23: Lay Incidents Theo Session
+**NEW: Gio CANCELLED cung khong the thay doi**
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=IN_PROGRESS" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{}'
+```
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CANCELLED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "cancelReason": "Driver found ticket"
+  }'
+```
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=OPEN" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{}'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Cannot change status of a closed or cancelled incident."
+}
+```
+
+---
+
+# PHAN 7: TEST CANCELLATION (NEW)
+
+## BUOC 27: Test - Cancel WITHOUT Reason (FAIL)
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CANCELLED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{}'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Cancel reason is required when cancelling an incident"
+}
+```
+
+---
+
+## BUOC 28: Test - Cancel WITH Blank Reason (FAIL)
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CANCELLED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "cancelReason": "   "
+  }'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Cancel reason is required when cancelling an incident"
+}
+```
+
+---
+
+## BUOC 29: Test - Cancel WITH Reason (SUCCESS)
+
+```bash
+curl -X PUT "http://localhost:8080/api/incidents/INCIDENT_ID/status?status=CANCELLED" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "cancelReason": "Driver confirmed they found their ticket"
+  }'
+```
+
+Expected Response (200):
+```json
+{
+  "success": true,
+  "message": "Incident cancelled",
+  "data": {
+    "incidentId": "inc-xxx",
+    "status": "CANCELLED",
+    "resolution": "Driver confirmed they found their ticket"
+  }
+}
+```
+
+Kiem tra database:
+```sql
+SELECT incident_id, status, resolution FROM incidents WHERE incident_id = 'INCIDENT_ID';
+```
+Expected: status = 'CANCELLED', resolution = 'Driver confirmed they found their ticket'
+
+---
+
+# PHAN 8: TEST CHECKOUT AUTHORIZATION (NEW)
+
+## BUOC 30: Test - Checkout WITHOUT Incident Authorization (FAIL)
+
+Tao session voi ticket bi mat nhung chua resolve incident:
+
+```bash
+curl -X POST "http://localhost:8080/api/sessions/checkout" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "ticketCode": "TKT-789460"
+  }'
+```
+
+Expected Response (400):
+```json
+{
+  "success": false,
+  "message": "Session requires incident resolution before checkout. Driver needs to report a lost ticket incident first."
+}
+```
+
+---
+
+## BUOC 31: Test - Checkout WITH Incident Authorization (SUCCESS)
+
+Sau khi resolve incident voi `AUTHORIZE_CHECKOUT`:
+
+```bash
+curl -X POST "http://localhost:8080/api/sessions/checkout" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer STAFF_TOKEN" \
+  -d '{
+    "ticketCode": "TKT-789460"
+  }'
+```
+
+Expected Response (200):
+```json
+{
+  "success": true,
+  "message": "Checkout successful"
+}
+```
+
+---
+
+# PHAN 9: TEST API - Lay Incidents Theo Session
+
+## BUOC 32: Lay Incidents Theo Session
 
 ### GET /api/incidents/by-session/{sessionId}
 
@@ -691,7 +1006,7 @@ curl -X GET "http://localhost:8080/api/incidents/by-session/SESSION-LOST-TICKET"
 
 # CHECKLIST HOAN TAT
 
-## Incident Enhancement
+## Incident Enhancement (Cu)
 - [ ] 1. Driver tao bao cao mat ve (DRIVER_LOST_TICKET)
 - [ ] 2. Staff chuyen OPEN -> IN_PROGRESS
 - [ ] 3. Staff verify vehicle MATCH
@@ -716,13 +1031,86 @@ curl -X GET "http://localhost:8080/api/incidents/by-session/SESSION-LOST-TICKET"
 - [ ] 20. Validation: reassign slot khac floor -> FAIL
 - [ ] 21. Validation: khong co latest reservation -> FAIL (latest-reservation API)
 - [ ] 22. Validation: khong co latest reservation -> slot khong filter theo floor
+- [ ] **NEW:** 23. LatestReservationResponse co `ticketCode`
+- [ ] **NEW:** 24. LatestReservationResponse co `estimatedFee`
+- [ ] **NEW:** 25. Available slots co `available`, `message`, `inSameBuilding`
+- [ ] **NEW:** 26. Slots co active reservation bi loc ra khoi danh sach
 
-## Workflow Enforcement
-- [ ] 23. Validation: OPEN -> RESOLVED truc tiep -> FAIL
-- [ ] 24. Validation: CLOSED -> OPEN -> FAIL
-- [ ] 25. Lay incidents theo session
+## Workflow Enforcement (MOI_RONG)
+- [ ] 27. Validation: OPEN -> RESOLVED truc tiep -> FAIL
+- [ ] 28. Validation: OPEN -> CLOSED truc tiep -> FAIL (NEW)
+- [ ] 29. Validation: IN_PROGRESS -> CLOSED truc tiep -> FAIL (NEW)
+- [ ] 30. Validation: RESOLVED -> CANCELLED -> FAIL (NEW)
+- [ ] 31. Validation: CLOSED -> OPEN -> FAIL
+- [ ] 32. Validation: CANCELLED -> OPEN -> FAIL (NEW)
+- [ ] 33. Lay incidents theo session
+
+## Cancellation (NEW)
+- [ ] 34. Cancel WITHOUT reason -> FAIL
+- [ ] 35. Cancel WITH blank reason -> FAIL
+- [ ] 36. Cancel WITH reason -> SUCCESS
+- [ ] 37. Resolution duoc luu vao database
+
+## Checkout Authorization (NEW)
+- [ ] 38. Checkout WITHOUT incident authorization (ticket isLost=true) -> FAIL
+- [ ] 39. Checkout AFTER AUTHORIZE_CHECKOUT -> SUCCESS
 
 ## Session Checkout
-- [ ] 26. Staff checkout driver sau AUTHORIZE_CHECKOUT
-- [ ] 27. Session completed thanh cong
+- [ ] 40. Staff checkout driver sau AUTHORIZE_CHECKOUT
+- [ ] 41. Session completed thanh cong
 
+---
+
+# UNIT TEST RESULTS
+
+## IncidentServiceImplTest (37 tests - ALL PASS)
+
+| Test Case | Status |
+|-----------|--------|
+| OPEN -> IN_PROGRESS (success) | ✅ PASS |
+| IN_PROGRESS -> RESOLVED (success) | ✅ PASS |
+| OPEN -> RESOLVED (fail) | ✅ PASS |
+| Verify vehicle MATCH | ✅ PASS |
+| Verify vehicle MISMATCH | ✅ PASS |
+| Reassign slot AVAILABLE (success) | ✅ PASS |
+| Reassign slot OCCUPIED (fail) | ✅ PASS |
+| Update payment negative (fail) | ✅ PASS |
+| Update payment valid (success) | ✅ PASS |
+| Slot availability AVAILABLE | ✅ PASS |
+| Latest reservation returns data | ✅ PASS |
+| Latest reservation no reservation (fail) | ✅ PASS |
+| Latest reservation incident not found (fail) | ✅ PASS |
+| Available slots filters by floor | ✅ PASS |
+| Available slots excludes current slot | ✅ PASS |
+| Available slots no reservation (fail) | ✅ PASS |
+| Reassign different floor (fail) | ✅ PASS |
+| Reassign no reservation fallback | ✅ PASS |
+| Reassign same floor (success) | ✅ PASS |
+| Cancel without reason (fail) | ✅ PASS |
+| Cancel blank reason (fail) | ✅ PASS |
+| Cancel with reason (success) | ✅ PASS |
+| Status OPEN -> CLOSED (fail) | ✅ PASS |
+| Status IN_PROGRESS -> CLOSED (fail) | ✅ PASS |
+| Status RESOLVED -> CANCELLED (fail) | ✅ PASS |
+| Status CLOSED -> any (fail) | ✅ PASS |
+| Status CANCELLED -> any (fail) | ✅ PASS |
+| LatestReservation includes ticketCode & estimatedFee | ✅ PASS |
+| Available slots filter active reservations | ✅ PASS |
+| Available slots set available=false for occupied | ✅ PASS |
+
+## ParkingSessionServiceTest (8 tests - ALL PASS)
+
+| Test Case | Status |
+|-----------|--------|
+| Checkout when incidentAuthorized=true (lost ticket resolved) | ✅ PASS |
+| BLOCK checkout when ticket lost AND not authorized | ✅ PASS |
+| ALLOW checkout when ticket lost BUT authorized | ✅ PASS |
+| ALLOW checkout when ticket NOT lost (normal) | ✅ PASS |
+| driverCheckoutBySession when authorized | ✅ PASS |
+| BLOCK driverCheckoutBySession when not authorized and no ticket | ✅ PASS |
+| BLOCK driverCheckoutBySession when ticket lost and not authorized | ✅ PASS |
+| confirmExitAndCheckout with incident authorized | ✅ PASS |
+
+---
+
+**Tong: 45 unit tests - ALL PASS**

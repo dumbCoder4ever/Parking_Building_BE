@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -30,4 +32,7 @@ public class LatestReservationResponse {
     private String driverUserId;
     private String driverEmail;
     private String driverFullName;
+    // THEM: ticketCode va estimatedFee
+    private String ticketCode;
+    private BigDecimal estimatedFee;
 }

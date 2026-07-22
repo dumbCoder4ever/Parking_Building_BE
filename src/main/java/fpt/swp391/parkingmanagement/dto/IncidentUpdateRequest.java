@@ -16,4 +16,5 @@ public class IncidentUpdateRequest {
     private String resolutionAction;
     private BigDecimal adjustedAmount;
     private String newSlotId;
+    private String cancelReason;  // THEM: Required when cancelling an incident
 }

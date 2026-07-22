@@ -251,6 +251,14 @@ public class ParkingSessionService {
         String buildingId = resolveBuildingId(session.getSlot());
         checkStaffBuildingAssignment(staffEmail, buildingId);
 
+        // THEM: Kiem tra incident authorization - chi cho phep checkout neu incident da duoc resolve
+        if (!Boolean.TRUE.equals(session.getIncidentAuthorized())) {
+            if (session.getTicket() != null && Boolean.TRUE.equals(session.getTicket().getIsLost())) {
+                throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                        "Session requires incident resolution before checkout. Driver needs to report a lost ticket incident first.");
+            }
+        }
+
         LocalDateTime now = LocalDateTime.now();
         session.setCheckoutTime(now);
 

@@ -21,4 +21,8 @@ public class AvailableSlotResponse {
     private String buildingId;
     private String buildingName;
     private boolean hasActiveReservation;
+    // THEM:
+    private boolean available;
+    private String message;
+    private boolean inSameBuilding;
 }
