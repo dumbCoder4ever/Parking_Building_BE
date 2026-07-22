@@ -22,19 +22,51 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
     @EntityGraph(attributePaths = {"session", "session.ticket", "session.vehicle"})
     List<Incident> findByCreatedAtBetweenOrderByCreatedAtDesc(LocalDateTime from, LocalDateTime to);
 
+    /**
+     * Incident list for report export. When buildingId is null, returns all buildings.
+     */
+    @EntityGraph(attributePaths = {"session", "session.ticket", "session.vehicle"})
+    @Query("""
+            SELECT i FROM Incident i
+            LEFT JOIN i.session s
+            LEFT JOIN s.slot sl
+            LEFT JOIN sl.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE i.createdAt >= :from AND i.createdAt <= :to
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            ORDER BY i.createdAt DESC
+            """)
+    List<Incident> findByCreatedAtBetweenAndBuilding(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
+
     // ============ DASHBOARD STATS ============
 
+    /**
+     * Aggregate incident counters. When buildingId is null, aggregates all buildings.
+     */
     @Query("""
             SELECT new fpt.swp391.parkingmanagement.repository.IncidentDashboardStats(
                 COALESCE(SUM(CASE WHEN UPPER(i.status) = 'OPEN' THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN UPPER(i.status) = 'IN_PROGRESS' THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN UPPER(i.status) = 'RESOLVED' THEN 1L ELSE 0L END), 0L),
                 COALESCE(SUM(CASE WHEN i.createdAt >= :from AND i.createdAt < :to THEN 1L ELSE 0L END), 0L),
                 COUNT(i)
             )
             FROM Incident i
+            LEFT JOIN i.session s
+            LEFT JOIN s.slot sl
+            LEFT JOIN sl.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE (:buildingId IS NULL OR b.buildingId = :buildingId)
             """)
     IncidentDashboardStats aggregateDashboardStats(
             @Param("from") LocalDateTime from,
-            @Param("to") LocalDateTime to);
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 
     @Query("SELECT COUNT(i) FROM Incident i WHERE UPPER(i.status) = UPPER(:status)")
     long countByStatus(@Param("status") String status);

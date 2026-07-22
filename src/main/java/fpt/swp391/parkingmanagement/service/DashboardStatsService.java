@@ -27,6 +27,7 @@ public class DashboardStatsService {
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
     private final IncidentRepository incidentRepository;
+    private final BuildingStaffRepository buildingStaffRepository;
     private final Executor dashboardExecutor;
 
     public DashboardStatsService(
@@ -36,6 +37,7 @@ public class DashboardStatsService {
             UserRepository userRepository,
             PaymentRepository paymentRepository,
             IncidentRepository incidentRepository,
+            BuildingStaffRepository buildingStaffRepository,
             @Qualifier("dashboardExecutor") Executor dashboardExecutor) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.parkingSessionRepository = parkingSessionRepository;
@@ -43,6 +45,7 @@ public class DashboardStatsService {
         this.userRepository = userRepository;
         this.paymentRepository = paymentRepository;
         this.incidentRepository = incidentRepository;
+        this.buildingStaffRepository = buildingStaffRepository;
         this.dashboardExecutor = dashboardExecutor;
     }
 
@@ -65,25 +68,27 @@ public class DashboardStatsService {
                 CompletableFuture.supplyAsync(() -> buildOccupancyStats(scopedBuildingId), dashboardExecutor);
         CompletableFuture<SessionStatsResponse> sessionsF =
                 CompletableFuture.supplyAsync(
-                        () -> buildSessionStats(startOfToday, endOfToday, startOfMonth, now),
+                        () -> buildSessionStats(startOfToday, endOfToday, startOfMonth, now, scopedBuildingId),
                         dashboardExecutor);
         CompletableFuture<ReservationStatsResponse> reservationsF =
                 CompletableFuture.supplyAsync(
-                        () -> buildReservationStats(startOfToday, endOfToday),
+                        () -> buildReservationStats(startOfToday, endOfToday, scopedBuildingId),
                         dashboardExecutor);
         CompletableFuture<UserStatsResponse> usersF =
                 CompletableFuture.supplyAsync(
-                        () -> buildUserStats(startOfMonth, now),
+                        () -> buildUserStats(startOfMonth, now, scopedBuildingId),
                         dashboardExecutor);
         CompletableFuture<IncidentStatsResponse> incidentsF =
                 CompletableFuture.supplyAsync(
-                        () -> buildIncidentStats(startOfMonth, now),
+                        () -> buildIncidentStats(startOfMonth, now, scopedBuildingId),
                         dashboardExecutor);
         CompletableFuture<List<PaymentMethodStatsResponse>> methodsF =
-                CompletableFuture.supplyAsync(this::buildPaymentMethodStats, dashboardExecutor);
+                CompletableFuture.supplyAsync(
+                        () -> buildPaymentMethodStats(scopedBuildingId),
+                        dashboardExecutor);
         CompletableFuture<List<RevenueTrendItem>> trendF =
                 CompletableFuture.supplyAsync(
-                        () -> buildRevenueTrend(trendFrom, trendTo),
+                        () -> buildRevenueTrend(trendFrom, trendTo, scopedBuildingId),
                         dashboardExecutor);
 
         CompletableFuture.allOf(
@@ -167,9 +172,10 @@ public class DashboardStatsService {
     }
 
     private SessionStatsResponse buildSessionStats(LocalDateTime startOfToday, LocalDateTime endOfToday,
-                                                    LocalDateTime startOfMonth, LocalDateTime now) {
+                                                    LocalDateTime startOfMonth, LocalDateTime now,
+                                                    String buildingId) {
         SessionDashboardStats counts = parkingSessionRepository.aggregateDashboardSessionCounts(
-                startOfToday, endOfToday, startOfMonth, now);
+                startOfToday, endOfToday, startOfMonth, now, buildingId);
         if (counts == null) {
             counts = new SessionDashboardStats(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0.0, 0.0);
         }
@@ -198,9 +204,10 @@ public class DashboardStatsService {
                 .build();
     }
 
-    private ReservationStatsResponse buildReservationStats(LocalDateTime startOfToday, LocalDateTime endOfToday) {
+    private ReservationStatsResponse buildReservationStats(LocalDateTime startOfToday, LocalDateTime endOfToday,
+                                                           String buildingId) {
         Map<String, Long> byStatus = new HashMap<>();
-        for (Object[] row : reservationRepository.countGroupedByReservationStatus()) {
+        for (Object[] row : reservationRepository.countGroupedByReservationStatus(buildingId)) {
             if (row[0] != null) {
                 byStatus.put(String.valueOf(row[0]), row[1] instanceof Number n ? n.longValue() : 0L);
             }
@@ -212,11 +219,11 @@ public class DashboardStatsService {
                 .totalCompleted(byStatus.getOrDefault("COMPLETED", 0L))
                 .totalCancelled(byStatus.getOrDefault("CANCELLED", 0L))
                 .totalExpired(byStatus.getOrDefault("EXPIRED", 0L))
-                .totalToday(reservationRepository.countReservationsInRange(startOfToday, endOfToday))
+                .totalToday(reservationRepository.countReservationsInRange(startOfToday, endOfToday, buildingId))
                 .build();
     }
 
-    private UserStatsResponse buildUserStats(LocalDateTime startOfMonth, LocalDateTime now) {
+    private UserStatsResponse buildUserStats(LocalDateTime startOfMonth, LocalDateTime now, String buildingId) {
         Map<String, Long> byRole = new HashMap<>();
         for (Object[] row : userRepository.countActiveGroupedByRole()) {
             if (row[0] != null) {
@@ -224,29 +231,36 @@ public class DashboardStatsService {
             }
         }
 
+        long totalStaff = buildingId != null
+                ? buildingStaffRepository.countByBuildingBuildingId(buildingId)
+                : byRole.getOrDefault("ROLE_STAFF", 0L);
+
         return UserStatsResponse.builder()
                 .totalDrivers(byRole.getOrDefault("ROLE_DRIVER", 0L))
-                .totalStaff(byRole.getOrDefault("ROLE_STAFF", 0L))
+                .totalStaff(totalStaff)
                 .totalManagers(byRole.getOrDefault("ROLE_MANAGER", 0L))
                 .newUsersThisMonth(userRepository.countNewUsersInRange(startOfMonth, now))
-                .driversCurrentlyParked(parkingSessionRepository.countDistinctDriversCurrentlyParked())
+                .driversCurrentlyParked(parkingSessionRepository.countDistinctDriversCurrentlyParked(buildingId))
                 .build();
     }
 
-    private IncidentStatsResponse buildIncidentStats(LocalDateTime startOfMonth, LocalDateTime now) {
-        IncidentDashboardStats stats = incidentRepository.aggregateDashboardStats(startOfMonth, now);
+    private IncidentStatsResponse buildIncidentStats(LocalDateTime startOfMonth, LocalDateTime now,
+                                                     String buildingId) {
+        IncidentDashboardStats stats = incidentRepository.aggregateDashboardStats(startOfMonth, now, buildingId);
         if (stats == null) {
-            stats = new IncidentDashboardStats(0L, 0L, 0L);
+            stats = new IncidentDashboardStats(0L, 0L, 0L, 0L, 0L);
         }
         return IncidentStatsResponse.builder()
                 .totalOpen(stats.getOpenCount())
+                .totalInProgress(stats.getInProgressCount())
+                .totalResolved(stats.getResolvedCount())
                 .totalThisMonth(stats.getThisMonthCount())
                 .totalAllTime(stats.getAllTimeCount())
                 .build();
     }
 
-    private List<PaymentMethodStatsResponse> buildPaymentMethodStats() {
-        return paymentRepository.sumRevenueByPaymentMethod(null, null).stream()
+    private List<PaymentMethodStatsResponse> buildPaymentMethodStats(String buildingId) {
+        return paymentRepository.sumRevenueByPaymentMethod(null, null, buildingId).stream()
                 .map(p -> PaymentMethodStatsResponse.builder()
                         .method(p.getPaymentMethod())
                         .totalRevenue(p.getTotalRevenue() != null ? p.getTotalRevenue() : BigDecimal.ZERO)
@@ -255,9 +269,9 @@ public class DashboardStatsService {
                 .collect(Collectors.toList());
     }
 
-    private List<RevenueTrendItem> buildRevenueTrend(LocalDateTime from, LocalDateTime to) {
+    private List<RevenueTrendItem> buildRevenueTrend(LocalDateTime from, LocalDateTime to, String buildingId) {
         Map<String, RevenueTrendItem> trendMap = new LinkedHashMap<>();
-        for (RevenueTrendProjection p : paymentRepository.getRevenueTrend(from, to)) {
+        for (RevenueTrendProjection p : paymentRepository.getRevenueTrend(from, to, buildingId)) {
             trendMap.put(p.getDate(), RevenueTrendItem.builder()
                     .date(p.getDate())
                     .revenue(p.getRevenue() != null ? p.getRevenue() : BigDecimal.ZERO)
