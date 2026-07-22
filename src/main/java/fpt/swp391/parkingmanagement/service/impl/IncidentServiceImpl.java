@@ -28,6 +28,7 @@ import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
+import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
 import fpt.swp391.parkingmanagement.service.AuditLogService;
 import fpt.swp391.parkingmanagement.service.IncidentService;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,7 @@ public class IncidentServiceImpl implements IncidentService {
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
+    private final BuildingStaffRepository buildingStaffRepository;
     private final AuditLogService auditLogService;
 
     @Override
@@ -122,6 +124,9 @@ public class IncidentServiceImpl implements IncidentService {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
 
+        // Kiem tra staff co quyen xu ly incident nay khong
+        validateStaffBuildingAccess(staffEmail, incident);
+
         // Enforce workflow: OPEN -> IN_PROGRESS -> RESOLVED
         validateStatusTransition(incident.getStatus(), normalized, incident.getIncidentType());
 
@@ -130,10 +135,20 @@ public class IncidentServiceImpl implements IncidentService {
         incident.setStatus(normalized);
 
         if (request != null) {
-            incident.setResolution(request.getResolution());
             incident.setResolutionAction(request.getResolutionAction());
             incident.setResolvedAt(LocalDateTime.now());
             incident.setResolvedBy(staffEmail);
+
+            // THEM: Handle CANCELLED status with cancelReason
+            if ("CANCELLED".equals(normalized)) {
+                if (request.getCancelReason() == null || request.getCancelReason().isBlank()) {
+                    throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                            "Cancel reason is required when cancelling an incident");
+                }
+                incident.setResolution(request.getCancelReason());
+            } else {
+                incident.setResolution(request.getResolution());
+            }
 
             if ("RESOLVED".equals(normalized) && request.getResolutionAction() != null) {
                 executeResolutionAction(incident, request);
@@ -147,20 +162,44 @@ public class IncidentServiceImpl implements IncidentService {
 
     /**
      * Validate status transition based on workflow rules.
-     * OPEN -> IN_PROGRESS (OK)
-     * IN_PROGRESS -> RESOLVED (OK)
-     * OPEN -> RESOLVED (NOT ALLOWED - must go through IN_PROGRESS)
-     * RESOLVED -> CLOSED (OK)
+     * Valid transitions:
+     * - OPEN -> IN_PROGRESS (OK)
+     * - OPEN -> CANCELLED (OK - driver/system cancellation)
+     * - IN_PROGRESS -> RESOLVED (OK)
+     * - IN_PROGRESS -> CANCELLED (OK - staff cancellation)
+     * - RESOLVED -> CLOSED (OK)
+     * Invalid transitions:
+     * - OPEN -> RESOLVED (NOT ALLOWED - must go through IN_PROGRESS)
+     * - OPEN -> CLOSED (NOT ALLOWED - must resolve first)
+     * - IN_PROGRESS -> CLOSED (NOT ALLOWED - must resolve first)
+     * - RESOLVED -> CANCELLED (NOT ALLOWED - already resolved)
+     * - CLOSED/CANCELLED -> any (NOT ALLOWED)
      */
     private void validateStatusTransition(String currentStatus, String newStatus, String incidentType) {
-        if ("OPEN".equals(currentStatus) && "RESOLVED".equals(newStatus)) {
-            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
-                    "Must transition through IN_PROGRESS before RESOLVED. Please process the incident first.");
-        }
-
+        // Da closed/cancelled thi khong the thay doi
         if ("CLOSED".equals(currentStatus) || "CANCELLED".equals(currentStatus)) {
             throw new BaseAPIException(ErrorCode.BAD_REQUEST,
                     "Cannot change status of a closed or cancelled incident.");
+        }
+
+        // OPEN khong duoc nhay thang sang RESOLVED/CLOSED
+        if ("OPEN".equals(currentStatus)) {
+            if ("RESOLVED".equals(newStatus) || "CLOSED".equals(newStatus)) {
+                throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                        "Must transition through IN_PROGRESS first.");
+            }
+        }
+
+        // IN_PROGRESS khong duoc nhay thang sang CLOSED
+        if ("IN_PROGRESS".equals(currentStatus) && "CLOSED".equals(newStatus)) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Must RESOLVE incident before closing.");
+        }
+
+        // RESOLVED chi duoc sang CLOSED, khong duoc CANCELLED
+        if ("RESOLVED".equals(currentStatus) && "CANCELLED".equals(newStatus)) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Cannot cancel a resolved incident.");
         }
     }
 
@@ -323,13 +362,25 @@ public class IncidentServiceImpl implements IncidentService {
     public IncidentResponse getIncident(String staffEmail, String incidentId) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+        validateStaffBuildingAccess(staffEmail, incident);
         return toResponse(incident);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<IncidentResponse> getAllIncidents(String staffEmail) {
+        Set<String> authorizedBuildingIds = getStaffAuthorizedBuildingIds(staffEmail);
         return incidentRepository.findAllFetchingDetails().stream()
+                .filter(incident -> {
+                    if (incident.getSession() == null || incident.getSession().getSlot() == null
+                            || incident.getSession().getSlot().getZone() == null
+                            || incident.getSession().getSlot().getZone().getFloor() == null
+                            || incident.getSession().getSlot().getZone().getFloor().getBuilding() == null) {
+                        return false;
+                    }
+                    String buildingId = incident.getSession().getSlot().getZone().getFloor().getBuilding().getBuildingId();
+                    return authorizedBuildingIds.contains(buildingId);
+                })
                 .map(this::toResponse)
                 .toList();
     }
@@ -364,6 +415,9 @@ public class IncidentServiceImpl implements IncidentService {
     public VerifyVehicleResponse verifyVehicleOwnership(String incidentId, VerifyVehicleRequest request, String staffEmail) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        // Kiem tra staff co quyen xu ly incident nay
+        validateStaffBuildingAccess(staffEmail, incident);
 
         // Only allow verification for DRIVER_LOST_TICKET incidents
         if (!"DRIVER_LOST_TICKET".equals(incident.getIncidentType())) {
@@ -444,9 +498,12 @@ public class IncidentServiceImpl implements IncidentService {
      * Validates that the slot is available and can be used as replacement.
      */
     @Transactional(readOnly = true)
-    public SlotAvailabilityCheckResponse checkSlotAvailabilityForReassignment(String incidentId, String newSlotId) {
+    public SlotAvailabilityCheckResponse checkSlotAvailabilityForReassignment(String incidentId, String newSlotId, String staffEmail) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        // Kiem tra staff co quyen xu ly incident nay
+        validateStaffBuildingAccess(staffEmail, incident);
 
         ParkingSession session = incident.getSession();
         if (session == null || session.getSlot() == null) {
@@ -562,9 +619,12 @@ public class IncidentServiceImpl implements IncidentService {
      */
     @Override
     @Transactional(readOnly = true)
-    public LatestReservationResponse getLatestReservationForIncident(String incidentId) {
+    public LatestReservationResponse getLatestReservationForIncident(String incidentId, String staffEmail) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        // Kiem tra staff co quyen xu ly incident nay
+        validateStaffBuildingAccess(staffEmail, incident);
 
         ParkingSession session = incident.getSession();
         if (session == null) {
@@ -583,7 +643,7 @@ public class IncidentServiceImpl implements IncidentService {
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
                         "Driver has no active reservation. Cannot verify evidence."));
 
-        return toLatestReservationResponse(reservation);
+        return toLatestReservationResponse(reservation, session);
     }
 
     /**
@@ -592,9 +652,12 @@ public class IncidentServiceImpl implements IncidentService {
      */
     @Override
     @Transactional(readOnly = true)
-    public List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId) {
+    public List<AvailableSlotResponse> getAvailableSlotsForReassign(String incidentId, String staffEmail) {
         Incident incident = incidentRepository.findById(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        // Kiem tra staff co quyen xu ly incident nay
+        validateStaffBuildingAccess(staffEmail, incident);
 
         ParkingSession session = incident.getSession();
         if (session == null) {
@@ -632,7 +695,12 @@ public class IncidentServiceImpl implements IncidentService {
                 .findAvailableByFloorIdExcludingSlots(floorId, excludeIds);
 
         return slots.stream()
-                .map(s -> toAvailableSlotResponse(s, false))
+                .filter(s -> {
+                    // Exclude slots that have active reservations (occupied by other drivers)
+                    boolean hasActiveRes = reservationRepository.existsActiveReservationBySlotId(s.getSlotId());
+                    return !hasActiveRes;
+                })
+                .map(s -> toAvailableSlotResponse(s, false, true))
                 .toList();
     }
 
@@ -655,13 +723,14 @@ public class IncidentServiceImpl implements IncidentService {
         return null;
     }
 
-    private LatestReservationResponse toLatestReservationResponse(Reservation r) {
+    private LatestReservationResponse toLatestReservationResponse(Reservation r, ParkingSession session) {
         LatestReservationResponse.LatestReservationResponseBuilder b = LatestReservationResponse.builder()
                 .reservationId(r.getReservationId())
                 .reservationCode(r.getReservationCode())
                 .reservationStatus(r.getReservationStatus())
                 .reservationStart(r.getReservationStart())
-                .createdAt(r.getCreatedAt());
+                .createdAt(r.getCreatedAt())
+                .estimatedFee(r.getEstimatedFee());  // THEM: estimatedFee
 
         if (r.getSlot() != null) {
             ParkingSlot s = r.getSlot();
@@ -692,15 +761,23 @@ public class IncidentServiceImpl implements IncidentService {
                     .driverEmail(r.getUser().getEmail())
                     .driverFullName(r.getUser().getFullName());
         }
+        // THEM: ticketCode tu session
+        if (session != null && session.getTicket() != null) {
+            b.ticketCode(session.getTicket().getTicketCode());
+        }
         return b.build();
     }
 
-    private AvailableSlotResponse toAvailableSlotResponse(ParkingSlot s, boolean hasActiveReservation) {
+    private AvailableSlotResponse toAvailableSlotResponse(ParkingSlot s, boolean hasActiveReservation, boolean inSameBuilding) {
+        boolean actuallyAvailable = "AVAILABLE".equals(s.getSlotStatus()) && !hasActiveReservation;
         AvailableSlotResponse.AvailableSlotResponseBuilder b = AvailableSlotResponse.builder()
                 .slotId(s.getSlotId())
                 .slotName(s.getSlotName())
                 .slotStatus(s.getSlotStatus())
-                .hasActiveReservation(hasActiveReservation);
+                .hasActiveReservation(hasActiveReservation)
+                .available(actuallyAvailable)
+                .inSameBuilding(inSameBuilding)
+                .message(actuallyAvailable ? "Slot is available for reassignment" : "Slot is not available");
         if (s.getZone() != null) {
             b.zoneId(s.getZone().getZoneId()).zoneName(s.getZone().getZoneName());
             if (s.getZone().getFloor() != null) {
@@ -739,5 +816,54 @@ public class IncidentServiceImpl implements IncidentService {
                 .verifiedAt(incident.getVerifiedAt())
                 .verifiedBy(incident.getVerifiedBy())
                 .build();
+    }
+
+    /**
+     * Kiem tra staff co quyen truy cap incident nay khong.
+     * Staff chi duoc phep xem/sua incident cua building ma ho duoc assign.
+     * Admin/MANAGER duoc phep truy cap tat ca incident.
+     *
+     * @param staffEmail email cua staff
+     * @param incident  incident can kiem tra
+     * @throws BaseAPIException neu staff khong co quyen
+     */
+    private void validateStaffBuildingAccess(String staffEmail, Incident incident) {
+        if (incident == null || incident.getSession() == null) {
+            return;
+        }
+
+        ParkingSession session = incident.getSession();
+        if (session.getSlot() == null || session.getSlot().getZone() == null
+                || session.getSlot().getZone().getFloor() == null
+                || session.getSlot().getZone().getFloor().getBuilding() == null) {
+            return;
+        }
+
+        String incidentBuildingId = session.getSlot().getZone().getFloor().getBuilding().getBuildingId();
+
+        List<String> staffBuildingIds = buildingStaffRepository.findBuildingIdsByUserId(
+                userRepository.findByEmail(staffEmail)
+                        .orElseThrow(() -> new ResourceNotFoundException("Staff not found: " + staffEmail))
+                        .getUserId());
+
+        if (!staffBuildingIds.contains(incidentBuildingId)) {
+            throw new BaseAPIException(ErrorCode.FORBIDDEN,
+                    "You do not have permission to access this incident. "
+                            + "This incident belongs to a different building.");
+        }
+    }
+
+    /**
+     * Lay danh sach incident ma staff co quyen xem (thuoc building cua staff).
+     *
+     * @param staffEmail email cua staff
+     * @return danh sach buildingId ma staff co quyen
+     */
+    private Set<String> getStaffAuthorizedBuildingIds(String staffEmail) {
+        User staff = userRepository.findByEmail(staffEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff not found: " + staffEmail));
+
+        List<String> buildingIds = buildingStaffRepository.findBuildingIdsByUserId(staff.getUserId());
+        return Set.copyOf(buildingIds);
     }
 }

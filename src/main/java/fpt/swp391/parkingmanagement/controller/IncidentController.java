@@ -144,7 +144,7 @@ public class IncidentController {
             @RequestParam String incidentId,
             @RequestParam String newSlotId) {
         SlotAvailabilityCheckResponse response = incidentService.checkSlotAvailabilityForReassignment(
-                incidentId, newSlotId);
+                incidentId, newSlotId, auth.getName());
         return ResponseEntity.ok(response);
     }
 
@@ -161,7 +161,7 @@ public class IncidentController {
     public ResponseEntity<ApiResponse<LatestReservationResponse>> getLatestReservation(
             Authentication auth,
             @PathVariable String incidentId) {
-        LatestReservationResponse response = incidentService.getLatestReservationForIncident(incidentId);
+        LatestReservationResponse response = incidentService.getLatestReservationForIncident(incidentId, auth.getName());
         return ResponseEntity.ok(ApiResponse.ok("Latest reservation retrieved", response));
     }
 
@@ -176,7 +176,7 @@ public class IncidentController {
     public ResponseEntity<ApiResponse<List<AvailableSlotResponse>>> getAvailableSlotsForReassign(
             Authentication auth,
             @PathVariable String incidentId) {
-        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign(incidentId);
+        List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign(incidentId, auth.getName());
         return ResponseEntity.ok(ApiResponse.ok("Available slots retrieved", slots));
     }
 }
