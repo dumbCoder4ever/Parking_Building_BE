@@ -229,14 +229,35 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
 
     // ============ DASHBOARD STATS ============
 
-    @Query("SELECT r.reservationStatus, COUNT(r) FROM Reservation r GROUP BY r.reservationStatus")
-    List<Object[]> countGroupedByReservationStatus();
+    @Query("""
+            SELECT r.reservationStatus, COUNT(r)
+            FROM Reservation r
+            LEFT JOIN r.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE (:buildingId IS NULL OR b.buildingId = :buildingId)
+            GROUP BY r.reservationStatus
+            """)
+    List<Object[]> countGroupedByReservationStatus(@Param("buildingId") String buildingId);
 
     @Query("SELECT COUNT(r) FROM Reservation r WHERE r.reservationStatus = :status")
     long countByReservationStatus(@Param("status") String status);
 
-    @Query("SELECT COUNT(r) FROM Reservation r WHERE r.createdAt >= :from AND r.createdAt < :to")
-    long countReservationsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+    @Query("""
+            SELECT COUNT(r)
+            FROM Reservation r
+            LEFT JOIN r.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE r.createdAt >= :from AND r.createdAt < :to
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            """)
+    long countReservationsInRange(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 
     // ============ INCIDENT VALIDATION ============
 

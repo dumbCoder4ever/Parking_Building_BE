@@ -27,6 +27,8 @@ public interface BuildingStaffRepository extends JpaRepository<BuildingStaff, St
 
     long countByUserUserId(String userId);
 
+    long countByBuildingBuildingId(String buildingId);
+
     @Query("SELECT bs.building.buildingId FROM BuildingStaff bs WHERE bs.user.userId = :userId")
     List<String> findBuildingIdsByUserId(@Param("userId") String userId);
 
