@@ -131,22 +131,26 @@ public class ManagerController {
             summary = "Revenue dashboard",
             description = "Returns total revenue and revenue breakdown by building. "
                     + "Only counts successful payments (PAID, CONFIRMED, SUCCESS). "
-                    + "Optional from/to filters apply to paymentTime.")
+                    + "Optional from/to filters apply to paymentTime. "
+                    + "Optional buildingId scopes totals and the buildings list to that building.")
     @GetMapping("/dashboard/revenue")
     public ResponseEntity<ApiResponse<RevenueDashboardResponse>> getRevenueDashboard(
             @Parameter(description = "Filter from payment time (ISO-8601)")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @Parameter(description = "Filter to payment time (ISO-8601)")
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @Parameter(description = "Optional building filter")
+            @RequestParam(required = false) String buildingId) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Revenue dashboard retrieved successfully",
-                revenueDashboardService.getRevenueDashboard(from, to)));
+                revenueDashboardService.getRevenueDashboard(from, to, buildingId)));
     }
 
     @Operation(
             summary = "Manager dashboard stats",
             description = "Occupancy, sessions, reservations, users, incidents, revenue trend. "
-                    + "Optional buildingId filters occupancy to that building.")
+                    + "Optional buildingId filters occupancy, sessions, reservations, incidents, revenue, "
+                    + "driversCurrentlyParked and staff count. totalDrivers/totalManagers/newUsersThisMonth stay system-wide.")
     @GetMapping("/dashboard/stats")
     public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboardStats(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDay,

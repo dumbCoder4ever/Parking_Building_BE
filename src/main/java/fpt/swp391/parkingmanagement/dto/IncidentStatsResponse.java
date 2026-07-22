@@ -12,6 +12,10 @@ import lombok.NoArgsConstructor;
 public class IncidentStatsResponse {
     /** Sự cố đang mở, chưa xử lý */
     private long totalOpen;
+    /** Sự cố đang xử lý */
+    private long totalInProgress;
+    /** Sự cố đã giải quyết */
+    private long totalResolved;
     /** Sự cố phát sinh trong tháng này */
     private long totalThisMonth;
     /** Tổng tất cả thời gian */
