@@ -63,24 +63,38 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
     @Query("""
             SELECT COALESCE(SUM(p.amount), 0)
             FROM Payment p
+            LEFT JOIN p.session s
+            LEFT JOIN s.slot sl
+            LEFT JOIN sl.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
             AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
             AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
+            AND (:buildingId IS NULL OR b.buildingId = :buildingId)
             """)
     BigDecimal sumPaidRevenue(
             @Param("from") LocalDateTime from,
-            @Param("to") LocalDateTime to);
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 
     @Query("""
             SELECT COUNT(p)
             FROM Payment p
+            LEFT JOIN p.session s
+            LEFT JOIN s.slot sl
+            LEFT JOIN sl.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
             AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
             AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
+            AND (:buildingId IS NULL OR b.buildingId = :buildingId)
             """)
     long countPaidPayments(
             @Param("from") LocalDateTime from,
-            @Param("to") LocalDateTime to);
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 
     @Query("""
             SELECT b.buildingId AS buildingId,
@@ -96,12 +110,14 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
             AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
             AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
+            AND (:buildingId IS NULL OR b.buildingId = :buildingId)
             GROUP BY b.buildingId, b.buildingName
             ORDER BY SUM(p.amount) DESC
             """)
     List<BuildingRevenueProjection> sumRevenueByBuilding(
             @Param("from") LocalDateTime from,
-            @Param("to") LocalDateTime to);
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 
     // ============ DASHBOARD STATS ============
 
@@ -110,28 +126,41 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
                    COALESCE(SUM(p.amount), 0) AS totalRevenue,
                    COUNT(p.paymentId) AS count
             FROM Payment p
+            LEFT JOIN p.session s
+            LEFT JOIN s.slot sl
+            LEFT JOIN sl.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
             WHERE UPPER(p.paymentStatus) IN ('PAID', 'CONFIRMED', 'SUCCESS')
             AND (:from IS NULL OR COALESCE(p.paymentTime, p.createdAt) >= :from)
             AND (:to IS NULL OR COALESCE(p.paymentTime, p.createdAt) <= :to)
+            AND (:buildingId IS NULL OR b.buildingId = :buildingId)
             GROUP BY p.paymentMethod
             ORDER BY SUM(p.amount) DESC
             """)
     List<PaymentMethodProjection> sumRevenueByPaymentMethod(
             @Param("from") LocalDateTime from,
-            @Param("to") LocalDateTime to);
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 
     @Query(value = """
             SELECT DATE(COALESCE(p.payment_time, p.created_at)) AS date,
                    COALESCE(SUM(p.amount), 0) AS revenue,
                    COUNT(p.payment_id) AS count
             FROM payments p
+            LEFT JOIN parking_sessions ps ON p.session_id = ps.session_id
+            LEFT JOIN parking_slots sl ON ps.slot_id = sl.slot_id
+            LEFT JOIN zones z ON sl.zone_id = z.zone_id
+            LEFT JOIN floors f ON z.floor_id = f.floor_id
             WHERE UPPER(p.payment_status) IN ('PAID', 'CONFIRMED', 'SUCCESS')
             AND COALESCE(p.payment_time, p.created_at) >= :from
             AND COALESCE(p.payment_time, p.created_at) <= :to
+            AND (:buildingId IS NULL OR f.building_id = :buildingId)
             GROUP BY DATE(COALESCE(p.payment_time, p.created_at))
             ORDER BY DATE(COALESCE(p.payment_time, p.created_at)) ASC
             """, nativeQuery = true)
     List<RevenueTrendProjection> getRevenueTrend(
             @Param("from") LocalDateTime from,
-            @Param("to") LocalDateTime to);
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
 }

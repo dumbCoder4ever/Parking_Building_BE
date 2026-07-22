@@ -239,7 +239,8 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     // ============ DASHBOARD STATS ============
 
     /**
-     * One table scan for admin dashboard session counters + avg duration/fee.
+     * One table scan for dashboard session counters + avg duration/fee.
+     * When buildingId is null, aggregates all buildings.
      */
     @Query("""
             SELECT new fpt.swp391.parkingmanagement.repository.SessionDashboardStats(
@@ -255,12 +256,18 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
                 AVG(CASE WHEN ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0 THEN ps.totalFee ELSE NULL END)
             )
             FROM ParkingSession ps
+            LEFT JOIN ps.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE (:buildingId IS NULL OR b.buildingId = :buildingId)
             """)
     SessionDashboardStats aggregateDashboardSessionCounts(
             @Param("startOfToday") LocalDateTime startOfToday,
             @Param("endOfToday") LocalDateTime endOfToday,
             @Param("startOfMonth") LocalDateTime startOfMonth,
-            @Param("now") LocalDateTime now);
+            @Param("now") LocalDateTime now,
+            @Param("buildingId") String buildingId);
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.sessionStatus = :status")
     long countBySessionStatus(@Param("status") String status);
@@ -277,8 +284,18 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT COALESCE(AVG(ps.totalFee), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0")
     Double avgFeeCompleted();
 
-    @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') AND ps.reservation IS NOT NULL")
-    long countDistinctDriversCurrentlyParked();
+    @Query("""
+            SELECT COUNT(DISTINCT ps.reservation.user.userId)
+            FROM ParkingSession ps
+            LEFT JOIN ps.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')
+              AND ps.reservation IS NOT NULL
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            """)
+    long countDistinctDriversCurrentlyParked(@Param("buildingId") String buildingId);
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL")
     long countGuestSessionsAllTime();
