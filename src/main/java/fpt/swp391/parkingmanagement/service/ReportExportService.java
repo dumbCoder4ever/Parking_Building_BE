@@ -78,13 +78,10 @@ public class ReportExportService {
             case TYPE_REVENUE -> {
                 title = "Revenue Report";
                 headers = List.of("Building ID", "Building Name", "Total Revenue", "Payment Count");
-                RevenueDashboardResponse revenue = revenueDashboardService.getRevenueDashboard(fromDt, toDt);
+                RevenueDashboardResponse revenue =
+                        revenueDashboardService.getRevenueDashboard(fromDt, toDt, blankToNull(buildingId));
                 rows = new ArrayList<>();
                 for (BuildingRevenueResponse b : revenue.getBuildings()) {
-                    if (buildingId != null && !buildingId.isBlank()
-                            && !buildingId.equals(b.getBuildingId())) {
-                        continue;
-                    }
                     rows.add(List.of(
                             nvl(b.getBuildingId()),
                             nvl(b.getBuildingName()),
@@ -101,7 +98,8 @@ public class ReportExportService {
                 title = "Incident Report";
                 headers = List.of("Incident ID", "Type", "Status", "Plate", "Ticket", "Description", "Created At");
                 rows = new ArrayList<>();
-                for (Incident i : incidentRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(fromDt, toDt)) {
+                for (Incident i : incidentRepository.findByCreatedAtBetweenAndBuilding(
+                        fromDt, toDt, blankToNull(buildingId))) {
                     String plate = i.getSession() != null && i.getSession().getVehicle() != null
                             ? i.getSession().getVehicle().getPlateNumber() : "";
                     String ticket = i.getSession() != null && i.getSession().getTicket() != null
