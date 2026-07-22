@@ -184,11 +184,32 @@ Dữ liệu dựa trên số lượng **check-in** theo giờ trong khoảng ng�
 
 > API `/dashboard/stats` còn trả sessions, reservations, users, incidents, revenue… — Peak Hour screen chỉ cần phần `occupancy` nếu chỉ hiển thị tỷ lệ lấp đầy.
 
-### 2.3 Thông báo giờ cao điểm (Driver / Staff)
+### 2.3 Peak Hours cho Driver (REST)
 
-Không phải REST API để FE poll. Khi building đang peak:
+Driver / Staff xem khung giờ đông **theo 1 building** trước khi đặt chỗ:
+
+`GET /api/buildings/{buildingId}/peak-hours`
+
+| Query | Bắt buộc | Mô tả |
+|---|---|---|
+| `fromDay` | Không | `YYYY-MM-DD` — mặc định = hôm nay − 6 ngày |
+| `toDay` | Không | `YYYY-MM-DD` — mặc định = hôm nay |
+
+**Auth:** Bearer JWT — role `DRIVER` \| `STAFF` \| `MANAGER` \| `ADMIN`
+
+Response `data` cùng shape với manager (`PeakHourAnalysisResponse`): `peakHours`, `buckets`, `averagePerHour`, …
+
+| AI | Endpoint | Scope |
+|---|---|---|
+| Manager dashboard | `GET /api/manager/dashboard/peak-hours` | Optional `buildingId` (có thể toàn hệ thống) |
+| Driver / trước reservation | `GET /api/buildings/{buildingId}/peak-hours` | Bắt buộc 1 building |
+
+### 2.4 Thông báo giờ cao điểm (Driver / Staff)
+
+Push realtime (không thay REST ở trên). Khi building đang peak:
 
 - Backend job `PeakHourNotificationJob` đẩy event WebSocket / notification: **`PEAK_HOUR_ALERT`**
+- Khi tạo reservation trùng peak → event **`PEAK_HOUR_WARN`** cho driver
 - Message gợi ý: *"Building đang trong giờ cao điểm."*
 - Reservation trong giờ peak **không bị chặn** chỉ vì peak (vẫn phụ thuộc còn slot / building rule).
 
@@ -209,6 +230,10 @@ FE listen notification channel như các event khác (`VEHICLE_OVERSTAY`, `PAYME
 - [ ] Filter `buildingId`, `fromDay`, `toDay`
 - [ ] (Optional) Toast / banner khi nhận `PEAK_HOUR_ALERT`
 
+### Peak Hour (Driver)
+- [ ] `GET /api/buildings/{buildingId}/peak-hours` → banner / hint khi chọn giờ reservation
+- [ ] Listen `PEAK_HOUR_WARN` / `PEAK_HOUR_ALERT`
+
 ---
 
 ## 4. Quick reference
@@ -223,4 +248,5 @@ PATCH /api/manager/setup/slots/{id}/status       body: { "status": "MAINTENANCE"
 # Peak Hour + Occupancy
 GET /api/manager/dashboard/peak-hours?buildingId=&fromDay=&toDay=
 GET /api/manager/dashboard/stats?buildingId=&fromDay=&toDay=
+GET /api/buildings/{buildingId}/peak-hours?fromDay=&toDay=
 ```
