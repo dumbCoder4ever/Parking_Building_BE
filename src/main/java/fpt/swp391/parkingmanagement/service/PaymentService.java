@@ -30,6 +30,7 @@ import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -42,6 +43,7 @@ public class PaymentService {
     private final UserRepository userRepository;
     private final TicketRepository ticketRepository;
     private final NotificationService notificationService;
+    private final AuditLogService auditLogService;
 
     @Autowired
     private VnPayService vnPayService;
@@ -141,8 +143,12 @@ public class PaymentService {
                 .driverName(displayName)
                 .build();
 
-        if (driver != null) {
-            notificationService.sendPaymentInitiationToDriver(driver, response);
+        if (driver != null && session.getReservation() != null) {
+            notificationService.sendToUser(driver.getUsername(), "PAYMENT_INITIATED", Map.of(
+                    "reservationCode", session.getReservation().getReservationCode(),
+                    "amount", paymentRequest.getAmount(),
+                    "paymentMethod", paymentRequest.getPaymentMethod()
+            ));
         }
 
         return response;
@@ -183,9 +189,25 @@ public class PaymentService {
                 .message("Payment successful. Staff may proceed with checkout.")
                 .build();
 
-        if (driver != null) {
-            notificationService.sendPaymentSuccessToDriver(driver, response);
+        if (driver != null && session.getReservation() != null) {
+            String ticketCode = payment.getSession().getTicket() != null
+                    ? payment.getSession().getTicket().getTicketCode() : "";
+            notificationService.sendToUser(driver.getUsername(), "PAYMENT_PAID", Map.of(
+                    "reservationCode", session.getReservation().getReservationCode(),
+                    "ticketCode", ticketCode,
+                    "amount", updatedPayment.getAmount()
+            ));
         }
+
+        auditLogService.record(
+                "PAYMENT_PAID",
+                "PAYMENT",
+                updatedPayment.getPaymentId(),
+                resolveBuildingId(session),
+                "PENDING",
+                "PAID",
+                "Payment confirmed " + updatedPayment.getTransactionCode(),
+                null);
 
         return response;
     }
@@ -205,6 +227,16 @@ public class PaymentService {
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
         session.setPaymentStatus("FAILED");
         parkingSessionRepository.save(session);
+
+        auditLogService.record(
+                "PAYMENT_FAILED",
+                "PAYMENT",
+                updatedPayment.getPaymentId(),
+                resolveBuildingId(session),
+                "PENDING",
+                "FAILED",
+                "Payment failed: " + reason,
+                null);
 
         return PaymentResponseDTO.builder()
                 .paymentId(updatedPayment.getPaymentId())
@@ -277,5 +309,20 @@ public class PaymentService {
                 .transactionCode(payment.getTransactionCode())
                 .paymentTime(payment.getPaymentTime())
                 .build();
+    }
+
+    private String resolveBuildingId(ParkingSession session) {
+        try {
+            if (session == null || session.getSlot() == null) {
+                return null;
+            }
+            var zone = session.getSlot().getZone();
+            if (zone == null || zone.getFloor() == null || zone.getFloor().getBuilding() == null) {
+                return null;
+            }
+            return zone.getFloor().getBuilding().getBuildingId();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

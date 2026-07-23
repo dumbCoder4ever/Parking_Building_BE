@@ -2,6 +2,9 @@ package fpt.swp391.parkingmanagement.controller;
 
 import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -126,10 +129,12 @@ public class ReservationController {
 
     @GetMapping("/staff/reservations")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getAllReservations(Authentication auth) {
+    public ResponseEntity<ApiResponse<Page<ReservationResponse>>> getAllReservations(
+            Authentication auth,
+            @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "All reservations retrieved successfully",
-                reservationService.getAllReservationsForStaff(auth.getName())));
+                reservationService.getAllReservationsForStaffPaginated(auth.getName(), pageable)));
     }
 
     @GetMapping("/staff/reservations/queue")
@@ -158,6 +163,20 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Pending reservations retrieved successfully",
                 reservationService.getPendingReservationsByBuilding(auth.getName(), buildingId)));
+    }
+
+    /**
+     * Tìm reservation PENDING/APPROVED theo biển số xe.
+     * Dùng khi staff check-in bằng OCR: nhận diện biển số → tìm reservation của driver.
+     */
+    @GetMapping("/staff/reservations/by-plate")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    public ResponseEntity<ApiResponse<List<ReservationResponse>>> getReservationsByPlate(
+            @RequestParam String plateNumber,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Reservations found for plate",
+                reservationService.findReservationsByPlateNumber(auth.getName(), plateNumber)));
     }
 
     @GetMapping("/staff/reservations/code/{reservationCode}")

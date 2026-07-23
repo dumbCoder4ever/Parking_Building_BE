@@ -21,7 +21,8 @@ public class ParkingSessionResponse {
     private String vehicleTypeId;
     private String vehicleTypeName;
     private LocalDateTime checkinTime;
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
+    private String checkoutVehicleImage;
 
     /** Thời gian đỗ (phút). Check-in mới = 0. */
     private Integer parkingDuration;

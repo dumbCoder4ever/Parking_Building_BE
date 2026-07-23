@@ -16,5 +16,5 @@ public class GuestCheckinRequest {
     private String note;
 
     /** Set programmatically after Cloudinary upload */
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
 }

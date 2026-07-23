@@ -30,7 +30,8 @@ public class AdminDashboardController {
             summary = "Admin dashboard stats",
             description = "System-wide snapshot: real-time occupancy, session/reservation/user/incident stats, "
                     + "driver vs guest session counts (today, active, all-time), revenue by payment method, "
-                    + "and revenue trend by date range. If fromDay/toDay are omitted, defaults to the last 7 days.")
+                    + "and revenue trend by date range. Incident stats exclude auto-created SYSTEM reports. "
+                    + "If fromDay/toDay are omitted, defaults to the last 7 days.")
     @GetMapping("/stats")
     public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboardStats(
             @Parameter(description = "Start date (yyyy-MM-dd), defaults to 6 days ago")

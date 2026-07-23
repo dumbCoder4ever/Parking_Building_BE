@@ -1,9 +1,13 @@
 package fpt.swp391.parkingmanagement.service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +18,6 @@ import fpt.swp391.parkingmanagement.dto.StaffSummaryResponse;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.BuildingStaff;
 import fpt.swp391.parkingmanagement.entity.User;
-import fpt.swp391.parkingmanagement.exception.DuplicateResourceException;
 import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
@@ -33,8 +36,23 @@ public class ManagerStaffService {
 
     @Transactional(readOnly = true)
     public List<StaffSummaryResponse> getAllStaff() {
-        return userRepository.findByRoleOrderByFullNameAsc(STAFF_ROLE).stream()
-                .map(this::toStaffSummary)
+        List<User> staffUsers = userRepository.findByRoleOrderByFullNameAsc(STAFF_ROLE);
+        if (staffUsers.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> userIds = staffUsers.stream().map(User::getUserId).toList();
+        Map<String, List<String>> buildingIdsByUser = new HashMap<>();
+        for (Object[] row : buildingStaffRepository.findBuildingIdsByUserIds(userIds)) {
+            String userId = (String) row[0];
+            String buildingId = (String) row[1];
+            buildingIdsByUser
+                    .computeIfAbsent(userId, id -> new ArrayList<>())
+                    .add(buildingId);
+        }
+
+        return staffUsers.stream()
+                .map(user -> toStaffSummary(user, buildingIdsByUser.getOrDefault(user.getUserId(), List.of())))
                 .toList();
     }
 
@@ -82,11 +100,7 @@ public class ManagerStaffService {
     public List<StaffAssignmentResponse> assignStaffToBuildings(String userId, AssignStaffBuildingsRequest request) {
         User staff = findStaff(userId);
         Set<String> uniqueBuildingIds = new LinkedHashSet<>(request.getBuildingIds());
-
-        List<Building> buildings = new ArrayList<>();
-        for (String buildingId : uniqueBuildingIds) {
-            buildings.add(findBuilding(buildingId));
-        }
+        List<Building> buildings = findBuildings(uniqueBuildingIds);
 
         List<BuildingStaff> existing = buildingStaffRepository.findByUserUserIdOrderByAssignedAtDesc(userId);
         if (!existing.isEmpty()) {
@@ -94,14 +108,17 @@ public class ManagerStaffService {
             buildingStaffRepository.flush(); // ensure deletes hit DB before re-insert (uq_building_staff)
         }
 
-        List<StaffAssignmentResponse> responses = new ArrayList<>();
+        List<BuildingStaff> toSave = new ArrayList<>(buildings.size());
         for (Building building : buildings) {
             BuildingStaff assignment = new BuildingStaff();
             assignment.setBuilding(building);
             assignment.setUser(staff);
-            responses.add(toAssignmentResponse(buildingStaffRepository.save(assignment), building));
+            toSave.add(assignment);
         }
-        return responses;
+
+        return buildingStaffRepository.saveAll(toSave).stream()
+                .map(assignment -> toAssignmentResponse(assignment, assignment.getBuilding()))
+                .toList();
     }
 
     @Transactional
@@ -121,6 +138,24 @@ public class ManagerStaffService {
                 .orElseThrow(() -> new ResourceNotFoundException("Building not found: " + buildingId));
     }
 
+    private List<Building> findBuildings(Set<String> buildingIds) {
+        if (buildingIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, Building> found = buildingRepository.findAllById(buildingIds).stream()
+                .collect(Collectors.toMap(Building::getBuildingId, b -> b, (a, b) -> a, LinkedHashMap::new));
+
+        for (String buildingId : buildingIds) {
+            if (!found.containsKey(buildingId)) {
+                throw new ResourceNotFoundException("Building not found: " + buildingId);
+            }
+        }
+
+        // Preserve request order
+        return buildingIds.stream().map(found::get).toList();
+    }
+
     private User findStaff(String userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
@@ -134,12 +169,7 @@ public class ManagerStaffService {
         return user;
     }
 
-    private StaffSummaryResponse toStaffSummary(User user) {
-        List<BuildingStaff> assignments = buildingStaffRepository.findByUserUserIdOrderByAssignedAtDesc(user.getUserId());
-        List<String> buildingIds = assignments.stream()
-                .map(assignment -> assignment.getBuilding().getBuildingId())
-                .toList();
-
+    private StaffSummaryResponse toStaffSummary(User user, List<String> buildingIds) {
         return StaffSummaryResponse.builder()
                 .userId(user.getUserId())
                 .username(user.getUsername())

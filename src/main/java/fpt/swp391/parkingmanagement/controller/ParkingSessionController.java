@@ -6,6 +6,8 @@ import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
 import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
+import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
+import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
@@ -38,6 +40,22 @@ public class ParkingSessionController {
     private final ParkingSessionService parkingSessionService;
     private final CloudinaryService cloudinaryService;
     private final TicketRepository ticketRepository;
+
+    @Operation(summary = "Lookup plate for staff check-in",
+            description = """
+                    Tra cứu nhanh biển số trước khi check-in.
+                    - Ưu tiên reservation PENDING/APPROVED (driver).
+                    - Nếu không có reservation thì trả guest session ACTIVE (nếu có).
+                    - `buildingId` tùy chọn để lọc reservation theo bãi.
+                    """)
+    @GetMapping("/sessions/plate/{plateNumber}/lookup")
+    public ResponseEntity<ApiResponse<PlateLookupResponse>> lookupByPlate(
+            @PathVariable String plateNumber,
+            @RequestParam(required = false) String buildingId,
+            Authentication auth) {
+        PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId);
+        return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
+    }
 
     @Operation(summary = "Unified Staff Check-in",
             description = """
@@ -72,7 +90,7 @@ public class ParkingSessionController {
             req.setNote(note);
             MultipartFile imageToUpload = checkinImage != null && !checkinImage.isEmpty()
                     ? checkinImage : plateImage;
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
+            req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(imageToUpload));
 
             QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
             return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));
@@ -88,7 +106,7 @@ public class ParkingSessionController {
         req.setNote(note);
         MultipartFile imageToUpload = checkinImage != null ? checkinImage : plateImage;
         if (imageToUpload != null && !imageToUpload.isEmpty()) {
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(imageToUpload));
+            req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(imageToUpload));
         }
         ParkingSessionResponse resp = parkingSessionService.checkin(auth.getName(), req);
         return ResponseEntity.ok(ApiResponse.ok("Check-in successful", resp));
@@ -150,29 +168,47 @@ public class ParkingSessionController {
         req.setTicketCode(ticketCode);
         req.setPaymentMethod(paymentMethod);
         if (checkoutImage != null && !checkoutImage.isEmpty()) {
-            req.setCheckoutImageUrl(cloudinaryService.uploadParkingImage(checkoutImage));
+            req.setCheckoutVehicleImage(cloudinaryService.uploadParkingImage(checkoutImage));
         }
         return req;
     }
 
-    @Operation(summary = "Driver Check-out (sau khi thanh toán)",
+    @Operation(summary = "Driver Check-out (sau khi thanh toán hoặc resolve incident)",
             description = """
-                    Staff xác nhận xe ra cho driver đã thanh toán VNPay/PayOS/MOMO.
-                    - Bắt buộc: `ticketCode`.
-                    - Yêu cầu session.paymentStatus=PAID. Không tạo Payment.
-                    - Có thể gửi `checkoutImage` ghi nhận ảnh xe ra.
+                    Staff xác nhận xe ra cho driver đã thanh toán VNPay/PayOS/MOMO
+                    HOẶC đã được resolve incident (mất vé).
+                    - Nếu có ticketCode: checkout bình thường.
+                    - Nếu có sessionId + incident đã resolved: checkout không cần ticket.
+                    - Yêu cầu session.paymentStatus=PAID. Không tạo Payment mới.
+                    - Có thể gửi checkoutImage ghi nhận ảnh xe ra.
                     Lưu ý: authentication header bắt buộc.
                     """)
     @PostMapping(value = "/sessions/driver/checkout", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CheckoutResponse>> driverCheckout(
-            @RequestParam String ticketCode,
+            @RequestParam(required = false) String ticketCode,
+            @RequestParam(required = false) String sessionId,
             @RequestParam(required = false) MultipartFile checkoutImage,
             Authentication auth) {
-        String sessionId = parkingSessionService.findSessionIdByTicketCode(ticketCode)
-                .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND,
-                        "No active session for ticket: " + ticketCode));
-        CheckoutResponse resp = parkingSessionService.confirmExitAndCheckout(
-                auth.getName(), sessionId, null, checkoutImage != null ? cloudinaryService.uploadParkingImage(checkoutImage) : null);
+        CheckoutResponse resp;
+        
+        if (ticketCode != null && !ticketCode.isBlank()) {
+            // Checkout bằng ticketCode
+            String sid = parkingSessionService.findSessionIdByTicketCode(ticketCode)
+                    .orElseThrow(() -> new BaseAPIException(ErrorCode.SESSION_NOT_FOUND,
+                            "No active session for ticket: " + ticketCode));
+            resp = parkingSessionService.confirmExitAndCheckout(
+                    auth.getName(), sid, null, 
+                    checkoutImage != null ? cloudinaryService.uploadParkingImage(checkoutImage) : null);
+        } else if (sessionId != null && !sessionId.isBlank()) {
+            // Checkout bằng sessionId (sau khi incident resolved - không cần ticket)
+            resp = parkingSessionService.driverCheckoutBySession(
+                    auth.getName(), sessionId, 
+                    checkoutImage != null ? cloudinaryService.uploadParkingImage(checkoutImage) : null);
+        } else {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST, 
+                    "ticketCode or sessionId is required");
+        }
+        
         return ResponseEntity.ok(ApiResponse.ok("Driver checkout successful", resp));
     }
 

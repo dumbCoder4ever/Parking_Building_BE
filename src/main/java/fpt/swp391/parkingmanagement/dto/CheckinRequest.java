@@ -12,7 +12,7 @@ public class CheckinRequest {
     private String vehicleColor;
     private String vehicleTypeId;
     // Set programmatically after Cloudinary upload — not sent by client
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
     private String guestName;
     private String guestPhone;
     private String note;

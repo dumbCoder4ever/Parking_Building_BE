@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,8 +27,22 @@ public interface BuildingStaffRepository extends JpaRepository<BuildingStaff, St
 
     long countByUserUserId(String userId);
 
+    long countByBuildingBuildingId(String buildingId);
+
     @Query("SELECT bs.building.buildingId FROM BuildingStaff bs WHERE bs.user.userId = :userId")
     List<String> findBuildingIdsByUserId(@Param("userId") String userId);
+
+    /**
+     * Batch-load building assignments for many staff users (avoids N+1 in getAllStaff).
+     * Returns [userId, buildingId] rows.
+     */
+    @Query("""
+            SELECT bs.user.userId, bs.building.buildingId
+            FROM BuildingStaff bs
+            WHERE bs.user.userId IN :userIds
+            ORDER BY bs.assignedAt DESC
+            """)
+    List<Object[]> findBuildingIdsByUserIds(@Param("userIds") Collection<String> userIds);
 
     @EntityGraph(attributePaths = {"building"})
     List<BuildingStaff> findByUserUserId(String userId);

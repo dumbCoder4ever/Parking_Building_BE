@@ -30,7 +30,7 @@ public class GuestCheckinResponse {
     private String slotName;
 
     private LocalDateTime checkinTime;
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
 
     /** Trạng thái session: ACTIVE (đã check-in), PENDING_PAYMENT, PENDING_EXIT, COMPLETED, CANCELLED */
     private String status;

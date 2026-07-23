@@ -1,7 +1,9 @@
 package fpt.swp391.parkingmanagement.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,10 +13,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import fpt.swp391.parkingmanagement.dto.ApiResponse;
+import fpt.swp391.parkingmanagement.dto.BuildingRuleResponse;
 import fpt.swp391.parkingmanagement.dto.BuildingSummaryDto;
 import fpt.swp391.parkingmanagement.dto.FloorDto;
+import fpt.swp391.parkingmanagement.dto.PeakHourAnalysisResponse;
+import fpt.swp391.parkingmanagement.dto.SlotSuggestionResponse;
 import fpt.swp391.parkingmanagement.dto.ZoneSlotsDto;
+import fpt.swp391.parkingmanagement.service.BuildingRuleService;
 import fpt.swp391.parkingmanagement.service.BuildingService;
+import fpt.swp391.parkingmanagement.service.PeakHourService;
+import fpt.swp391.parkingmanagement.service.SlotSuggestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,6 +44,9 @@ import lombok.RequiredArgsConstructor;
 public class BuildingController {
 
     private final BuildingService buildingService;
+    private final BuildingRuleService buildingRuleService;
+    private final PeakHourService peakHourService;
+    private final SlotSuggestionService slotSuggestionService;
 
     // =========================================================================
     // (1) List available buildings (minimal data, fast)
@@ -81,9 +92,65 @@ public class BuildingController {
             summary = "List floors for a building",
             description = "Returns floors with vehicle type and per-zone slot summaries so the UI can expand a building before selecting a zone.")
     public ResponseEntity<ApiResponse<List<FloorDto>>> getBuildingFloors(
-            @Parameter(description = "Building id") @PathVariable String buildingId) {
+            @Parameter(description = "", example = "") @PathVariable String buildingId,
+            @Parameter(description = "Filter floors by vehicle type id (e.g. MOTORBIKE). Optional.")
+            @RequestParam(required = false) String vehicleTypeId) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Building floors retrieved successfully",
-                buildingService.listFloorsOfBuilding(buildingId)));
+                buildingService.listFloorsOfBuilding(buildingId, vehicleTypeId)));
+    }
+
+    // =========================================================================
+    // (4) Building rules: read-only for drivers before reservation
+    // =========================================================================
+    @GetMapping("/buildings/{buildingId}/rules")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
+    @Operation(
+            summary = "List active building rules",
+            description = "Returns ACTIVE parking rules for a building. Drivers use this before creating a reservation; managers manage rules via /api/manager/buildings/{buildingId}/rules.")
+    public ResponseEntity<ApiResponse<List<BuildingRuleResponse>>> getActiveBuildingRules(
+            @Parameter(description = "", example = "") @PathVariable String buildingId) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Building rules retrieved successfully",
+                buildingRuleService.listActiveByBuilding(buildingId)));
+    }
+
+    // =========================================================================
+    // (5) Peak hours: driver-facing (same analysis as manager dashboard)
+    // =========================================================================
+    @GetMapping("/buildings/{buildingId}/peak-hours")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
+    @Operation(
+            summary = "Peak hour analysis for a building (driver)",
+            description = "Returns hourly check-in distribution and peak hours for one building. "
+                    + "Drivers use this when choosing reservation time; managers still use "
+                    + "GET /api/manager/dashboard/peak-hours for cross-building analytics.")
+    public ResponseEntity<ApiResponse<PeakHourAnalysisResponse>> getBuildingPeakHours(
+            @Parameter(description = "", example = "") @PathVariable String buildingId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDay,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDay) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Peak hour analysis retrieved successfully",
+                peakHourService.analyze(buildingId, fromDay, toDay)));
+    }
+
+    // =========================================================================
+    // (6) Slot suggestions: Driver / Staff / Manager (same heuristic as manager analytics)
+    // =========================================================================
+    @GetMapping("/buildings/{buildingId}/slot-suggestions")
+    @PreAuthorize("hasAnyRole('DRIVER','STAFF','MANAGER','ADMIN')")
+    @Operation(
+            summary = "Heuristic slot suggestions for a building",
+            description = "Suggests available slots by lower floor and lower zone occupancy. "
+                    + "Drivers use this when picking a reservation slot; Staff can use it when helping assign. "
+                    + "Same scoring as GET /api/manager/analytics/slot-suggestion — does not auto-reserve.")
+    public ResponseEntity<ApiResponse<List<SlotSuggestionResponse>>> getBuildingSlotSuggestions(
+            @Parameter(description = "", example = "") @PathVariable String buildingId,
+            @Parameter(description = "ID loại xe", example = "") @RequestParam String vehicleTypeId,
+            @Parameter(description = "Số slot gợi ý (mặc định 5, tối đa 20)")
+            @RequestParam(defaultValue = "5") int limit) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Slot suggestions retrieved successfully",
+                slotSuggestionService.suggest(buildingId, vehicleTypeId, limit)));
     }
 }

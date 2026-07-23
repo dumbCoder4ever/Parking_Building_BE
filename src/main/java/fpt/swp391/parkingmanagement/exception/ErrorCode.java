@@ -7,6 +7,7 @@ public enum ErrorCode {
     VEHICLE_TYPE_NOT_FOUND("Vehicle type not found"),
     RESERVATION_NOT_FOUND("Reservation not found"),
     UNAUTHORIZED("You are not authorized to perform this action"),
+    FORBIDDEN("You do not have permission to access this resource"),
     INVALID_REQUEST("Invalid request"),
     INTERNAL_ERROR("Internal server error"),
     TICKET_NOT_FOUND("Ticket not found"),

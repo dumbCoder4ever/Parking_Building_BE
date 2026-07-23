@@ -26,7 +26,10 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     Optional<ParkingSession> findBySessionIdAndSessionStatus(String sessionId, String sessionStatus);
 
-    @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId ORDER BY ps.checkinTime DESC")
+    @Query("SELECT ps FROM ParkingSession ps " +
+            "JOIN FETCH ps.reservation r JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+            "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+            "WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC")
     List<ParkingSession> findByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId, Pageable pageable);
 
     int countByReservationUserUserId(String userId);
@@ -43,10 +46,14 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps JOIN ps.reservation r WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLastByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+            "JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+            "WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findActiveByUserId(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC")
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+            "JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+            "WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC")
     List<ParkingSession> findAllActiveByUserId(@Param("userId") String userId);
 
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId ORDER BY ps.checkinTime DESC")
@@ -57,6 +64,45 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     Optional<ParkingSession> findCurrentSessionByUser(@Param("ticketId") String ticketId);
+
+    /**
+     * FIX N+1: Full graph fetch for checkout operations.
+     * Loads slot->zone->floor->building chain and vehicle->vehicleType in one query.
+     */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building "
+            + "LEFT JOIN FETCH s.zone.floor.vehicleType "
+            + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH ps.ticket t "
+            + "WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    Optional<ParkingSession> findActiveSessionGraphByTicketId(@Param("ticketId") String ticketId);
+
+    /**
+     * FIX N+1: Full graph fetch for confirmExitAndCheckout operation.
+     */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building "
+            + "LEFT JOIN FETCH s.zone.floor.vehicleType "
+            + "LEFT JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH ps.ticket t "
+            + "WHERE ps.sessionId = :sessionId")
+    Optional<ParkingSession> findByIdGraph(@Param("sessionId") String sessionId);
+
+    /**
+     * FIX N+1: Full graph for checkin via ticket code.
+     * Loads ticket, reservation, vehicle, slot chain in one query.
+     */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.ticket t "
+            + "JOIN FETCH ps.reservation r "
+            + "JOIN FETCH r.vehicle rv JOIN FETCH rv.vehicleType "
+            + "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "JOIN FETCH r.user "
+            + "JOIN FETCH ps.vehicle gv LEFT JOIN FETCH gv.vehicleType "
+            + "WHERE t.ticketCode = :ticketCode")
+    Optional<ParkingSession> findByTicketCodeGraph(@Param("ticketCode") String ticketCode);
 
     @Query("SELECT ps FROM ParkingSession ps "
             + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
@@ -84,21 +130,42 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
             + "ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
 
+    /**
+     * Batch-load active sessions for many vehicles (manager vehicle search).
+     */
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.vehicle WHERE ps.vehicle.vehicleId IN :vehicleIds "
+            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    List<ParkingSession> findActiveByVehicleIds(@Param("vehicleIds") Collection<String> vehicleIds);
+
+    /**
+     * Batch-load latest session per vehicle (by checkin_time).
+     */
+    @Query("""
+            SELECT ps FROM ParkingSession ps JOIN FETCH ps.vehicle v
+            WHERE v.vehicleId IN :vehicleIds
+            AND ps.checkinTime = (
+                SELECT MAX(ps2.checkinTime) FROM ParkingSession ps2
+                WHERE ps2.vehicle.vehicleId = v.vehicleId
+            )
+            """)
+    List<ParkingSession> findLatestByVehicleIds(@Param("vehicleIds") Collection<String> vehicleIds);
+
     Optional<ParkingSession> findFirstByReservationReservationIdOrderByCreatedAtDesc(String reservationId);
 
     /**
      * FIX N+1: Batch-load latest session cho nhiều reservation.
-     * Native query: lấy session có createdAt MAX theo từng reservation_id.
+     * Dùng JPQL thay vì native query để tránh duplicates khi session có cùng createdAt.
+     * Chỉ lấy 1 session mới nhất cho mỗi reservation.
      */
-    @Query(value = """
-            SELECT ps.* FROM parking_sessions ps
-            INNER JOIN (
-                SELECT reservation_id, MAX(created_at) AS max_created
-                FROM parking_sessions
-                WHERE reservation_id IN (:reservationIds)
-                GROUP BY reservation_id
-            ) latest ON ps.reservation_id = latest.reservation_id AND ps.created_at = latest.max_created
-            """, nativeQuery = true)
+    @Query("""
+            SELECT ps FROM ParkingSession ps
+            LEFT JOIN FETCH ps.ticket
+            WHERE ps.reservation.reservationId IN :reservationIds
+            AND ps.createdAt = (
+                SELECT MAX(ps2.createdAt) FROM ParkingSession ps2
+                WHERE ps2.reservation.reservationId = ps.reservation.reservationId
+            )
+            """)
     List<ParkingSession> findLatestByReservationIds(@Param("reservationIds") Collection<String> reservationIds);
 
     @Query("SELECT ps FROM ParkingSession ps "
@@ -110,6 +177,19 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     default Optional<ParkingSession> findActiveGuestByPlateNumber(String plateNumber) {
         return findActiveGuestSessionsByPlateNumber(plateNumber, PageRequest.of(0, 1)).stream().findFirst();
+    }
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.ticket "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE v.vehicleId = :vehicleId AND ps.reservation IS NULL "
+            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
+            + "ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findActiveGuestSessionsByVehicleId(@Param("vehicleId") String vehicleId, Pageable pageable);
+
+    default Optional<ParkingSession> findActiveGuestByVehicleId(String vehicleId) {
+        return findActiveGuestSessionsByVehicleId(vehicleId, PageRequest.of(0, 1)).stream().findFirst();
     }
 
     @Query("SELECT ps FROM ParkingSession ps "
@@ -127,6 +207,23 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     }
 
     @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.vehicle gv "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
+            + "LEFT JOIN FETCH ps.ticket "
+            + "WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
+            + "AND ((gv IS NOT NULL AND gv.vehicleId = :vehicleId) "
+            + "OR (rv IS NOT NULL AND rv.vehicleId = :vehicleId)) "
+            + "ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findActiveSessionsIncludingReservationByVehicleId(
+            @Param("vehicleId") String vehicleId, Pageable pageable);
+
+    default Optional<ParkingSession> findAnyActiveSessionByVehicleId(String vehicleId) {
+        return findActiveSessionsIncludingReservationByVehicleId(vehicleId, PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
+    @Query("SELECT ps FROM ParkingSession ps "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
             + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
             + "WHERE ps.sessionId = :sessionId AND ps.reservation IS NULL")
@@ -140,6 +237,37 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     Optional<ParkingSession> findGuestSessionByTicketCode(@Param("ticketCode") String ticketCode);
 
     // ============ DASHBOARD STATS ============
+
+    /**
+     * One table scan for dashboard session counters + avg duration/fee.
+     * When buildingId is null, aggregates all buildings.
+     */
+    @Query("""
+            SELECT new fpt.swp391.parkingmanagement.repository.SessionDashboardStats(
+                COALESCE(SUM(CASE WHEN ps.sessionStatus = 'ACTIVE' THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.checkinTime >= :startOfToday AND ps.checkinTime < :endOfToday THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.checkinTime >= :startOfMonth AND ps.checkinTime < :now THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NULL AND ps.checkinTime >= :startOfToday AND ps.checkinTime < :endOfToday THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NULL THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NOT NULL THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') THEN 1L ELSE 0L END), 0L),
+                COALESCE(SUM(CASE WHEN ps.reservation IS NOT NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') THEN 1L ELSE 0L END), 0L),
+                AVG(CASE WHEN ps.sessionStatus = 'COMPLETED' THEN ps.parkingDuration ELSE NULL END),
+                AVG(CASE WHEN ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0 THEN ps.totalFee ELSE NULL END)
+            )
+            FROM ParkingSession ps
+            LEFT JOIN ps.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE (:buildingId IS NULL OR b.buildingId = :buildingId)
+            """)
+    SessionDashboardStats aggregateDashboardSessionCounts(
+            @Param("startOfToday") LocalDateTime startOfToday,
+            @Param("endOfToday") LocalDateTime endOfToday,
+            @Param("startOfMonth") LocalDateTime startOfMonth,
+            @Param("now") LocalDateTime now,
+            @Param("buildingId") String buildingId);
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.sessionStatus = :status")
     long countBySessionStatus(@Param("status") String status);
@@ -156,8 +284,18 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT COALESCE(AVG(ps.totalFee), 0) FROM ParkingSession ps WHERE ps.sessionStatus = 'COMPLETED' AND ps.totalFee > 0")
     Double avgFeeCompleted();
 
-    @Query("SELECT COUNT(DISTINCT ps.reservation.user.userId) FROM ParkingSession ps WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') AND ps.reservation IS NOT NULL")
-    long countDistinctDriversCurrentlyParked();
+    @Query("""
+            SELECT COUNT(DISTINCT ps.reservation.user.userId)
+            FROM ParkingSession ps
+            LEFT JOIN ps.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')
+              AND ps.reservation IS NOT NULL
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            """)
+    long countDistinctDriversCurrentlyParked(@Param("buildingId") String buildingId);
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NULL")
     long countGuestSessionsAllTime();
@@ -170,4 +308,66 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
 
     @Query("SELECT COUNT(ps) FROM ParkingSession ps WHERE ps.reservation IS NOT NULL AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     long countActiveDriverSessions();
+
+    /**
+     * Peak-hour analysis: check-in counts grouped by hour of day.
+     * When buildingId is null, aggregates all buildings.
+     */
+    @Query("""
+            SELECT HOUR(ps.checkinTime), COUNT(ps)
+            FROM ParkingSession ps
+            JOIN ps.slot s JOIN s.zone z JOIN z.floor f JOIN f.building b
+            WHERE ps.checkinTime >= :from AND ps.checkinTime <= :to
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            GROUP BY HOUR(ps.checkinTime)
+            """)
+    List<Object[]> countCheckinsByHour(
+            @Param("buildingId") String buildingId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /**
+     * Active sessions for scheduler jobs (overstay / payment reminder).
+     */
+    @Query("""
+            SELECT DISTINCT ps FROM ParkingSession ps
+            LEFT JOIN FETCH ps.slot s
+            LEFT JOIN FETCH s.zone z
+            LEFT JOIN FETCH z.floor f
+            LEFT JOIN FETCH f.building b
+            LEFT JOIN FETCH ps.vehicle v
+            LEFT JOIN FETCH ps.reservation r
+            LEFT JOIN FETCH r.user u
+            LEFT JOIN FETCH ps.ticket t
+            WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')
+              AND ps.checkinTime IS NOT NULL
+              AND ps.checkinTime <= :cutoff
+            """)
+    List<ParkingSession> findActiveSessionsCheckedInBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+            SELECT DISTINCT ps FROM ParkingSession ps
+            LEFT JOIN FETCH ps.slot s
+            LEFT JOIN FETCH s.zone z
+            LEFT JOIN FETCH z.floor f
+            LEFT JOIN FETCH f.building b
+            LEFT JOIN FETCH ps.vehicle v
+            LEFT JOIN FETCH ps.reservation r
+            LEFT JOIN FETCH r.user u
+            LEFT JOIN FETCH ps.ticket t
+            WHERE ps.sessionStatus = 'PENDING_PAYMENT'
+              AND ps.checkinTime IS NOT NULL
+              AND ps.checkinTime <= :cutoff
+            """)
+    List<ParkingSession> findPendingPaymentSessionsBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    // ============ INCIDENT AUTO-CREATE ============
+
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.slot.slotId = :slotId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    List<ParkingSession> findActiveSessionsBySlotId(@Param("slotId") String slotId);
+
+    @Query("SELECT ps.slot.slotId, COUNT(ps) FROM ParkingSession ps " +
+           "WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') " +
+           "GROUP BY ps.slot.slotId HAVING COUNT(ps) > 1")
+    List<Object[]> findSlotsWithMultipleActiveSessions();
 }
