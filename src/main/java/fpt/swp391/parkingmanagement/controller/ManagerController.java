@@ -150,7 +150,8 @@ public class ManagerController {
             summary = "Manager dashboard stats",
             description = "Occupancy, sessions, reservations, users, incidents, revenue trend. "
                     + "Optional buildingId filters occupancy, sessions, reservations, incidents, revenue, "
-                    + "driversCurrentlyParked and staff count. totalDrivers/totalManagers/newUsersThisMonth stay system-wide.")
+                    + "driversCurrentlyParked and staff count. totalDrivers/totalManagers/newUsersThisMonth stay system-wide. "
+                    + "Incident stats exclude auto-created SYSTEM reports (driver/staff incidents only).")
     @GetMapping("/dashboard/stats")
     public ResponseEntity<ApiResponse<DashboardStatsResponse>> getDashboardStats(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDay,

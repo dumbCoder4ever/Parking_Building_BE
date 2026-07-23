@@ -46,6 +46,7 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
 
     /**
      * Aggregate incident counters. When buildingId is null, aggregates all buildings.
+     * Excludes auto-created SYSTEM incidents (SLOT_CONFLICT, OVERTIME, etc.).
      */
     @Query("""
             SELECT new fpt.swp391.parkingmanagement.repository.IncidentDashboardStats(
@@ -62,6 +63,7 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
             LEFT JOIN z.floor f
             LEFT JOIN f.building b
             WHERE (:buildingId IS NULL OR b.buildingId = :buildingId)
+              AND (i.reportSource IS NULL OR UPPER(i.reportSource) <> 'SYSTEM')
             """)
     IncidentDashboardStats aggregateDashboardStats(
             @Param("from") LocalDateTime from,
