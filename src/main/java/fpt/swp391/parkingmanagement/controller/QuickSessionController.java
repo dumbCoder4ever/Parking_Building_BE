@@ -40,7 +40,7 @@ public class QuickSessionController {
             Authentication auth) {
 
         if (req.getPlateImage() != null && !req.getPlateImage().isEmpty()) {
-            req.setCheckinImageUrl(cloudinaryService.uploadParkingImage(req.getPlateImage()));
+            req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(req.getPlateImage()));
         }
 
         // AUTO DETECT: Tự động detect DRIVER/GUEST dựa trên biển số

@@ -1,8 +1,10 @@
 package fpt.swp391.parkingmanagement.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +15,19 @@ import fpt.swp391.parkingmanagement.entity.Vehicle;
 public interface VehicleRepository extends JpaRepository<Vehicle, String> {
 
     Optional<Vehicle> findByPlateNumberIgnoreCase(String plateNumber);
+
+    @Query("""
+            SELECT v FROM Vehicle v
+            WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '') = :normalizedPlate
+            """)
+    Optional<Vehicle> findByNormalizedPlateNumber(@Param("normalizedPlate") String normalizedPlate);
+
+    @Query("""
+            SELECT v FROM Vehicle v
+            WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '')
+                  LIKE CONCAT(:prefix, '%')
+            """)
+    List<Vehicle> findByNormalizedPlateStartingWith(@Param("prefix") String prefix, Pageable pageable);
 
     Optional<Vehicle> findByPlateNumber(String plateNumber);
 
@@ -40,6 +55,12 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     @EntityGraph(attributePaths = {"vehicleType", "user"})
     List<Vehicle> findByUserUserIdOrderByCreatedAtDesc(String userId);
 
+    /**
+     * FIX N+1: Load vehicleType eagerly for plate lookup in checkin/checkout flows.
+     */
+    @Query("SELECT v FROM Vehicle v LEFT JOIN FETCH v.vehicleType WHERE v.plateNumber = :plateNumber")
+    Optional<Vehicle> findByPlateNumberGraph(@Param("plateNumber") String plateNumber);
+
     boolean existsByPlateNumber(String plateNumber);
 
     int countByUserUserId(String userId);
@@ -54,6 +75,29 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
             AND (:username IS NULL OR LOWER(u.username) LIKE LOWER(CONCAT('%', :username, '%')))
             AND (:ownerFullName IS NULL OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :ownerFullName, '%')))
             AND (:vehicleTypeId IS NULL OR vt.vehicleTypeId = :vehicleTypeId)
+            AND (
+                :parked IS NULL
+                OR (:parked = TRUE AND EXISTS (
+                    SELECT 1 FROM ParkingSession psa
+                    WHERE psa.vehicle = v AND UPPER(psa.sessionStatus) = 'ACTIVE'
+                ))
+                OR (:parked = FALSE AND NOT EXISTS (
+                    SELECT 1 FROM ParkingSession psb
+                    WHERE psb.vehicle = v AND UPPER(psb.sessionStatus) = 'ACTIVE'
+                ))
+            )
+            AND (
+                (:checkInFrom IS NULL AND :checkInTo IS NULL)
+                OR EXISTS (
+                    SELECT 1 FROM ParkingSession psc
+                    WHERE psc.vehicle = v
+                    AND psc.checkinTime = (
+                        SELECT MAX(psd.checkinTime) FROM ParkingSession psd WHERE psd.vehicle = v
+                    )
+                    AND (:checkInFrom IS NULL OR psc.checkinTime >= :checkInFrom)
+                    AND (:checkInTo IS NULL OR psc.checkinTime <= :checkInTo)
+                )
+            )
             ORDER BY v.createdAt DESC
             """)
     List<Vehicle> searchForManager(
@@ -62,5 +106,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
             @Param("userId") String userId,
             @Param("username") String username,
             @Param("ownerFullName") String ownerFullName,
-            @Param("vehicleTypeId") String vehicleTypeId);
+            @Param("vehicleTypeId") String vehicleTypeId,
+            @Param("parked") Boolean parked,
+            @Param("checkInFrom") LocalDateTime checkInFrom,
+            @Param("checkInTo") LocalDateTime checkInTo);
 }

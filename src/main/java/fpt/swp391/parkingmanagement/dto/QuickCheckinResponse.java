@@ -37,7 +37,7 @@ public class QuickCheckinResponse {
     private String slotName;
 
     private LocalDateTime checkinTime;
-    private String checkinImageUrl;
+    private String checkinVehicleImage;
 
     @Schema(description = "Thời gian đỗ (phút). Check-in mới = 0.")
     private Integer parkingDuration;

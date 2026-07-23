@@ -22,4 +22,16 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
 
     @Query("SELECT t FROM Ticket t JOIN FETCH t.reservation r JOIN FETCH r.user WHERE t.ticketCode = :ticketCode")
     Optional<Ticket> findByTicketCodeWithUser(@Param("ticketCode") String ticketCode);
+
+    /**
+     * FIX N+1: Full graph fetch for ticket lookup in checkin flow.
+     * Loads reservation, vehicle, slot chain in one query.
+     */
+    @Query("SELECT t FROM Ticket t "
+            + "JOIN FETCH t.reservation r "
+            + "JOIN FETCH r.vehicle rv JOIN FETCH rv.vehicleType "
+            + "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "JOIN FETCH r.user "
+            + "WHERE t.ticketCode = :ticketCode")
+    Optional<Ticket> findByTicketCodeGraph(@Param("ticketCode") String ticketCode);
 }

@@ -79,6 +79,33 @@ public class OpenApiConfig {
     }
 
     @Bean
+    public OpenApiCustomizer clearParameterNameExamplesCustomizer() {
+        return openApi -> {
+            if (openApi.getPaths() == null) {
+                return;
+            }
+            openApi.getPaths().values().forEach(pathItem -> pathItem.readOperations().forEach(operation -> {
+                if (operation.getParameters() == null) {
+                    return;
+                }
+                operation.getParameters().forEach(parameter -> {
+                    Object example = parameter.getExample();
+                    if (example != null && parameter.getName() != null
+                            && parameter.getName().equals(String.valueOf(example))) {
+                        parameter.setExample(null);
+                    }
+                    if (parameter.getSchema() != null
+                            && parameter.getSchema().getExample() != null
+                            && parameter.getName() != null
+                            && parameter.getName().equals(String.valueOf(parameter.getSchema().getExample()))) {
+                        parameter.getSchema().setExample(null);
+                    }
+                });
+            }));
+        };
+    }
+
+    @Bean
     public OpenApiCustomizer managerSetupPathOrderingCustomizer() {
         return openApi -> {
             if (openApi.getPaths() == null) {

@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -58,7 +59,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "JOIN FETCH s.zone z " +
            "JOIN FETCH z.floor f " +
            "JOIN FETCH f.building " +
-           "JOIN FETCH r.vehicle " +
+           "JOIN FETCH r.vehicle v " +
+           "JOIN FETCH v.vehicleType " +
            "JOIN FETCH r.user " +
            "WHERE r.user.userId = :userId " +
            "ORDER BY r.createdAt DESC")
@@ -76,10 +78,15 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            nativeQuery = true)
     List<Reservation> findExpiredReservations(@Param("currentTime") LocalDateTime currentTime);
 
+    /**
+     * Sargable-friendly expire lookup: filter PENDING by reservation_start first
+     * (usable with idx on status+start), then apply grace in the DATE_ADD predicate.
+     * JOIN FETCH slot/user via EntityGraph is not available on native queries —
+     * service batches with saveAll after loading relations once.
+     */
     @Query(value = "SELECT r.* FROM reservations r " +
            "WHERE r.reservation_status = 'PENDING' " +
-           // Expire PENDING reservations: reservationStart + gracePeriod <= now
-           // (Driver has gracePeriod minutes after reservationStart to checkin)
+           "AND r.reservation_start <= :currentTime " +
            "AND DATE_ADD(r.reservation_start, INTERVAL r.grace_period_minutes MINUTE) <= :currentTime",
            nativeQuery = true)
     List<Reservation> findExpiredPendingReservations(@Param("currentTime") LocalDateTime currentTime);
@@ -113,6 +120,14 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "WHERE f.building.buildingId = :buildingId")
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findByBuildingBuildingIdOrderByCreatedAtDesc(@Param("buildingId") String buildingId);
+
+    @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId ORDER BY r.createdAt DESC",
+           countQuery = "SELECT COUNT(r) FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
+           "WHERE f.building.buildingId = :buildingId")
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
+    org.springframework.data.domain.Page<Reservation> findByBuildingBuildingIdOrderByCreatedAtDesc(
+            @Param("buildingId") String buildingId, Pageable pageable);
 
     @Query(value = "SELECT r FROM Reservation r JOIN r.slot s JOIN s.zone z JOIN z.floor f " +
            "WHERE f.building.buildingId = :buildingId AND r.reservationStatus = :status ORDER BY r.createdAt DESC",
@@ -152,10 +167,36 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building", "vehicle", "user"})
     List<Reservation> findPendingByBuildingOrderByCreatedAtAsc(@Param("buildingId") String buildingId);
 
+    @Query("SELECT r FROM Reservation r "
+           + "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+           + "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType "
+           + "JOIN FETCH r.user "
+           + "WHERE v.vehicleId = :vehicleId "
+           + "AND r.reservationStatus IN ('PENDING', 'APPROVED') "
+           + "ORDER BY r.createdAt DESC")
+    List<Reservation> findPendingByVehicleId(@Param("vehicleId") String vehicleId, Pageable pageable);
+
+    default Optional<Reservation> findFirstPendingByVehicleId(String vehicleId) {
+        return findPendingByVehicleId(vehicleId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
     /**
-     * Tìm reservation PENDING/APPROVED theo biển số xe (case-insensitive).
-     * Dùng trong quick checkin: staff quét biển số → hệ thống tự tìm reservation phù hợp.
+     * Tìm reservation PENDING/APPROVED theo biển số (đã chuẩn hóa: bỏ -, space, dấu chấm).
+     * Dùng trong quick checkin / staff by-plate: OCR thường trả 29D225555 trong khi DB lưu 29D2-25555.
      */
+    @Query("SELECT r FROM Reservation r " +
+           "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+           "JOIN FETCH r.user " +
+           "WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '') = :normalizedPlate " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED') " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findPendingByNormalizedPlateNumber(@Param("normalizedPlate") String normalizedPlate);
+
+    /** @deprecated dùng {@link #findPendingByNormalizedPlateNumber(String)} */
+    @Deprecated
     @Query("SELECT r FROM Reservation r " +
            "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
            "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
@@ -174,6 +215,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
      */
     List<Reservation> findByVehiclePlateNumberIgnoreCase(String plateNumber);
 
+    List<Reservation> findByVehicleVehicleId(String vehicleId);
+
     // Check active reservations by vehicle type (không dùng time range nữa)
     @Query("SELECT r FROM Reservation r JOIN r.vehicle v JOIN v.vehicleType vt " +
            "WHERE r.user.userId = :userId " +
@@ -186,9 +229,72 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
 
     // ============ DASHBOARD STATS ============
 
+    @Query("""
+            SELECT r.reservationStatus, COUNT(r)
+            FROM Reservation r
+            LEFT JOIN r.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE (:buildingId IS NULL OR b.buildingId = :buildingId)
+            GROUP BY r.reservationStatus
+            """)
+    List<Object[]> countGroupedByReservationStatus(@Param("buildingId") String buildingId);
+
     @Query("SELECT COUNT(r) FROM Reservation r WHERE r.reservationStatus = :status")
     long countByReservationStatus(@Param("status") String status);
 
-    @Query("SELECT COUNT(r) FROM Reservation r WHERE r.createdAt >= :from AND r.createdAt < :to")
-    long countReservationsInRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+    @Query("""
+            SELECT COUNT(r)
+            FROM Reservation r
+            LEFT JOIN r.slot s
+            LEFT JOIN s.zone z
+            LEFT JOIN z.floor f
+            LEFT JOIN f.building b
+            WHERE r.createdAt >= :from AND r.createdAt < :to
+              AND (:buildingId IS NULL OR b.buildingId = :buildingId)
+            """)
+    long countReservationsInRange(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("buildingId") String buildingId);
+
+    // ============ INCIDENT VALIDATION ============
+
+    /**
+     * Kiểm tra xem slot có active reservation (PENDING hoặc APPROVED) hay không.
+     * Dùng trong validate REASSIGN_SLOT để đảm bảo slot thay thế không có reservation đặt trước.
+     */
+    @Query("SELECT COUNT(r) > 0 FROM Reservation r " +
+           "WHERE r.slot.slotId = :slotId " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED')")
+    boolean existsActiveReservationBySlotId(@Param("slotId") String slotId);
+
+    /**
+     * Batch check: lay slotIds co active reservation trong 1 query thay vi N queries.
+     * Dung trong getAvailableSlotsForReassign() de tranh N+1.
+     */
+    @Query("SELECT r.slot.slotId FROM Reservation r " +
+           "WHERE r.slot.slotId IN :slotIds " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED')")
+    List<String> findActiveSlotIdsBySlotIds(@Param("slotIds") Collection<String> slotIds);
+
+    /**
+     * Lay reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua 1 user.
+     * Dung trong incident de staff xem bang chung reservation gan nhat cua driver.
+     */
+    @Query("SELECT r FROM Reservation r JOIN FETCH r.slot s JOIN FETCH s.zone z " +
+           "JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType JOIN FETCH r.user " +
+           "WHERE r.user.userId = :userId " +
+           "AND r.reservationStatus IN ('PENDING', 'APPROVED', 'CHECKED_IN') " +
+           "ORDER BY r.createdAt DESC")
+    List<Reservation> findLatestActiveReservationByUserId(@Param("userId") String userId,
+                                                          Pageable pageable);
+
+    default Optional<Reservation> findFirstLatestActiveReservationByUserId(String userId) {
+        return findLatestActiveReservationByUserId(userId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
 }

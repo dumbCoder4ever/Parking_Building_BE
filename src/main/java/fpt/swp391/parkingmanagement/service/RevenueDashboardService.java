@@ -7,6 +7,7 @@ import fpt.swp391.parkingmanagement.repository.BuildingRepository;
 import fpt.swp391.parkingmanagement.repository.BuildingRevenueProjection;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,13 +26,16 @@ public class RevenueDashboardService {
     private final PaymentRepository paymentRepository;
     private final BuildingRepository buildingRepository;
 
+    @Cacheable(value = "revenueDashboard", key = "#from + '_' + #to + '_' + (#buildingId ?: 'ALL')")
     @Transactional(readOnly = true)
-    public RevenueDashboardResponse getRevenueDashboard(LocalDateTime from, LocalDateTime to) {
-        BigDecimal totalRevenue = paymentRepository.sumPaidRevenue(from, to);
-        long totalPaymentCount = paymentRepository.countPaidPayments(from, to);
+    public RevenueDashboardResponse getRevenueDashboard(LocalDateTime from, LocalDateTime to, String buildingId) {
+        String scopedBuildingId = (buildingId == null || buildingId.isBlank()) ? null : buildingId.trim();
+
+        BigDecimal totalRevenue = paymentRepository.sumPaidRevenue(from, to, scopedBuildingId);
+        long totalPaymentCount = paymentRepository.countPaidPayments(from, to, scopedBuildingId);
 
         Map<String, BuildingRevenueResponse> revenueByBuilding = new HashMap<>();
-        for (BuildingRevenueProjection row : paymentRepository.sumRevenueByBuilding(from, to)) {
+        for (BuildingRevenueProjection row : paymentRepository.sumRevenueByBuilding(from, to, scopedBuildingId)) {
             revenueByBuilding.put(row.getBuildingId(), BuildingRevenueResponse.builder()
                     .buildingId(row.getBuildingId())
                     .buildingName(row.getBuildingName())
@@ -40,8 +44,12 @@ public class RevenueDashboardService {
                     .build());
         }
 
+        List<Building> buildingsToShow = scopedBuildingId != null
+                ? buildingRepository.findById(scopedBuildingId).stream().toList()
+                : buildingRepository.findAll();
+
         List<BuildingRevenueResponse> buildings = new ArrayList<>();
-        for (Building building : buildingRepository.findAll()) {
+        for (Building building : buildingsToShow) {
             BuildingRevenueResponse existing = revenueByBuilding.get(building.getBuildingId());
             if (existing != null) {
                 buildings.add(existing);
@@ -66,5 +74,9 @@ public class RevenueDashboardService {
                 .to(to)
                 .buildings(buildings)
                 .build();
+    }
+
+    public RevenueDashboardResponse getRevenueDashboard(LocalDateTime from, LocalDateTime to) {
+        return getRevenueDashboard(from, to, null);
     }
 }

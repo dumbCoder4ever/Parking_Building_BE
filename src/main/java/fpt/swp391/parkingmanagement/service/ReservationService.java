@@ -7,11 +7,14 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.function.Function;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -82,6 +85,11 @@ public class ReservationService {
     private final PricingPolicyRepository pricingPolicyRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final CloudinaryService cloudinaryService;
+    private final BuildingRuleService buildingRuleService;
+    private final PeakHourService peakHourService;
+    private final AuditLogService auditLogService;
+    private final SystemConfigService systemConfigService;
+    private final ZoneStatusSyncService zoneStatusSyncService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReservationService(
@@ -100,7 +108,12 @@ public class ReservationService {
             PricingService pricingService,
             PricingPolicyRepository pricingPolicyRepository,
             ParkingSessionRepository parkingSessionRepository,
-            CloudinaryService cloudinaryService) {
+            CloudinaryService cloudinaryService,
+            BuildingRuleService buildingRuleService,
+            PeakHourService peakHourService,
+            AuditLogService auditLogService,
+            SystemConfigService systemConfigService,
+            ZoneStatusSyncService zoneStatusSyncService) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
         this.vehicleRepository = vehicleRepository;
@@ -117,6 +130,11 @@ public class ReservationService {
         this.pricingPolicyRepository = pricingPolicyRepository;
         this.parkingSessionRepository = parkingSessionRepository;
         this.cloudinaryService = cloudinaryService;
+        this.buildingRuleService = buildingRuleService;
+        this.peakHourService = peakHourService;
+        this.auditLogService = auditLogService;
+        this.systemConfigService = systemConfigService;
+        this.zoneStatusSyncService = zoneStatusSyncService;
     }
 
     @Transactional(readOnly = true)
@@ -167,15 +185,19 @@ public class ReservationService {
         Map<String, Reservation> reservationBySlotId = allReservations.stream()
                 .collect(Collectors.toMap(r -> r.getSlot().getSlotId(), r -> r, (a, b) -> a));
 
-        // BUILD RESPONSE: per-zone slot query (dùng index → nhanh)
+        // QUERY 4: Batch load slots for ALL zones in ONE query (replaces Z x findByZoneZoneIdOrderBySlotNameAsc)
+        List<ParkingSlot> allSlots = parkingSlotRepository.findByZoneZoneIdInOrderBySlotNameAsc(zoneIds);
+        Map<String, List<ParkingSlot>> slotsByZoneId = allSlots.stream()
+                .collect(Collectors.groupingBy(s -> s.getZone().getZoneId()));
+
+        // BUILD RESPONSE: loop in-memory over pre-loaded slots
         List<SlotAvailabilityDto> result = new ArrayList<>();
         for (ZoneSlotCount zoneStat : zoneStats) {
             BuildingEnrichment enr = enrichments.get(zoneStat.getBuildingId());
             boolean isFirstForBuilding = enr != null && !enr.consumed;
 
-            // QUERY 4 (per-zone): slots cho zone này (MySQL dùng index trên zone_id)
-            List<ParkingSlot> zoneSlots = parkingSlotRepository
-                    .findByZoneZoneIdOrderBySlotNameAsc(zoneStat.getZoneId());
+            // Use pre-loaded slots (no extra query per zone)
+            List<ParkingSlot> zoneSlots = slotsByZoneId.getOrDefault(zoneStat.getZoneId(), List.of());
 
             SlotAvailabilityDto.SlotAvailabilityDtoBuilder dtoBuilder = SlotAvailabilityDto.builder()
                     .buildingId(zoneStat.getBuildingId())
@@ -267,24 +289,40 @@ public class ReservationService {
                                 (a, b) -> a),
                         m -> new ArrayList<>(m.values())));
 
-        // QUERY: pricing policies cho mỗi vehicle type (gọi 1 lần / vt, không trong loop zone)
+        // QUERY: pricing policies for all vehicle types in ONE batch query (replaces N x findAllActiveForVehicleType)
+        Set<String> vehicleTypeIds = floors.stream()
+                .map(f -> f.getVehicleType() != null ? f.getVehicleType().getVehicleTypeId() : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, PricingPolicy> firstPolicyByVt = new LinkedHashMap<>();
+        if (!vehicleTypeIds.isEmpty()) {
+            pricingPolicyRepository.findAllActiveByVehicleTypeIds(vehicleTypeIds).stream()
+                    .collect(Collectors.groupingBy(p -> p.getVehicleType().getVehicleTypeId()))
+                    .forEach((vtId, policies) -> {
+                        if (!policies.isEmpty()) {
+                            firstPolicyByVt.put(vtId, policies.get(0));
+                        }
+                    });
+        }
+
         Map<String, PricingPolicySummaryDto> policyByVt = new LinkedHashMap<>();
         for (Floor f : floors) {
             if (f.getVehicleType() == null || f.getVehicleType().getVehicleTypeId() == null) continue;
             String vtId = f.getVehicleType().getVehicleTypeId();
             if (policyByVt.containsKey(vtId)) continue;
-            pricingPolicyRepository.findAllActiveForVehicleType(vtId).stream()
-                    .filter(p -> "ACTIVE".equals(p.getStatus()))
-                    .findFirst()
-                    .ifPresent(p -> policyByVt.put(vtId, PricingPolicySummaryDto.builder()
-                            .policyId(p.getPolicyId())
-                            .vehicleTypeId(p.getVehicleType().getVehicleTypeId())
-                            .vehicleTypeName(p.getVehicleType().getTypeName())
-                            .pricingType(p.getPricingType())
-                            .basePrice(p.getBasePrice())
-                            .hourlyRate(p.getHourlyRate())
-                            .maxHours(p.getMaxHours())
-                            .build()));
+            PricingPolicy p = firstPolicyByVt.get(vtId);
+            if (p != null) {
+                policyByVt.put(vtId, PricingPolicySummaryDto.builder()
+                        .policyId(p.getPolicyId())
+                        .vehicleTypeId(p.getVehicleType().getVehicleTypeId())
+                        .vehicleTypeName(p.getVehicleType().getTypeName())
+                        .pricingType(p.getPricingType())
+                        .basePrice(p.getBasePrice())
+                        .hourlyRate(p.getHourlyRate())
+                        .maxHours(p.getMaxHours())
+                        .build());
+            }
         }
         enr.pricingPolicies = new ArrayList<>(policyByVt.values());
 
@@ -298,8 +336,10 @@ public class ReservationService {
             if (b.getOperatingStartTime() != null && b.getOperatingEndTime() != null) {
                 enr.operatingHoursDisplay = b.getOperatingStartTime() + " - " + b.getOperatingEndTime();
             }
+            enr.parkingRules = buildingRuleService.resolveParkingRulesText(b.getBuildingId());
+        } else {
+            enr.parkingRules = buildingRuleService.resolveParkingRulesText(null);
         }
-        enr.parkingRules = "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
 
         return enr;
     }
@@ -356,31 +396,110 @@ public class ReservationService {
     }
 
     /**
-     * FIX N+1: Convert list reservations sang response trong 2 query batch
-     * thay vì 2 query / reservation.
+     * FIX N+1: Convert list reservations sang response trong 3 query batch
+     * thay vì N x 4 queries / reservation.
+     * Batch 1: tickets
+     * Batch 2: sessions
+     * Batch 3: pricing policies
      */
     private List<ReservationResponse> batchToReservationResponse(List<Reservation> reservations) {
         if (reservations.isEmpty()) return List.of();
 
-        // Batch 1: load tất cả tickets
         List<String> reservationIds = reservations.stream().map(Reservation::getReservationId).toList();
+
+        // Batch 1: load tất cả tickets (1 query)
         Map<String, Ticket> ticketByReservationId = ticketRepository
                 .findByReservationReservationIdIn(reservationIds).stream()
                 .collect(Collectors.toMap(t -> t.getReservation().getReservationId(), Function.identity(), (a, b) -> a));
 
-        // Batch 2: load tất cả latest sessions (1 query thay vì N)
+        // Batch 2: load tất cả latest sessions (1 query)
         Map<String, ParkingSession> latestSessionByResId = parkingSessionRepository
                 .findLatestByReservationIds(reservationIds).stream()
                 .collect(Collectors.toMap(s -> s.getReservation().getReservationId(), Function.identity(), (a, b) -> a));
 
+        // Batch 3: load tất cả pricing policies theo vehicle types (1 query)
+        Set<String> vehicleTypeIds = reservations.stream()
+                .filter(r -> r.getVehicle() != null && r.getVehicle().getVehicleType() != null)
+                .map(r -> r.getVehicle().getVehicleType().getVehicleTypeId())
+                .collect(Collectors.toSet());
+
+        Map<String, PricingPolicy> policyByVehicleTypeId = new HashMap<>();
+        if (!vehicleTypeIds.isEmpty()) {
+            List<PricingPolicy> policies = pricingPolicyRepository.findAllActiveByVehicleTypeIds(vehicleTypeIds);
+            for (PricingPolicy p : policies) {
+                if (p.getVehicleType() != null) {
+                    policyByVehicleTypeId.putIfAbsent(p.getVehicleType().getVehicleTypeId(), p);
+                }
+            }
+        }
+
+        // Convert với data đã batch load
         return reservations.stream()
-                .map(r -> toReservationResponse(r,
+                .map(r -> toReservationResponseWithBatch(
+                        r,
                         ticketByReservationId.get(r.getReservationId()),
-                        latestSessionByResId.get(r.getReservationId())))
+                        latestSessionByResId.get(r.getReservationId()),
+                        policyByVehicleTypeId.get(r.getVehicle() != null && r.getVehicle().getVehicleType() != null
+                                ? r.getVehicle().getVehicleType().getVehicleTypeId() : null)))
                 .toList();
     }
 
+    /**
+     * Convert reservation với pre-loaded data (không gọi thêm query).
+     * KHÔNG gọi pricing - pricing đã được set ở caller.
+     */
+    private ReservationResponse toReservationResponseWithBatch(
+            Reservation reservation,
+            Ticket ticket,
+            ParkingSession session,
+            PricingPolicy policy) {
+        ReservationResponse resp = toReservationResponseCore(reservation, ticket);
+        if (policy != null) {
+            resp.setBasePrice(policy.getBasePrice());
+            resp.setHourlyRate(policy.getHourlyRate());
+            resp.setMaxHours(policy.getMaxHours());
+        }
+        if (session != null) {
+            resp.setSessionId(session.getSessionId());
+            resp.setCheckinTime(session.getCheckinTime());
+            resp.setCheckoutTime(session.getCheckoutTime());
+            resp.setTotalFee(session.getTotalFee());
+            resp.setCheckinVehicleImage(session.getCheckinVehicleImage());
+            resp.setCheckoutVehicleImage(session.getCheckoutVehicleImage());
+            resp.setParkingDuration(session.getParkingDuration());
+            resp.setPaymentStatus(session.getPaymentStatus());
+        }
+        return resp;
+    }
+
     // ============ STAFF APIs ============
+
+    /**
+     * Tìm reservation PENDING/APPROVED theo biển số xe.
+     * Dùng khi staff check-in bằng OCR: nhận diện biển số → tìm reservation của driver.
+     * So khớp theo biển số đã chuẩn hóa (29D225555 == 29D2-25555).
+     */
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> findReservationsByPlateNumber(String staffEmail, String plateNumber) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        String normalizedPlate = plateNumber == null ? ""
+                : plateNumber.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+        if (normalizedPlate.isBlank()) {
+            return List.of();
+        }
+        List<Reservation> reservations = reservationRepository.findPendingByNormalizedPlateNumber(normalizedPlate);
+
+        // Filter chỉ lấy reservation thuộc building của staff
+        List<Reservation> filtered = reservations.stream()
+                .filter(r -> r.getSlot() != null
+                        && r.getSlot().getZone() != null
+                        && r.getSlot().getZone().getFloor() != null
+                        && r.getSlot().getZone().getFloor().getBuilding() != null
+                        && buildingId.equals(r.getSlot().getZone().getFloor().getBuilding().getBuildingId()))
+                .toList();
+
+        return batchToReservationResponse(filtered);
+    }
 
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservations(String staffEmail, String buildingId) {
@@ -392,6 +511,18 @@ public class ReservationService {
     public List<ReservationResponse> getAllReservationsForStaff(String staffEmail) {
         String buildingId = getBuildingIdByStaffEmail(staffEmail);
         return batchToReservationResponse(reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ReservationResponse> getAllReservationsForStaffPaginated(String staffEmail, Pageable pageable) {
+        String buildingId = getBuildingIdByStaffEmail(staffEmail);
+        Page<Reservation> page = reservationRepository.findByBuildingBuildingIdOrderByCreatedAtDesc(buildingId, pageable);
+        List<Reservation> reservations = page.getContent();
+        if (reservations.isEmpty()) {
+            return page.map(r -> null);
+        }
+        List<ReservationResponse> responses = batchToReservationResponse(reservations);
+        return new org.springframework.data.domain.PageImpl<>(responses, pageable, page.getTotalElements());
     }
 
     @Transactional(readOnly = true)
@@ -542,8 +673,7 @@ public class ReservationService {
         // Giải phóng slot
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
-            slot.setSlotStatus("AVAILABLE");
-            parkingSlotRepository.save(slot);
+            zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
         }
 
         ReservationResponse response = toReservationResponse(reservation);
@@ -552,6 +682,21 @@ public class ReservationService {
         if (oldStatus != null && !oldStatus.equals("CANCELLED")) {
             sendStatusChangeNotification(reservation, oldStatus, "CANCELLED");
         }
+
+        String buildingId = null;
+        if (slot != null && slot.getZone() != null && slot.getZone().getFloor() != null
+                && slot.getZone().getFloor().getBuilding() != null) {
+            buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
+        }
+        auditLogService.record(
+                "RESERVATION_CANCEL",
+                "RESERVATION",
+                reservation.getReservationId(),
+                buildingId,
+                oldStatus,
+                "CANCELLED",
+                reason,
+                null);
 
         log.info("RESERVATION CANCELLED: code={}, reason={}", reservation.getReservationCode(), reason);
         return response;
@@ -566,6 +711,9 @@ public class ReservationService {
         ParkingSlot slot = findSlot(req.getSlotId());
         validateSlotSelection(slot, vehicle);
 
+        Building building = slot.getZone().getFloor().getBuilding();
+        buildingRuleService.validateForEntry(building, vehicle.getVehicleType(), req.getReservationStart());
+
         // Check if slot already has an active reservation
         var activeReservation = reservationRepository.findFirstBySlotSlotIdAndReservationStatusInOrderByCreatedAtDesc(
                 slot.getSlotId(), ACTIVE_RESERVATION_STATUSES);
@@ -577,8 +725,7 @@ public class ReservationService {
         String vehicleTypeName = vehicle.getVehicleType().getTypeName();
         validateNoActiveReservationByVehicleType(user.getUserId(), vehicleTypeName);
 
-        slot.setSlotStatus("RESERVED");
-        parkingSlotRepository.save(slot);
+        zoneStatusSyncService.updateSlotStatus(slot, "RESERVED");
 
         Reservation reservation = new Reservation();
         reservation.setReservationCode("RS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
@@ -587,6 +734,8 @@ public class ReservationService {
         reservation.setUser(user);
         reservation.setVehicle(vehicle);
         reservation.setReservationStatus("PENDING");
+        reservation.setGracePeriodMinutes(
+                systemConfigService.getInt(SystemConfigService.GRACE_PERIOD_MINUTES, 15));
         reservation = reservationRepository.save(reservation);
 
         Ticket ticket = new Ticket();
@@ -596,18 +745,56 @@ public class ReservationService {
 
         ReservationResponse response = toReservationResponse(reservation, ticket);
 
-        sendReservationNotification(reservation, "RESERVATION_CREATED", "Reservation created successfully");
-
-        return response;
-    }
-
-    private void sendReservationNotification(Reservation reservation, String event, String message) {
-        if (reservation.getUser() != null) {
-            User driver = reservation.getUser();
-            ReservationResponse payload = toReservationResponse(reservation);
-            notificationService.sendToUser(driver.getUsername(), event, payload);
-            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
+        // Get building name for notification
+        String buildingName = "";
+        String buildingId = null;
+        if (slot.getZone() != null && slot.getZone().getFloor() != null
+                && slot.getZone().getFloor().getBuilding() != null) {
+            buildingName = slot.getZone().getFloor().getBuilding().getBuildingName();
+            buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
         }
+        Integer gracePeriod = reservation.getGracePeriodMinutes() != null
+                ? reservation.getGracePeriodMinutes() : 15;
+
+        // Send notification via WebSocket
+        notificationService.sendToUser(user.getUsername(), "RESERVATION_CREATED", Map.of(
+                "reservationCode", reservation.getReservationCode(),
+                "buildingName", buildingName,
+                "vehicleType", vehicleTypeName,
+                "gracePeriodMinutes", gracePeriod
+        ));
+
+        if (buildingId != null && peakHourService.isPeakHour(buildingId, req.getReservationStart())) {
+            notificationService.sendToUser(user.getUsername(), "PEAK_HOUR_WARN", Map.of(
+                    "buildingId", buildingId,
+                    "buildingName", buildingName,
+                    "reservationStart", req.getReservationStart().toString(),
+                    "message", "Building đang trong khung giờ cao điểm"
+            ));
+        }
+
+        // Notify staff of the building about new reservation
+        if (buildingId != null) {
+            notificationService.sendToStaffBuilding(buildingId, "NEW_RESERVATION", Map.of(
+                    "reservationCode", reservation.getReservationCode(),
+                    "buildingName", buildingName,
+                    "vehicleType", vehicleTypeName,
+                    "plateNumber", vehicle.getPlateNumber()
+            ));
+        }
+
+        auditLogService.record(
+                "RESERVATION_CREATE",
+                "RESERVATION",
+                reservation.getReservationId(),
+                buildingId,
+                null,
+                "PENDING",
+                "Reservation created " + reservation.getReservationCode(),
+                null);
+
+        log.info("RESERVATION CREATED: code={}, user={}, slot={}", reservation.getReservationCode(), email, slot.getSlotName());
+        return response;
     }
 
     @Transactional
@@ -629,8 +816,7 @@ public class ReservationService {
         ParkingSlot slot = reservation.getSlot();
         if (slot != null) {
             if ("CANCELLED".equals(normalizedStatus) || "EXPIRED".equals(normalizedStatus) || "COMPLETED".equals(normalizedStatus)) {
-                slot.setSlotStatus("AVAILABLE");
-                parkingSlotRepository.save(slot);
+                zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
             }
         }
 
@@ -651,20 +837,19 @@ public class ReservationService {
             User driver = reservation.getUser();
             String message;
             switch (newStatus) {
-                case "APPROVED":
-                    message = "Your reservation " + reservation.getReservationCode() + " has been APPROVED. Please arrive on time.";
-                    break;
-                case "REJECTED":
-                    message = "Your reservation " + reservation.getReservationCode() + " has been REJECTED. Reason: " + (reservation.getNote() != null ? reservation.getNote() : "N/A");
-                    break;
                 case "CANCELLED":
                     message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED.";
+                    notificationService.sendToUser(driver.getUsername(), "RESERVATION_CANCELLED", Map.of(
+                            "reservationCode", reservation.getReservationCode()));
                     break;
                 case "COMPLETED":
                     message = "Your reservation " + reservation.getReservationCode() + " has been COMPLETED. Thank you for using our service.";
+                    // Checkout notification handled in ParkingSessionService
                     break;
                 case "EXPIRED":
-                    message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED. You did not check-in before the grace period.";
+                    message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED.";
+                    notificationService.sendToUser(driver.getUsername(), "RESERVATION_EXPIRED", Map.of(
+                            "reservationCode", reservation.getReservationCode()));
                     break;
                 default:
                     message = "Your reservation status changed from " + oldStatus + " to " + newStatus;
@@ -688,10 +873,22 @@ public class ReservationService {
                 reservation.setNote("Auto-expired: driver did not check-in before grace period");
                 reservationRepository.save(reservation);
 
-                slot.setSlotStatus("AVAILABLE");
-                parkingSlotRepository.save(slot);
+                zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
 
                 sendAutoExpireNotification(reservation, "EXPIRED");
+                String buildingId = null;
+                if (slot.getZone() != null && slot.getZone().getFloor() != null
+                        && slot.getZone().getFloor().getBuilding() != null) {
+                    buildingId = slot.getZone().getFloor().getBuilding().getBuildingId();
+                }
+                auditLogService.recordSystem(
+                        "RESERVATION_EXPIRE",
+                        "RESERVATION",
+                        reservation.getReservationId(),
+                        buildingId,
+                        "PENDING",
+                        "EXPIRED",
+                        "Auto-expired reservation " + reservation.getReservationCode());
                 expiredCount++;
             }
         }
@@ -702,15 +899,9 @@ public class ReservationService {
     private void sendAutoExpireNotification(Reservation reservation, String newStatus) {
         if (reservation.getUser() != null) {
             User driver = reservation.getUser();
-            String message;
-            if ("EXPIRED".equals(newStatus)) {
-                message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED. You did not check-in before the grace period. Please book again.";
-            } else {
-                message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED. Please book again.";
-            }
-            ReservationResponse payload = toReservationResponse(reservation);
-            notificationService.sendToUser(driver.getUsername(), "RESERVATION_" + newStatus, payload);
-            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
+            notificationService.sendToUser(driver.getUsername(), "RESERVATION_EXPIRED", Map.of(
+                    "reservationCode", reservation.getReservationCode()));
+            log.info("NOTIFICATION TO {}: RESERVATION_EXPIRED for {}", driver.getUsername(), reservation.getReservationCode());
         }
     }
 
@@ -801,11 +992,32 @@ public class ReservationService {
         }
     }
 
+    /**
+     * Single reservation với ticket, pricing, session queries - dùng khi reservation đã detached.
+     * Chỉ dùng cho các trường hợp đặc biệt (VD: single lookup by ID/code).
+     */
     private ReservationResponse toReservationResponse(Reservation reservation) {
         Ticket ticket = ticketRepository.findByReservationReservationId(reservation.getReservationId()).orElse(null);
-        ReservationResponse resp = toReservationResponse(reservation, ticket);
+        return toReservationResponseWithPricingAndSession(reservation, ticket, null);
+    }
 
-        // Attach pricing if vehicle exists
+    /**
+     * Single reservation với ticket đã load, pricing/session queries nếu cần.
+     */
+    private ReservationResponse toReservationResponse(Reservation reservation, Ticket ticket) {
+        return toReservationResponseWithPricingAndSession(reservation, ticket, null);
+    }
+
+    /**
+     * Single reservation với ticket đã load, session đã load - chỉ pricing query.
+     */
+    private ReservationResponse toReservationResponseWithPricingAndSession(
+            Reservation reservation,
+            Ticket ticket,
+            ParkingSession session) {
+        ReservationResponse resp = toReservationResponseCore(reservation, ticket);
+
+        // Pricing query (session đã load sẵn)
         if (reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null) {
             String vtId = reservation.getVehicle().getVehicleType().getVehicleTypeId();
             resp.setVehicleTypeName(reservation.getVehicle().getVehicleType().getTypeName());
@@ -815,43 +1027,33 @@ public class ReservationService {
                 resp.setHourlyRate(policy.getHourlyRate());
                 resp.setMaxHours(policy.getMaxHours());
             }
+        }
+
+        // Session (đã load sẵn hoặc query nếu null)
+        ParkingSession effectiveSession = session;
+        if (effectiveSession == null) {
+            effectiveSession = parkingSessionRepository
+                    .findFirstByReservationReservationIdOrderByCreatedAtDesc(reservation.getReservationId())
+                    .orElse(null);
+        }
+        if (effectiveSession != null) {
+            resp.setSessionId(effectiveSession.getSessionId());
+            resp.setCheckinTime(effectiveSession.getCheckinTime());
+            resp.setCheckoutTime(effectiveSession.getCheckoutTime());
+            resp.setTotalFee(effectiveSession.getTotalFee());
+            resp.setCheckinVehicleImage(effectiveSession.getCheckinVehicleImage());
+            resp.setCheckoutVehicleImage(effectiveSession.getCheckoutVehicleImage());
+            resp.setParkingDuration(effectiveSession.getParkingDuration());
+            resp.setPaymentStatus(effectiveSession.getPaymentStatus());
         }
 
         return resp;
     }
 
     /**
-     * Overload dùng cho batch convert - ticket + session đã được load sẵn,
-     * tránh N+1 query.
+     * Core conversion - không có pricing, không có session, không có query.
      */
-    private ReservationResponse toReservationResponse(Reservation reservation, Ticket ticket, ParkingSession session) {
-        ReservationResponse resp = toReservationResponse(reservation, ticket);
-        // Pricing
-        if (reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null) {
-            String vtId = reservation.getVehicle().getVehicleType().getVehicleTypeId();
-            resp.setVehicleTypeName(reservation.getVehicle().getVehicleType().getTypeName());
-            var policy = pricingService.getActivePolicy(vtId);
-            if (policy != null) {
-                resp.setBasePrice(policy.getBasePrice());
-                resp.setHourlyRate(policy.getHourlyRate());
-                resp.setMaxHours(policy.getMaxHours());
-            }
-        }
-        // Session (đã load sẵn)
-        if (session != null) {
-            resp.setSessionId(session.getSessionId());
-            resp.setCheckinTime(session.getCheckinTime());
-            resp.setCheckoutTime(session.getCheckoutTime());
-            resp.setTotalFee(session.getTotalFee());
-            resp.setCheckinImageUrl(session.getCheckinImageUrl());
-            resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
-            resp.setParkingDuration(session.getParkingDuration());
-            resp.setPaymentStatus(session.getPaymentStatus());
-        }
-        return resp;
-    }
-
-    private ReservationResponse toReservationResponse(Reservation reservation, Ticket ticket) {
+    private ReservationResponse toReservationResponseCore(Reservation reservation, Ticket ticket) {
         ReservationResponse resp = new ReservationResponse();
         resp.setReservationId(reservation.getReservationId());
         resp.setReservationCode(reservation.getReservationCode());
@@ -876,16 +1078,9 @@ public class ReservationService {
             resp.setVehicleModel(vehicle.getModel());
             resp.setVehicleImageUrl(vehicle.getImageUrl());
 
-            // Pricing by vehicle type
+            // Vehicle type name (pricing đã được set ở caller)
             if (vehicle.getVehicleType() != null) {
-                String vtId = vehicle.getVehicleType().getVehicleTypeId();
                 resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
-                var policy = pricingService.getActivePolicy(vtId);
-                if (policy != null) {
-                    resp.setBasePrice(policy.getBasePrice());
-                    resp.setHourlyRate(policy.getHourlyRate());
-                    resp.setMaxHours(policy.getMaxHours());
-                }
             }
         }
 
@@ -898,19 +1093,6 @@ public class ReservationService {
         if (ticket != null) {
             resp.setTicketCode(ticket.getTicketCode());
         }
-
-        parkingSessionRepository
-                .findFirstByReservationReservationIdOrderByCreatedAtDesc(reservation.getReservationId())
-                .ifPresent(session -> {
-                    resp.setSessionId(session.getSessionId());
-                    resp.setCheckinTime(session.getCheckinTime());
-                    resp.setCheckoutTime(session.getCheckoutTime());
-                    resp.setTotalFee(session.getTotalFee());
-                    resp.setCheckinImageUrl(session.getCheckinImageUrl());
-                    resp.setCheckoutImageUrl(session.getCheckoutImageUrl());
-                    resp.setParkingDuration(session.getParkingDuration());
-                    resp.setPaymentStatus(session.getPaymentStatus());
-                });
 
         return resp;
     }

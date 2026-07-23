@@ -25,12 +25,14 @@ public class ZoneSlotCount {
     private final Long availableSlots;
     private final Long reservedSlots;
     private final Long occupiedSlots;
+    private final Long pendingExitSlots;
 
     public ZoneSlotCount(String zoneId, String zoneName, String zoneStatus,
                          String floorId, String floorName, Integer floorLevel, String floorStatus,
                          String vehicleTypeId, String vehicleTypeName,
                          String buildingId, String buildingName, String buildingStatus,
-                         Long totalSlots, Long availableSlots, Long reservedSlots, Long occupiedSlots) {
+                         Long totalSlots, Long availableSlots, Long reservedSlots, Long occupiedSlots,
+                         Long pendingExitSlots) {
         this.zoneId = zoneId;
         this.zoneName = zoneName;
         this.zoneStatus = zoneStatus;
@@ -47,6 +49,7 @@ public class ZoneSlotCount {
         this.availableSlots = availableSlots;
         this.reservedSlots = reservedSlots;
         this.occupiedSlots = occupiedSlots;
+        this.pendingExitSlots = pendingExitSlots;
     }
 
     public String getZoneId() { return zoneId; }
@@ -65,4 +68,5 @@ public class ZoneSlotCount {
     public Long getAvailableSlots() { return availableSlots; }
     public Long getReservedSlots() { return reservedSlots; }
     public Long getOccupiedSlots() { return occupiedSlots; }
+    public Long getPendingExitSlots() { return pendingExitSlots; }
 }
