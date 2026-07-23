@@ -2,6 +2,7 @@ package fpt.swp391.parkingmanagement.repository;
 
 /**
  * One-scan aggregate for manager/admin dashboard incident counters.
+ * SYSTEM auto-incidents are excluded at query time.
  */
 public class IncidentDashboardStats {
 
