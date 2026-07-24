@@ -19,6 +19,7 @@ public class SessionEvidenceResponse {
     private boolean sessionActive;
     private LocalDateTime checkinTime;
     private String checkinVehicleImage;
+    private String checkoutVehicleImage;
 
     private String vehicleId;
     private String vehiclePlate;

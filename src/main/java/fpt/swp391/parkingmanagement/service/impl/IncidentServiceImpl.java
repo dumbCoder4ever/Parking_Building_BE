@@ -438,8 +438,34 @@ public class IncidentServiceImpl implements IncidentService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<IncidentResponse> getAllDriverReports() {
+    public List<IncidentResponse> getAllDriverReports(String staffEmail, String buildingId) {
+        String normalizedBuildingId = buildingId != null ? buildingId.trim() : null;
+        if (normalizedBuildingId != null && normalizedBuildingId.isBlank()) {
+            normalizedBuildingId = null;
+        }
+        final String filterBuildingId = normalizedBuildingId;
+
+        if (filterBuildingId != null) {
+            validateStaffCanAccessBuilding(staffEmail, filterBuildingId);
+        }
+
+        Set<String> authorizedBuildingIds = getStaffAuthorizedBuildingIds(staffEmail);
+        boolean managerOrAdmin = isManagerOrAdmin(staffEmail);
+
         return incidentRepository.findAllDriverReports().stream()
+                .filter(incident -> {
+                    java.util.Optional<String> incidentBuildingId = resolveIncidentBuildingId(incident);
+                    if (incidentBuildingId.isEmpty()) {
+                        return false;
+                    }
+                    if (filterBuildingId != null) {
+                        return filterBuildingId.equals(incidentBuildingId.get());
+                    }
+                    if (managerOrAdmin) {
+                        return true;
+                    }
+                    return authorizedBuildingIds.contains(incidentBuildingId.get());
+                })
                 .map(this::toResponse)
                 .toList();
     }
@@ -530,6 +556,7 @@ public class IncidentServiceImpl implements IncidentService {
                 .providedPlateNumber(providedPlateNumber)
                 .providedTicketCode(providedTicketCode)
                 .checkinVehicleImage(session.getCheckinVehicleImage())
+                .checkoutVehicleImage(session.getCheckoutVehicleImage())
                 .driverEmail(sessionDriverEmail)
                 .driverOwnershipVerified(driverOwnershipVerified)
                 .message(resultMessage)
@@ -565,6 +592,7 @@ public class IncidentServiceImpl implements IncidentService {
                 .sessionActive(isActiveSession(session))
                 .checkinTime(session.getCheckinTime())
                 .checkinVehicleImage(session.getCheckinVehicleImage())
+                .checkoutVehicleImage(session.getCheckoutVehicleImage())
                 .ticketCode(session.getTicket() != null ? session.getTicket().getTicketCode() : null);
 
         if (session.getVehicle() != null) {
@@ -1105,6 +1133,24 @@ public class IncidentServiceImpl implements IncidentService {
 
         List<String> buildingIds = buildingStaffRepository.findBuildingIdsByUserId(staff.getUserId());
         return Set.copyOf(buildingIds);
+    }
+
+    private boolean isManagerOrAdmin(String email) {
+        return userRepository.findByEmail(email)
+                .map(User::getRole)
+                .map(role -> "ROLE_MANAGER".equalsIgnoreCase(role) || "ROLE_ADMIN".equalsIgnoreCase(role))
+                .orElse(false);
+    }
+
+    private void validateStaffCanAccessBuilding(String staffEmail, String buildingId) {
+        if (isManagerOrAdmin(staffEmail)) {
+            return;
+        }
+        Set<String> authorizedBuildingIds = getStaffAuthorizedBuildingIds(staffEmail);
+        if (!authorizedBuildingIds.contains(buildingId)) {
+            throw new BaseAPIException(ErrorCode.FORBIDDEN,
+                    "You do not have permission to access incidents for this building.");
+        }
     }
 
     /**
