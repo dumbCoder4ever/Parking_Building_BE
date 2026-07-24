@@ -102,8 +102,19 @@ public interface IncidentRepository extends JpaRepository<Incident, String> {
            "LEFT JOIN FETCH slot.zone z " +
            "LEFT JOIN FETCH z.floor f " +
            "LEFT JOIN FETCH f.building " +
+           "LEFT JOIN FETCH f.vehicleType " +
            "LEFT JOIN FETCH s.ticket " +
            "LEFT JOIN FETCH s.vehicle v " +
+           "LEFT JOIN FETCH v.user " +
+           "LEFT JOIN FETCH v.vehicleType " +
+           "LEFT JOIN FETCH s.reservation res " +
+           "LEFT JOIN FETCH res.user " +
+           "LEFT JOIN FETCH res.vehicle resVeh " +
+           "LEFT JOIN FETCH resVeh.vehicleType " +
+           "LEFT JOIN FETCH res.slot resSlot " +
+           "LEFT JOIN FETCH resSlot.zone resZone " +
+           "LEFT JOIN FETCH resZone.floor resFloor " +
+           "LEFT JOIN FETCH resFloor.building " +
            "WHERE i.incidentId = :incidentId")
     Optional<Incident> findByIdFetchingFullChain(@Param("incidentId") String incidentId);
 }
