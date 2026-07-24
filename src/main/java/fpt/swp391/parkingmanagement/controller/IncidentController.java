@@ -23,6 +23,7 @@ import fpt.swp391.parkingmanagement.dto.IncidentRequest;
 import fpt.swp391.parkingmanagement.dto.IncidentResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentUpdateRequest;
 import fpt.swp391.parkingmanagement.dto.LatestReservationResponse;
+import fpt.swp391.parkingmanagement.dto.SessionEvidenceResponse;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckRequest;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckResponse;
 import fpt.swp391.parkingmanagement.dto.VerifyVehicleRequest;
@@ -151,8 +152,23 @@ public class IncidentController {
     // ======================== STAFF EVIDENCE ENDPOINTS ========================
 
     /**
+     * Lay bang chung chinh tu parking session (active session, bien so, anh check-in, vi tri xe).
+     * Reservation (neu co) chi la bang chung bo sung.
+     */
+    @GetMapping("/{incidentId}/session-evidence")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
+    @Operation(summary = "Get session-based evidence for an incident",
+            description = "Staff xem bang chung tu session active: bien so, anh check-in, vi tri, phi. Reservation optional.")
+    public ResponseEntity<ApiResponse<SessionEvidenceResponse>> getSessionEvidence(
+            Authentication auth,
+            @PathVariable String incidentId) {
+        SessionEvidenceResponse response = incidentService.getSessionEvidenceForIncident(incidentId, auth.getName());
+        return ResponseEntity.ok(ApiResponse.ok("Session evidence retrieved", response));
+    }
+
+    /**
      * Lay reservation moi nhat (PENDING/APPROVED/CHECKED_IN) cua driver theo incident.
-     * Dung lam bang chung cho ca 4 flow incident (mat ve, sai phi, slot bi chiem, khong tim thay xe).
+     * Bang chung bo sung — dung session-evidence lam nguon chinh cho mat ve.
      */
     @GetMapping("/{incidentId}/latest-reservation")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")

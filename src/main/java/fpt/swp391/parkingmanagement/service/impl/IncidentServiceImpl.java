@@ -11,6 +11,7 @@ import fpt.swp391.parkingmanagement.dto.IncidentRequest;
 import fpt.swp391.parkingmanagement.dto.IncidentResponse;
 import fpt.swp391.parkingmanagement.dto.IncidentUpdateRequest;
 import fpt.swp391.parkingmanagement.dto.LatestReservationResponse;
+import fpt.swp391.parkingmanagement.dto.SessionEvidenceResponse;
 import fpt.swp391.parkingmanagement.dto.SlotAvailabilityCheckResponse;
 import fpt.swp391.parkingmanagement.dto.VerifyVehicleRequest;
 import fpt.swp391.parkingmanagement.dto.VerifyVehicleResponse;
@@ -19,6 +20,7 @@ import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 import fpt.swp391.parkingmanagement.entity.Reservation;
 import fpt.swp391.parkingmanagement.entity.User;
+import fpt.swp391.parkingmanagement.entity.Vehicle;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
@@ -51,7 +53,9 @@ public class IncidentServiceImpl implements IncidentService {
     public static final String RESOLUTION_ACTION_NO_SLOT_AVAILABLE = "NO_SLOT_AVAILABLE";
 
     // Active reservation statuses
-    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED");
+    private static final Set<String> ACTIVE_RESERVATION_STATUSES = Set.of("PENDING", "APPROVED", "CHECKED_IN");
+
+    private static final Set<String> ACTIVE_SESSION_STATUSES = Set.of("ACTIVE", "PENDING_PAYMENT");
 
     private static final Set<String> ALLOWED_INCIDENT_TYPES = Set.of(
             "LOST_TICKET", "PLATE_MISMATCH", "OVERTIME", "WRONG_ZONE", "UNPAID_EXIT", "OTHER",
@@ -325,22 +329,21 @@ public class IncidentServiceImpl implements IncidentService {
         // If driver has an active reservation, validate vehicle type
         String driverUserId = resolveDriverUserId(session);
         if (driverUserId != null) {
-            reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId)
-                    .ifPresent(reservation -> {
-                        if (reservation.getSlot() != null
-                                && reservation.getSlot().getZone() != null
-                                && reservation.getSlot().getZone().getFloor() != null
-                                && reservation.getSlot().getZone().getFloor().getVehicleType() != null) {
-                            String reservationVehicleTypeId = reservation.getSlot().getZone().getFloor().getVehicleType().getVehicleTypeId();
-                            String newSlotVehicleTypeId = newSlot.getZone().getFloor().getVehicleType().getVehicleTypeId();
-                            if (!reservationVehicleTypeId.equals(newSlotVehicleTypeId)) {
-                                throw new BaseAPIException(ErrorCode.BAD_REQUEST,
-                                        "Replacement slot must have the same vehicle type as driver's reservation. "
-                                                + "Expected vehicle type: " + reservationVehicleTypeId
-                                                + ", new slot vehicle type: " + newSlotVehicleTypeId);
-                            }
-                        }
-                    });
+            Reservation reservationForType = resolveReservationForIncident(session);
+            if (reservationForType != null
+                    && reservationForType.getSlot() != null
+                    && reservationForType.getSlot().getZone() != null
+                    && reservationForType.getSlot().getZone().getFloor() != null
+                    && reservationForType.getSlot().getZone().getFloor().getVehicleType() != null) {
+                String reservationVehicleTypeId = reservationForType.getSlot().getZone().getFloor().getVehicleType().getVehicleTypeId();
+                String newSlotVehicleTypeId = newSlot.getZone().getFloor().getVehicleType().getVehicleTypeId();
+                if (!reservationVehicleTypeId.equals(newSlotVehicleTypeId)) {
+                    throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                            "Replacement slot must have the same vehicle type as driver's reservation. "
+                                    + "Expected vehicle type: " + reservationVehicleTypeId
+                                    + ", new slot vehicle type: " + newSlotVehicleTypeId);
+                }
+            }
         }
 
         // Execute reassignment
@@ -465,6 +468,8 @@ public class IncidentServiceImpl implements IncidentService {
                     "Incident does not have an associated session");
         }
 
+        validateSessionActiveForVerification(session);
+
         String sessionPlateNumber = null;
         String sessionTicketCode = null;
 
@@ -477,6 +482,8 @@ public class IncidentServiceImpl implements IncidentService {
 
         String providedPlateNumber = request.getPlateNumber();
         String providedTicketCode = request.getTicketCode();
+        String sessionDriverEmail = resolveDriverEmail(session);
+        boolean driverOwnershipVerified = isDriverOwnershipVerified(incident, sessionDriverEmail);
 
         // Perform verification
         boolean plateMatch = sessionPlateNumber != null &&
@@ -486,21 +493,20 @@ public class IncidentServiceImpl implements IncidentService {
 
         // Determine result
         // If ticketCode is provided, both must match. Otherwise, only plate must match.
+        // For driver reports, reporter must match session driver account when resolvable.
         boolean overallMatch;
         String resultMessage;
 
         if (providedTicketCode != null && !providedTicketCode.isBlank()) {
-            overallMatch = plateMatch && ticketMatch;
+            overallMatch = plateMatch && ticketMatch && driverOwnershipVerified;
             resultMessage = overallMatch
                     ? "Vehicle ownership verified successfully"
-                    : "Vehicle ownership verification failed: " +
-                      (plateMatch ? "" : "Ticket code does not match. ") +
-                      (!plateMatch ? "Plate number does not match." : "");
+                    : buildVerificationFailureMessage(plateMatch, ticketMatch, driverOwnershipVerified, true);
         } else {
-            overallMatch = plateMatch;
+            overallMatch = plateMatch && driverOwnershipVerified;
             resultMessage = overallMatch
                     ? "Vehicle ownership verified successfully (plate number matches)"
-                    : "Vehicle ownership verification failed: Plate number does not match.";
+                    : buildVerificationFailureMessage(plateMatch, true, driverOwnershipVerified, false);
         }
 
         String verificationResult = overallMatch ? "MATCH" : "MISMATCH";
@@ -523,8 +529,98 @@ public class IncidentServiceImpl implements IncidentService {
                 .sessionTicketCode(sessionTicketCode)
                 .providedPlateNumber(providedPlateNumber)
                 .providedTicketCode(providedTicketCode)
+                .checkinVehicleImage(session.getCheckinVehicleImage())
+                .driverEmail(sessionDriverEmail)
+                .driverOwnershipVerified(driverOwnershipVerified)
                 .message(resultMessage)
                 .build();
+    }
+
+    /**
+     * Primary evidence for staff: active parking session linked to the incident.
+     * Reservation (if any) is returned as supplementary context only.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public SessionEvidenceResponse getSessionEvidenceForIncident(String incidentId, String staffEmail) {
+        Incident incident = incidentRepository.findByIdFetchingFullChain(incidentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Incident not found: " + incidentId));
+
+        validateStaffBuildingAccessFromIncident(incident, staffEmail);
+
+        ParkingSession session = incident.getSession();
+        if (session == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Incident does not have an associated session");
+        }
+
+        User driver = resolveDriverUser(session);
+        ParkingSlot slot = session.getSlot();
+        Reservation supplementaryReservation = resolveReservationForIncident(session);
+
+        SessionEvidenceResponse.SessionEvidenceResponseBuilder builder = SessionEvidenceResponse.builder()
+                .incidentId(incidentId)
+                .sessionId(session.getSessionId())
+                .sessionStatus(session.getSessionStatus())
+                .sessionActive(isActiveSession(session))
+                .checkinTime(session.getCheckinTime())
+                .checkinVehicleImage(session.getCheckinVehicleImage())
+                .ticketCode(session.getTicket() != null ? session.getTicket().getTicketCode() : null);
+
+        if (session.getVehicle() != null) {
+            Vehicle vehicle = session.getVehicle();
+            builder.vehicleId(vehicle.getVehicleId())
+                    .vehiclePlate(vehicle.getPlateNumber());
+            if (vehicle.getVehicleType() != null) {
+                builder.vehicleType(vehicle.getVehicleType().getTypeName());
+            }
+        }
+
+        if (driver != null) {
+            builder.driverUserId(driver.getUserId())
+                    .driverEmail(driver.getEmail())
+                    .driverFullName(driver.getFullName());
+        }
+
+        if ("DRIVER".equals(incident.getReportSource()) && incident.getReporterId() != null && driver != null) {
+            builder.driverMatchesReporter(
+                    incident.getReporterId().equalsIgnoreCase(driver.getEmail()));
+        }
+
+        if (slot != null) {
+            builder.slotId(slot.getSlotId()).slotName(slot.getSlotName());
+            if (slot.getZone() != null) {
+                builder.zoneId(slot.getZone().getZoneId()).zoneName(slot.getZone().getZoneName());
+                if (slot.getZone().getFloor() != null) {
+                    Floor floor = slot.getZone().getFloor();
+                    builder.floorId(floor.getFloorId())
+                            .floorName(floor.getFloorName())
+                            .floorLevel(floor.getFloorLevel());
+                    if (floor.getBuilding() != null) {
+                        builder.buildingId(floor.getBuilding().getBuildingId())
+                                .buildingName(floor.getBuilding().getBuildingName());
+                    }
+                }
+            }
+        }
+
+        java.math.BigDecimal estimatedFee = session.getEstimatedFee() != null
+                ? session.getEstimatedFee() : java.math.BigDecimal.ZERO;
+        java.math.BigDecimal totalFee = session.getTotalFee() != null
+                ? session.getTotalFee() : java.math.BigDecimal.ZERO;
+        java.math.BigDecimal displayTotalFee = totalFee.compareTo(java.math.BigDecimal.ZERO) > 0
+                ? totalFee : estimatedFee;
+
+        builder.sessionEstimatedFee(estimatedFee)
+                .sessionTotalFee(displayTotalFee)
+                .sessionPaymentStatus(session.getPaymentStatus() != null
+                        ? session.getPaymentStatus() : "UNPAID");
+
+        if (supplementaryReservation != null) {
+            builder.reservation(toLatestReservationResponse(supplementaryReservation, session));
+        }
+
+        return builder.build();
     }
 
     /**
@@ -560,20 +656,19 @@ public class IncidentServiceImpl implements IncidentService {
         final boolean[] isSameVehicleType = {true};
         String driverUserId = resolveDriverUserId(session);
         if (driverUserId != null) {
-            reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId)
-                    .ifPresent(reservation -> {
-                        if (reservation.getSlot() != null
-                                && reservation.getSlot().getZone() != null
-                                && reservation.getSlot().getZone().getFloor() != null
-                                && reservation.getSlot().getZone().getFloor().getVehicleType() != null
-                                && newSlot.getZone().getFloor().getVehicleType() != null) {
-                            String reservationVehicleTypeId = reservation.getSlot().getZone().getFloor().getVehicleType().getVehicleTypeId();
-                            String newSlotVehicleTypeId = newSlot.getZone().getFloor().getVehicleType().getVehicleTypeId();
-                            if (!reservationVehicleTypeId.equals(newSlotVehicleTypeId)) {
-                                isSameVehicleType[0] = false;
-                            }
-                        }
-                    });
+            Reservation reservationForType = resolveReservationForIncident(session);
+            if (reservationForType != null
+                    && reservationForType.getSlot() != null
+                    && reservationForType.getSlot().getZone() != null
+                    && reservationForType.getSlot().getZone().getFloor() != null
+                    && reservationForType.getSlot().getZone().getFloor().getVehicleType() != null
+                    && newSlot.getZone().getFloor().getVehicleType() != null) {
+                String reservationVehicleTypeId = reservationForType.getSlot().getZone().getFloor().getVehicleType().getVehicleTypeId();
+                String newSlotVehicleTypeId = newSlot.getZone().getFloor().getVehicleType().getVehicleTypeId();
+                if (!reservationVehicleTypeId.equals(newSlotVehicleTypeId)) {
+                    isSameVehicleType[0] = false;
+                }
+            }
         }
 
         String message;
@@ -691,16 +786,11 @@ public class IncidentServiceImpl implements IncidentService {
                     "Incident does not have an associated session");
         }
 
-        String driverUserId = resolveDriverUserId(session);
-        if (driverUserId == null) {
-            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
-                    "Cannot resolve driver user for this session");
+        Reservation reservation = resolveReservationForIncident(session);
+        if (reservation == null) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
+                    "Driver has no active reservation. Use session-evidence endpoint for session-based verification.");
         }
-
-        Reservation reservation = reservationRepository
-                .findFirstLatestActiveReservationByUserId(driverUserId)
-                .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
-                        "Driver has no active reservation. Cannot verify evidence."));
 
         return toLatestReservationResponse(reservation, session);
     }
@@ -731,10 +821,11 @@ public class IncidentServiceImpl implements IncidentService {
                     "Cannot resolve driver user for this session");
         }
 
-        Reservation reservation = reservationRepository
-                .findFirstLatestActiveReservationByUserId(driverUserId)
-                .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
-                        "Driver has no active reservation. Cannot suggest slots."));
+        Reservation reservation = resolveReservationForIncident(session);
+        if (reservation == null) {
+            throw new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
+                    "Driver has no active reservation. Cannot suggest slots.");
+        }
 
         // Lay zone/floor/building tu reservation, fallback qua session neu reservation da CHECKED_IN
         ParkingSlot sourceSlot = reservation.getSlot() != null
@@ -776,19 +867,81 @@ public class IncidentServiceImpl implements IncidentService {
      * Resolve driver userId tu session (uu tien reservation gan nhat, neu khong co thi qua vehicle.user).
      */
     private String resolveDriverUserId(ParkingSession session) {
-        // 1. Uu tien reservation trong session neu co (CHECKED_IN reservation)
-        if (session.getReservation() != null
-                && session.getReservation().getUser() != null
-                && session.getReservation().getUser().getUserId() != null) {
-            return session.getReservation().getUser().getUserId();
+        User driver = resolveDriverUser(session);
+        return driver != null ? driver.getUserId() : null;
+    }
+
+    private User resolveDriverUser(ParkingSession session) {
+        if (session.getReservation() != null && session.getReservation().getUser() != null) {
+            return session.getReservation().getUser();
         }
-        // 2. Fall back qua vehicle owner
-        if (session.getVehicle() != null
-                && session.getVehicle().getUser() != null
-                && session.getVehicle().getUser().getUserId() != null) {
-            return session.getVehicle().getUser().getUserId();
+        if (session.getVehicle() != null && session.getVehicle().getUser() != null) {
+            return session.getVehicle().getUser();
         }
         return null;
+    }
+
+    private String resolveDriverEmail(ParkingSession session) {
+        User driver = resolveDriverUser(session);
+        return driver != null ? driver.getEmail() : null;
+    }
+
+    /**
+     * Uu tien reservation gan voi session, fallback reservation active moi nhat cua driver.
+     */
+    private Reservation resolveReservationForIncident(ParkingSession session) {
+        Reservation sessionReservation = session.getReservation();
+        if (sessionReservation != null
+                && isActiveReservationStatus(sessionReservation.getReservationStatus())) {
+            return sessionReservation;
+        }
+        String driverUserId = resolveDriverUserId(session);
+        if (driverUserId == null) {
+            return null;
+        }
+        return reservationRepository.findFirstLatestActiveReservationByUserId(driverUserId).orElse(null);
+    }
+
+    private boolean isActiveReservationStatus(String status) {
+        return status != null && ACTIVE_RESERVATION_STATUSES.contains(status.trim().toUpperCase());
+    }
+
+    private boolean isActiveSession(ParkingSession session) {
+        return session.getSessionStatus() != null
+                && ACTIVE_SESSION_STATUSES.contains(session.getSessionStatus().trim().toUpperCase());
+    }
+
+    private void validateSessionActiveForVerification(ParkingSession session) {
+        if (!isActiveSession(session)) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "Session is not active. Current status: " + session.getSessionStatus());
+        }
+    }
+
+    private boolean isDriverOwnershipVerified(Incident incident, String sessionDriverEmail) {
+        if (!"DRIVER".equals(incident.getReportSource())) {
+            return true;
+        }
+        if (sessionDriverEmail == null || sessionDriverEmail.isBlank()) {
+            return true;
+        }
+        return incident.getReporterId() != null
+                && incident.getReporterId().equalsIgnoreCase(sessionDriverEmail);
+    }
+
+    private String buildVerificationFailureMessage(
+            boolean plateMatch, boolean ticketMatch, boolean driverOwnershipVerified, boolean ticketProvided) {
+        StringBuilder message = new StringBuilder("Vehicle ownership verification failed: ");
+        if (!plateMatch) {
+            message.append("Plate number does not match. ");
+        }
+        if (ticketProvided && !ticketMatch) {
+            message.append("Ticket code does not match. ");
+        }
+        if (!driverOwnershipVerified) {
+            message.append("Reporter does not match session driver account. ");
+        }
+        return message.toString().trim();
     }
 
     private LatestReservationResponse toLatestReservationResponse(Reservation r, ParkingSession session) {

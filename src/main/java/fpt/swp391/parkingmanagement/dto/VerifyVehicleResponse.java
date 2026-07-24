@@ -16,5 +16,8 @@ public class VerifyVehicleResponse {
     private String sessionTicketCode;
     private String providedPlateNumber;
     private String providedTicketCode;
+    private String checkinVehicleImage;
+    private String driverEmail;
+    private Boolean driverOwnershipVerified;
     private String message;
 }
