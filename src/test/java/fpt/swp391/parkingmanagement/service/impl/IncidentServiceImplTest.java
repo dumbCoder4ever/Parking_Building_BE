@@ -366,6 +366,7 @@ class IncidentServiceImplTest {
         assertThat(response.isSessionActive()).isTrue();
         assertThat(response.getVehiclePlate()).isEqualTo("30A-12345");
         assertThat(response.getCheckinVehicleImage()).isEqualTo("https://cdn.example/checkin.jpg");
+        assertThat(response.getCheckoutVehicleImage()).isNull();
         assertThat(response.getSlotName()).isEqualTo("A-01");
         assertThat(response.getDriverEmail()).isEqualTo("driver@test.com");
         assertThat(response.getDriverMatchesReporter()).isTrue();
@@ -752,5 +753,84 @@ class IncidentServiceImplTest {
         List<AvailableSlotResponse> slots = incidentService.getAvailableSlotsForReassign("incident-1", "staff@test.com");
 
         assertThat(slots).isEmpty();
+    }
+
+    // ======================== getAllDriverReports - building filter ========================
+
+    private Incident createDriverReport(String incidentId, ParkingSession session) {
+        Incident incident = new Incident();
+        incident.setIncidentId(incidentId);
+        incident.setSession(session);
+        incident.setIncidentType("DRIVER_LOST_TICKET");
+        incident.setStatus("OPEN");
+        incident.setReportSource("DRIVER");
+        incident.setReporterId("driver@test.com");
+        incident.setCreatedAt(LocalDateTime.now());
+        return incident;
+    }
+
+    private ParkingSession createSessionInBuilding(String sessionId, Building building) {
+        Floor floor = new Floor();
+        floor.setFloorId("floor-" + building.getBuildingId());
+        floor.setBuilding(building);
+        floor.setVehicleType(carVehicleType);
+        Zone zone = new Zone();
+        zone.setZoneId("zone-" + building.getBuildingId());
+        zone.setFloor(floor);
+        ParkingSlot slot = new ParkingSlot();
+        slot.setSlotId("slot-" + building.getBuildingId());
+        slot.setZone(zone);
+        ParkingSession session = new ParkingSession();
+        session.setSessionId(sessionId);
+        session.setSlot(slot);
+        session.setVehicle(testVehicle);
+        return session;
+    }
+
+    @Test
+    @DisplayName("getAllDriverReports - staff only sees reports from assigned buildings")
+    void testGetAllDriverReports_StaffSeesAssignedBuildingsOnly() {
+        Incident reportBuilding1 = createDriverReport("incident-b1",
+                createSessionInBuilding("session-b1", testBuilding));
+        Incident reportBuilding2 = createDriverReport("incident-b2",
+                createSessionInBuilding("session-b2", testBuilding2));
+
+        when(incidentRepository.findAllDriverReports()).thenReturn(List.of(reportBuilding1, reportBuilding2));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        List<IncidentResponse> reports = incidentService.getAllDriverReports("staff@test.com", null);
+
+        assertThat(reports).hasSize(1);
+        assertThat(reports.get(0).getIncidentId()).isEqualTo("incident-b1");
+    }
+
+    @Test
+    @DisplayName("getAllDriverReports - buildingId narrows to one building")
+    void testGetAllDriverReports_FilterByBuildingId() {
+        Incident reportBuilding1 = createDriverReport("incident-b1",
+                createSessionInBuilding("session-b1", testBuilding));
+        Incident reportBuilding2 = createDriverReport("incident-b2",
+                createSessionInBuilding("session-b2", testBuilding2));
+
+        when(incidentRepository.findAllDriverReports()).thenReturn(List.of(reportBuilding1, reportBuilding2));
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1", "building-2"));
+
+        List<IncidentResponse> reports = incidentService.getAllDriverReports("staff@test.com", "building-1");
+
+        assertThat(reports).hasSize(1);
+        assertThat(reports.get(0).getIncidentId()).isEqualTo("incident-b1");
+    }
+
+    @Test
+    @DisplayName("getAllDriverReports - staff cannot filter by unassigned building")
+    void testGetAllDriverReports_ForbiddenForUnassignedBuilding() {
+        when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
+        when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
+
+        assertThatThrownBy(() -> incidentService.getAllDriverReports("staff@test.com", "building-2"))
+                .isInstanceOf(BaseAPIException.class)
+                .hasMessageContaining("permission");
     }
 }

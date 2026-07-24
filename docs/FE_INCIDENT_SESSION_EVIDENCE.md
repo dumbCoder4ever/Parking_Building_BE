@@ -41,7 +41,7 @@ Endpoint trả thẳng DTO (không wrapper): `verify-vehicle`, `validate-reassig
 
 - Session phải **`ACTIVE` hoặc `PENDING_PAYMENT`** — session đã checkout/completed → API trả lỗi.
 - Với report từ Driver (`reportSource = DRIVER`): thêm check **reporter = driver của session**.
-- Response có thêm: `checkinVehicleImage`, `driverEmail`, `driverOwnershipVerified`.
+- Response có thêm: `checkinVehicleImage`, `checkoutVehicleImage`, `driverEmail`, `driverOwnershipVerified`.
 
 ### 1.3 Reservation active bao gồm CHECKED_IN
 
@@ -176,6 +176,7 @@ Role: STAFF | MANAGER | ADMIN
     "sessionActive": true,
     "checkinTime": "2026-07-24T10:00:00",
     "checkinVehicleImage": "https://cloudinary.../checkin.jpg",
+    "checkoutVehicleImage": "https://cloudinary.../checkout.jpg",
 
     "vehicleId": "veh-xxx",
     "vehiclePlate": "30A-12345",
@@ -221,6 +222,7 @@ Role: STAFF | MANAGER | ADMIN
 
 - `reservation` có thể **`null`** (guest hoặc driver không còn reservation active) — vẫn đủ data từ session.
 - Hiển thị `checkinVehicleImage` cho staff đối chiếu biển số.
+- Sau checkout: `checkoutVehicleImage` có URL ảnh xe ra (null nếu chưa checkout).
 - `driverMatchesReporter`: `false` → cảnh báo report có thể không phải chủ xe.
 - `sessionActive = false` → session không còn ACTIVE/PENDING_PAYMENT.
 
@@ -281,6 +283,7 @@ Chỉ áp dụng: incidentType = DRIVER_LOST_TICKET
   "providedPlateNumber": "30A-12345",
   "providedTicketCode": "T-ABC123",
   "checkinVehicleImage": "https://cloudinary.../checkin.jpg",
+  "checkoutVehicleImage": null,
   "driverEmail": "driver@test.com",
   "driverOwnershipVerified": true,
   "message": "Vehicle ownership verified successfully"
@@ -429,7 +432,7 @@ interface IncidentResponse {
 |---|---|---|---|
 | POST | `/api/incidents/driver` | DRIVER | Tạo report |
 | GET | `/api/incidents/driver/me` | DRIVER | List report của mình |
-| GET | `/api/incidents/driver/all` | STAFF+ | Tất cả driver reports |
+| GET | `/api/incidents/driver/all?buildingId=` | STAFF+ | Driver reports; Staff chỉ thấy building được assign |
 | GET | `/api/incidents` | STAFF+ | List (staff: theo building assign) |
 | GET | `/api/incidents/{id}` | STAFF+ | Chi tiết |
 | PUT | `/api/incidents/{id}/status?status=` | STAFF+ | Cập nhật workflow |

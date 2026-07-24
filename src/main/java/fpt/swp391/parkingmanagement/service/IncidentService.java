@@ -27,7 +27,7 @@ public interface IncidentService {
 
     long countByStatus(String status);
 
-    List<IncidentResponse> getAllDriverReports();
+    List<IncidentResponse> getAllDriverReports(String staffEmail, String buildingId);
 
     IncidentResponse createDriverReport(String driverEmail, IncidentRequest request);
 
