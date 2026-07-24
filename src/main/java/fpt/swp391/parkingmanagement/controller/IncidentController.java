@@ -115,10 +115,14 @@ public class IncidentController {
 
     @GetMapping("/driver/all")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-    @Operation(summary = "List all driver reports (staff)")
-    public ResponseEntity<ApiResponse<List<IncidentResponse>>> listAllDriverReports() {
-        List<IncidentResponse> reports = incidentService.getAllDriverReports();
-        return ResponseEntity.ok(ApiResponse.ok("All driver reports retrieved", reports));
+    @Operation(summary = "List driver reports for staff",
+            description = "Staff: chi thay report thuoc building duoc assign. "
+                    + "Truyen buildingId de loc 1 building. Manager/Admin: khong truyen buildingId = tat ca.")
+    public ResponseEntity<ApiResponse<List<IncidentResponse>>> listAllDriverReports(
+            Authentication auth,
+            @RequestParam(required = false) String buildingId) {
+        List<IncidentResponse> reports = incidentService.getAllDriverReports(auth.getName(), buildingId);
+        return ResponseEntity.ok(ApiResponse.ok("Driver reports retrieved", reports));
     }
 
     // ======================== STAFF VERIFICATION & VALIDATION ENDPOINTS ========================
