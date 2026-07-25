@@ -59,6 +59,7 @@ public class PaymentController {
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping
     public ResponseEntity<ApiResponse<List<StaffPaymentListItemResponse>>> getAllPayments(
+            Authentication auth,
             @Parameter(description = "Filter: PAID, UNPAID, or ALL")
             @RequestParam(required = false) PaidStatusFilter status,
             @Parameter(description = "Filter by payment method, e.g. PAYOS")
@@ -70,7 +71,7 @@ public class PaymentController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int limit) {
         List<StaffPaymentListItemResponse> payments = paymentService.getAllPaymentsForStaff(
-                status, paymentMethod, from, to, page, limit);
+                auth.getName(), status, paymentMethod, from, to, page, limit);
         return ResponseEntity.ok(ApiResponse.ok("Payments retrieved successfully", payments));
     }
 
@@ -87,10 +88,12 @@ public class PaymentController {
     }
 
     @Operation(summary = "Get payment details by payment ID")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping("/{paymentId}")
     public ResponseEntity<ApiResponse<PaymentResponseDTO>> getPaymentDetails(
+            Authentication auth,
             @PathVariable String paymentId) {
-        PaymentResponseDTO response = paymentService.getPaymentDetails(paymentId);
+        PaymentResponseDTO response = paymentService.getPaymentDetails(paymentId, auth.getName());
         return ResponseEntity.ok(ApiResponse.ok("Payment details retrieved successfully", response));
     }
 }
