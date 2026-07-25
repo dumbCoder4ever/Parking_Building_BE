@@ -13,6 +13,7 @@ import fpt.swp391.parkingmanagement.enums.PaymentStatus;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.entity.Ticket;
+import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
 import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
@@ -41,6 +42,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final ParkingSessionRepository parkingSessionRepository;
     private final UserRepository userRepository;
+    private final BuildingStaffRepository buildingStaffRepository;
     private final TicketRepository ticketRepository;
     private final NotificationService notificationService;
     private final AuditLogService auditLogService;
@@ -254,14 +256,23 @@ public class PaymentService {
     }
 
     public PaymentResponseDTO getPaymentDetails(String paymentId) {
+        return getPaymentDetails(paymentId, null);
+    }
+
+    public PaymentResponseDTO getPaymentDetails(String paymentId, String requesterEmail) {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
+
+        if (requesterEmail != null) {
+            validateStaffPaymentAccess(requesterEmail, payment);
+        }
 
         return toPaymentResponse(payment);
     }
 
     @Transactional(readOnly = true)
     public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(
+            String requesterEmail,
             PaidStatusFilter paidStatus,
             String paymentMethod,
             LocalDateTime from,
@@ -272,12 +283,17 @@ public class PaymentService {
         String normalizedMethod = (paymentMethod == null || paymentMethod.isBlank()) ? null : paymentMethod.trim();
         int safeLimit = Math.min(Math.max(limit, 1), 500);
         int safePage = Math.max(page, 0);
+        List<String> buildingIds = resolveStaffBuildingFilter(requesterEmail);
+        if (buildingIds != null && buildingIds.isEmpty()) {
+            return List.of();
+        }
 
         return paymentRepository.findForStaffList(
                         normalizedStatus,
                         normalizedMethod,
                         from,
                         to,
+                        buildingIds,
                         PageRequest.of(safePage, safeLimit))
                 .stream()
                 .map(StaffPaymentListItemResponse::fromEntity)
@@ -285,8 +301,11 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(PaidStatusFilter paidStatus, int limit) {
-        return getAllPaymentsForStaff(paidStatus, null, null, null, 0, limit);
+    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(
+            String requesterEmail,
+            PaidStatusFilter paidStatus,
+            int limit) {
+        return getAllPaymentsForStaff(requesterEmail, paidStatus, null, null, null, 0, limit);
     }
 
     private String normalizePaidStatusFilter(PaidStatusFilter paidStatus) {
@@ -313,7 +332,15 @@ public class PaymentService {
             throw new BaseAPIException(ErrorCode.UNAUTHORIZED);
         }
 
-        return paymentRepository.findByDriverIdOrderByPaymentTimeDesc(driverId, PageRequest.of(0, limit))
+        List<String> buildingIds = resolveStaffBuildingFilter(requesterEmail);
+        if (buildingIds != null && buildingIds.isEmpty()) {
+            return List.of();
+        }
+
+        return paymentRepository.findByDriverIdOrderByPaymentTimeDesc(
+                        driverId,
+                        buildingIds,
+                        PageRequest.of(0, limit))
                 .stream()
                 .map(PaymentResponse::fromEntity)
                 .collect(Collectors.toList());
@@ -350,6 +377,55 @@ public class PaymentService {
             return zone.getFloor().getBuilding().getBuildingId();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private boolean isManagerOrAdmin(User user) {
+        if (user == null || user.getRole() == null) {
+            return false;
+        }
+        String role = user.getRole().toUpperCase();
+        return "ROLE_MANAGER".equals(role) || "ROLE_ADMIN".equals(role);
+    }
+
+    /**
+     * Returns null when no building filter should apply (manager/admin/driver),
+     * or assigned building IDs for staff.
+     */
+    private List<String> resolveStaffBuildingFilter(String requesterEmail) {
+        User requester = userRepository.findByEmail(requesterEmail)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
+        if (isManagerOrAdmin(requester)) {
+            return null;
+        }
+        String role = requester.getRole() != null ? requester.getRole().toUpperCase() : "";
+        if (!"ROLE_STAFF".equals(role)) {
+            return null;
+        }
+        return buildingStaffRepository.findBuildingIdsByUserId(requester.getUserId());
+    }
+
+    private void validateStaffPaymentAccess(String requesterEmail, Payment payment) {
+        User requester = userRepository.findByEmail(requesterEmail)
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.USER_NOT_FOUND));
+        if (isManagerOrAdmin(requester)) {
+            return;
+        }
+        String role = requester.getRole() != null ? requester.getRole().toUpperCase() : "";
+        if (!"ROLE_STAFF".equals(role)) {
+            return;
+        }
+
+        String paymentBuildingId = resolveBuildingId(payment.getSession());
+        if (paymentBuildingId == null) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST, "Cannot determine building for this payment");
+        }
+
+        List<String> staffBuildingIds = buildingStaffRepository.findBuildingIdsByUserId(requester.getUserId());
+        if (!staffBuildingIds.contains(paymentBuildingId)) {
+            throw new BaseAPIException(ErrorCode.FORBIDDEN,
+                    "You do not have permission to access this payment. "
+                            + "This payment belongs to a different building.");
         }
     }
 }
