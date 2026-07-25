@@ -261,12 +261,39 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(PaidStatusFilter paidStatus, int limit) {
-        String normalizedStatus = paidStatus != null ? paidStatus.name() : null;
-        return paymentRepository.findAllByPaidStatus(normalizedStatus, PageRequest.of(0, limit))
+    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(
+            PaidStatusFilter paidStatus,
+            String paymentMethod,
+            LocalDateTime from,
+            LocalDateTime to,
+            int page,
+            int limit) {
+        String normalizedStatus = normalizePaidStatusFilter(paidStatus);
+        String normalizedMethod = (paymentMethod == null || paymentMethod.isBlank()) ? null : paymentMethod.trim();
+        int safeLimit = Math.min(Math.max(limit, 1), 500);
+        int safePage = Math.max(page, 0);
+
+        return paymentRepository.findForStaffList(
+                        normalizedStatus,
+                        normalizedMethod,
+                        from,
+                        to,
+                        PageRequest.of(safePage, safeLimit))
                 .stream()
                 .map(StaffPaymentListItemResponse::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<StaffPaymentListItemResponse> getAllPaymentsForStaff(PaidStatusFilter paidStatus, int limit) {
+        return getAllPaymentsForStaff(paidStatus, null, null, null, 0, limit);
+    }
+
+    private String normalizePaidStatusFilter(PaidStatusFilter paidStatus) {
+        if (paidStatus == null || paidStatus == PaidStatusFilter.ALL) {
+            return null;
+        }
+        return paidStatus.name();
     }
 
     @Transactional(readOnly = true)
