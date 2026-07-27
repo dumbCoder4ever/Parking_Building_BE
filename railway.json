@@ -1,20 +1,3 @@
-# Railway Deployment Configuration
-# Documentation: https://docs.railway.app/
-
-# Build Command (nếu cần custom)
-# nixpacks build -n parking-api -p PORT .
-
-# Start Command
-# java -jar build/libs/parkingmanagement-*.jar
-
-# Environment Variables được set trên Railway Dashboard:
-# SPRING_DATASOURCE_URL=jdbc:mysql://<host>:<port>/railway
-# SPRING_DATASOURCE_USERNAME=<username>
-# SPRING_DATASOURCE_PASSWORD=<password>
-
-# Các biến khác:
-# PORT=<port từ Railway>
-# CLOUDINARY_CLOUD_NAME=<cloud_name>
-# CLOUDINARY_API_KEY=<api_key>
-# CLOUDINARY_API_SECRET=<api_secret>
-# JWT_SECRET=<your-jwt-secret>
+{
+  "$schema": "https://railway.com/railway.schema.json"
+}
