@@ -18,14 +18,11 @@ import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
 
 import java.math.BigDecimal;
@@ -44,7 +41,6 @@ public class PaymentService {
     private final UserRepository userRepository;
     private final BuildingStaffRepository buildingStaffRepository;
     private final TicketRepository ticketRepository;
-    private final NotificationService notificationService;
     private final AuditLogService auditLogService;
 
     @Autowired
@@ -58,7 +54,7 @@ public class PaymentService {
      * Staff generates transaction and sends payment options to driver
      */
     @Transactional
-    public PaymentResponseDTO initiatePayment(PaymentRequestDTO paymentRequest) {
+    public PaymentResponseDTO initiatePayment(PaymentRequestDTO paymentRequest, String clientIp) {
         ParkingSession session;
         if (paymentRequest.getTicketCode() != null && !paymentRequest.getTicketCode().isBlank()) {
             Ticket ticket = ticketRepository.findByTicketCode(paymentRequest.getTicketCode())
@@ -93,22 +89,14 @@ public class PaymentService {
 
         Payment savedPayment = paymentRepository.save(payment);
 
-        String clientIp = "127.0.0.1";
-        try {
-            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attrs != null) {
-                HttpServletRequest httpReq = attrs.getRequest();
-                String forwarded = httpReq.getHeader("X-FORWARDED-FOR");
-                clientIp = (forwarded != null) ? forwarded : httpReq.getRemoteAddr();
-            }
-        } catch (Exception ignored) {}
+        String resolvedClientIp = (clientIp != null && !clientIp.isBlank()) ? clientIp : "127.0.0.1";
 
         String paymentUrl = null;
         if ("VNPAY".equals(paymentRequest.getPaymentMethod())) {
             paymentUrl = vnPayService.createPaymentUrl(
                     savedPayment.getPaymentId(),
                     paymentRequest.getAmount(),
-                    clientIp,
+                    resolvedClientIp,
                     paymentRequest.getBankCode(),
                     paymentRequest.getLanguage()
             );
@@ -144,14 +132,6 @@ public class PaymentService {
                 .message("Payment initiated. Driver can now proceed with payment.")
                 .driverName(displayName)
                 .build();
-
-        if (driver != null && session.getReservation() != null) {
-            notificationService.sendToUser(driver.getUsername(), "PAYMENT_INITIATED", Map.of(
-                    "reservationCode", session.getReservation().getReservationCode(),
-                    "amount", paymentRequest.getAmount(),
-                    "paymentMethod", paymentRequest.getPaymentMethod()
-            ));
-        }
 
         return response;
     }
@@ -191,16 +171,6 @@ public class PaymentService {
                 .message("Payment successful. Staff may proceed with checkout.")
                 .build();
 
-        if (driver != null && session.getReservation() != null) {
-            String ticketCode = payment.getSession().getTicket() != null
-                    ? payment.getSession().getTicket().getTicketCode() : "";
-            notificationService.sendToUser(driver.getUsername(), "PAYMENT_PAID", Map.of(
-                    "reservationCode", session.getReservation().getReservationCode(),
-                    "ticketCode", ticketCode,
-                    "amount", updatedPayment.getAmount()
-            ));
-        }
-
         auditLogService.record(
                 "PAYMENT_PAID",
                 "PAYMENT",
@@ -229,6 +199,10 @@ public class PaymentService {
                 .orElseThrow(() -> new RuntimeException("Parking session not found"));
         session.setPaymentStatus("FAILED");
         parkingSessionRepository.save(session);
+
+        // Publish PAYMENT_FAILED notification
+        // Notification module removed — see docs/REMOVED_NOTIFICATIONS.md.
+        // (Original block was a try/catch that published PAYMENT_FAILED via notificationPublisher.)
 
         auditLogService.record(
                 "PAYMENT_FAILED",

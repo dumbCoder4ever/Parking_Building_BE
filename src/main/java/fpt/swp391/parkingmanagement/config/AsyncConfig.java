@@ -11,7 +11,7 @@ public class AsyncConfig {
 
     /**
      * Small pool for parallel admin-dashboard DB reads against remote MySQL.
-     * Wall-clock ≈ slowest query instead of sum of all queries.
+     * Wall-clock approximate slowest query instead of sum of all queries.
      */
     @Bean(name = "dashboardExecutor")
     public Executor dashboardExecutor() {

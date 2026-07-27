@@ -19,7 +19,6 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final CloudinaryService cloudinaryService;
-    private final NotificationService notificationService;
 
     public UserProfileResponse getMyProfile(String email) {
         return UserProfileResponse.from(findByEmail(email));
@@ -42,10 +41,7 @@ public class UserService {
             user.setEmail(request.getEmail());
         }
 
-        UserProfileResponse updated = UserProfileResponse.from(userRepository.save(user));
-        notificationService.sendToUser(email, "USER_PROFILE_UPDATED", updated);
-        notificationService.broadcastToAdmins("USER_UPDATED", updated);
-        return updated;
+        return UserProfileResponse.from(userRepository.save(user));
     }
 
     public void changePassword(String email, ChangePasswordRequest request) {
@@ -57,7 +53,6 @@ public class UserService {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
-        notificationService.sendToUser(email, "PASSWORD_CHANGED", null);
     }
 
     // ─── Admin operations ────────────────────────────────────────────────────
@@ -76,11 +71,7 @@ public class UserService {
     public UserProfileResponse updateUserStatus(String userId, UpdateUserStatusRequest request) {
         User user = findById(userId);
         user.setStatus(request.getStatus());
-        UserProfileResponse updated = UserProfileResponse.from(userRepository.save(user));
-
-        notificationService.sendToUser(user.getUsername(), "ACCOUNT_STATUS_CHANGED", updated);
-        notificationService.broadcastToAdmins("USER_STATUS_UPDATED", updated);
-        return updated;
+        return UserProfileResponse.from(userRepository.save(user));
     }
 
     public UserProfileResponse updateUserRole(String userId, String role) {
@@ -92,11 +83,7 @@ public class UserService {
         }
         User user = findById(userId);
         user.setRole(role);
-        UserProfileResponse updated = UserProfileResponse.from(userRepository.save(user));
-
-        notificationService.sendToUser(user.getUsername(), "ROLE_CHANGED", updated);
-        notificationService.broadcastToAdmins("USER_ROLE_UPDATED", updated);
-        return updated;
+        return UserProfileResponse.from(userRepository.save(user));
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

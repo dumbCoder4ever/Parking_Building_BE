@@ -48,4 +48,19 @@ public class QuickCheckinResponse {
 
     @Schema(description = "Warning if the plate already has another ACTIVE session (driver checkin only).")
     private PlateDuplicateInfo duplicateActiveSession;
+
+    @Schema(description = "User ID của driver (chỉ có khi checkinType = DRIVER hoặc DRIVER_WALK_IN).")
+    private String driverUserId;
+
+    @Schema(description = "Username của driver.")
+    private String driverUsername;
+
+    @Schema(description = "Họ tên driver.")
+    private String driverFullName;
+
+    @Schema(description = "Số điện thoại driver.")
+    private String driverPhone;
+
+    @Schema(description = "Email driver.")
+    private String driverEmail;
 }

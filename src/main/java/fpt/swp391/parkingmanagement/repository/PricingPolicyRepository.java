@@ -9,7 +9,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.transaction.annotation.Transactional;
 
 import fpt.swp391.parkingmanagement.entity.PricingPolicy;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
@@ -68,7 +67,6 @@ public interface PricingPolicyRepository extends JpaRepository<PricingPolicy, St
     List<PricingPolicy> findAllActiveByVehicleTypeIds(@Param("vehicleTypeIds") java.util.Collection<String> vehicleTypeIds);
 
     @Modifying
-    @Transactional
     @Query("update PricingPolicy p set p.status = 'INACTIVE' "
             + "where p.status = 'ACTIVE' "
             + "and p.effectiveTo is not null "

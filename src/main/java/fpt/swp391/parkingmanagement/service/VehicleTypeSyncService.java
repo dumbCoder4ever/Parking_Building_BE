@@ -8,7 +8,6 @@ import org.springframework.transaction.annotation.Transactional;
 import fpt.swp391.parkingmanagement.dto.CreateFloorRequest;
 import fpt.swp391.parkingmanagement.entity.VehicleType;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -18,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 public class VehicleTypeSyncService {
 
     private final VehicleTypeRepository vehicleTypeRepository;
-    private final EntityManager entityManager;
 
     @Transactional
     public void ensureCanonicalTypes() {
@@ -78,21 +76,10 @@ public class VehicleTypeSyncService {
     }
 
     private void updateReferences(String oldId, String newId) {
-        entityManager.createNativeQuery(
-                        "UPDATE floors SET vehicle_type_id = :newId WHERE vehicle_type_id = :oldId")
-                .setParameter("newId", newId)
-                .setParameter("oldId", oldId)
-                .executeUpdate();
-        entityManager.createNativeQuery(
-                        "UPDATE vehicles SET vehicle_type_id = :newId WHERE vehicle_type_id = :oldId")
-                .setParameter("newId", newId)
-                .setParameter("oldId", oldId)
-                .executeUpdate();
-        entityManager.createNativeQuery(
-                        "UPDATE pricing_policies SET vehicle_type_id = :newId WHERE vehicle_type_id = :oldId")
-                .setParameter("newId", newId)
-                .setParameter("oldId", oldId)
-                .executeUpdate();
+        int floorsUpdated = vehicleTypeRepository.updateFloorVehicleTypeId(oldId, newId);
+        int vehiclesUpdated = vehicleTypeRepository.updateVehicleVehicleTypeId(oldId, newId);
+        int policiesUpdated = vehicleTypeRepository.updatePricingPolicyVehicleTypeId(oldId, newId);
+        log.debug("Updated vehicle type references: {} floors, {} vehicles, {} policies", floorsUpdated, vehiclesUpdated, policiesUpdated);
     }
 
     private void insertType(String vehicleTypeId, String typeName, String sizeCategory, String description) {

@@ -44,6 +44,16 @@ public class ParkingSession {
     @EqualsAndHashCode.Exclude
     private Reservation reservation;
 
+    /**
+     * Driver sở hữu session (chỉ set cho: nhánh A nhánh B trong walk-in).
+     * Cho nhánh C (guest) thì user = null vì guest không có tài khoản.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private User user;
+
     private LocalDateTime checkinTime;
 
     private LocalDateTime checkoutTime;

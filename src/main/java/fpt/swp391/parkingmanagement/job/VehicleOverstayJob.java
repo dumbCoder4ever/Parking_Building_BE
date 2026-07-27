@@ -7,7 +7,6 @@ import fpt.swp391.parkingmanagement.repository.BuildingRuleRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.service.AuditLogService;
 import fpt.swp391.parkingmanagement.service.BuildingRuleService;
-import fpt.swp391.parkingmanagement.service.NotificationService;
 import fpt.swp391.parkingmanagement.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,9 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * VehicleOverstayJob: scans active parking sessions and logs an audit
+ * entry when a vehicle exceeds the configured max parking hours.
+ *
+ * Notification publishing has been removed (Notification module disabled).
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -29,10 +32,7 @@ public class VehicleOverstayJob {
     private final ParkingSessionRepository parkingSessionRepository;
     private final BuildingRuleRepository buildingRuleRepository;
     private final SystemConfigService systemConfigService;
-    private final NotificationService notificationService;
     private final AuditLogService auditLogService;
-
-    private final ConcurrentHashMap<String, LocalDateTime> lastNotified = new ConcurrentHashMap<>();
 
     @Scheduled(fixedRate = 300000) // every 5 minutes
     @Transactional(readOnly = true)
@@ -42,14 +42,13 @@ public class VehicleOverstayJob {
         }
         int defaultMaxHours = systemConfigService.getInt(SystemConfigService.MAX_PARKING_HOURS, 24);
         LocalDateTime now = LocalDateTime.now();
-        // Prefetch sessions older than 1 hour to reduce load; filter by max hours below
         LocalDateTime prefetchCutoff = now.minusHours(1);
         List<ParkingSession> sessions = parkingSessionRepository.findActiveSessionsCheckedInBefore(prefetchCutoff);
         if (sessions.isEmpty()) {
             return;
         }
 
-        int notified = 0;
+        int flagged = 0;
         for (ParkingSession ps : sessions) {
             if (ps.getCheckinTime() == null) {
                 continue;
@@ -60,27 +59,8 @@ public class VehicleOverstayJob {
             if (parkedHours < maxHours) {
                 continue;
             }
-            LocalDateTime last = lastNotified.get(ps.getSessionId());
-            if (last != null && last.isAfter(now.minusHours(1))) {
-                continue;
-            }
 
             String buildingId = building != null ? building.getBuildingId() : null;
-            String plate = ps.getVehicle() != null ? ps.getVehicle().getPlateNumber() : null;
-            Map<String, Object> payload = Map.of(
-                    "sessionId", ps.getSessionId(),
-                    "buildingId", buildingId != null ? buildingId : "",
-                    "plateNumber", plate != null ? plate : "",
-                    "checkinTime", ps.getCheckinTime().toString(),
-                    "parkedHours", parkedHours,
-                    "maxParkingHours", maxHours,
-                    "message", "Vehicle exceeded maximum parking duration (" + maxHours + "h)");
-
-            if (buildingId != null) {
-                notificationService.sendToStaffBuilding(buildingId, "VEHICLE_OVERSTAY", payload);
-            }
-            notificationService.broadcastToAdmins("VEHICLE_OVERSTAY", payload);
-            notifyDriver(ps, payload);
 
             auditLogService.recordSystem(
                     "VEHICLE_OVERSTAY",
@@ -90,14 +70,11 @@ public class VehicleOverstayJob {
                     null,
                     parkedHours + "h",
                     "Overstay alert: parked " + parkedHours + "h (max " + maxHours + "h)");
-
-            lastNotified.put(ps.getSessionId(), now);
-            notified++;
+            flagged++;
         }
-        if (notified > 0) {
-            log.info("VehicleOverstayJob: notified {} sessions", notified);
+        if (flagged > 0) {
+            log.info("VehicleOverstayJob: flagged {} sessions (notifications disabled)", flagged);
         }
-        pruneNotifiedCache(now);
     }
 
     private int resolveMaxHours(Building building, int defaultMax) {
@@ -127,17 +104,5 @@ public class VehicleOverstayJob {
             return null;
         }
         return ps.getSlot().getZone().getFloor().getBuilding();
-    }
-
-    private void notifyDriver(ParkingSession ps, Map<String, Object> payload) {
-        if (ps.getReservation() != null && ps.getReservation().getUser() != null
-                && ps.getReservation().getUser().getUsername() != null) {
-            notificationService.sendToUser(
-                    ps.getReservation().getUser().getUsername(), "VEHICLE_OVERSTAY", payload);
-        }
-    }
-
-    private void pruneNotifiedCache(LocalDateTime now) {
-        lastNotified.entrySet().removeIf(e -> e.getValue().isBefore(now.minusDays(1)));
     }
 }

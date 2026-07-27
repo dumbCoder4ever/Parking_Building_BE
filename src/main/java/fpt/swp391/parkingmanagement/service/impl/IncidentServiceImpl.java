@@ -1,6 +1,8 @@
 package fpt.swp391.parkingmanagement.service.impl;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
@@ -104,7 +106,25 @@ public class IncidentServiceImpl implements IncidentService {
         Incident saved = incidentRepository.save(incident);
         log.info("Incident created by staff {} for session {} type={}",
                 staffEmail, request.getSessionId(), incidentType);
+
         return toResponse(saved);
+    }
+
+    private String resolveBuildingIdFromSession(ParkingSession session) {
+        if (session == null || session.getSlot() == null || session.getSlot().getZone() == null
+                || session.getSlot().getZone().getFloor() == null
+                || session.getSlot().getZone().getFloor().getBuilding() == null) {
+            return null;
+        }
+        return session.getSlot().getZone().getFloor().getBuilding().getBuildingId();
+    }
+
+    private String resolveDriverUsernameFromSession(ParkingSession session) {
+        if (session == null || session.getReservation() == null
+                || session.getReservation().getUser() == null) {
+            return null;
+        }
+        return session.getReservation().getUser().getUsername();
     }
 
     @Override
@@ -164,6 +184,7 @@ public class IncidentServiceImpl implements IncidentService {
 
         Incident saved = incidentRepository.save(incident);
         log.info("Incident {} status -> {} by {} with action {}", incidentId, normalized, staffEmail, request != null ? request.getResolutionAction() : "none");
+
         return toResponse(saved);
     }
 
@@ -567,6 +588,11 @@ public class IncidentServiceImpl implements IncidentService {
         log.info("Vehicle verification for incident {}: {} (staff: {})",
                 incidentId, verificationResult, staffEmail);
 
+        // Publish INCIDENT_VERIFICATION_FAILED notification (persistent) nếu MISMATCH
+        if ("MISMATCH".equals(verificationResult)) {
+            // Notification module removed: verification result is still logged via audit.
+        }
+
         return VerifyVehicleResponse.builder()
                 .incidentId(incidentId)
                 .verificationResult(verificationResult)
@@ -766,6 +792,7 @@ public class IncidentServiceImpl implements IncidentService {
 
         Incident saved = incidentRepository.save(incident);
         log.info("System created incident {} for session {} type={}", saved.getIncidentId(), sessionId, incidentType);
+
         return toResponse(saved);
     }
 
@@ -799,6 +826,7 @@ public class IncidentServiceImpl implements IncidentService {
 
         Incident saved = incidentRepository.save(incident);
         log.info("Driver {} created report {} for session {} type={}", driverEmail, saved.getIncidentId(), request.getSessionId(), incidentType);
+
         return toResponse(saved);
     }
 

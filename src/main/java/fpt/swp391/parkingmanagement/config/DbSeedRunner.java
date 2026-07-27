@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+@Slf4j
 @Component
 @ConditionalOnProperty(name = "app.applyAddFloorsSlots", havingValue = "true")
 public class DbSeedRunner implements CommandLineRunner {
@@ -22,8 +24,7 @@ public class DbSeedRunner implements CommandLineRunner {
     public void run(String... args) throws Exception {
         Path sqlPath = Path.of("docs", "db", "add_floors_slots.sql");
         if (!Files.exists(sqlPath)) {
-            System.err.println("SQL file not found: " + sqlPath.toAbsolutePath());
-            System.exit(2);
+            throw new IllegalStateException("SQL file not found: " + sqlPath.toAbsolutePath());
         }
 
         String content = Files.readString(sqlPath);
@@ -288,7 +289,6 @@ public class DbSeedRunner implements CommandLineRunner {
             ex.printStackTrace();
         }
 
-        // exit after applying so bootRun doesn't keep running
-        System.exit(0);
+        log.info("DbSeedRunner completed successfully");
     }
 }
