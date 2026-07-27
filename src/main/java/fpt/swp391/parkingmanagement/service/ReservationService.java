@@ -608,14 +608,14 @@ public class ReservationService {
         // Validate: driver chỉ cancel được reservation của chính mình
         if (reservation.getUser() == null || !reservation.getUser().getUserId().equals(user.getUserId())) {
             throw new BaseAPIException(ErrorCode.UNAUTHORIZED,
-                    "Bạn không có quyền hủy reservation này");
+                    "You do not have permission to cancel this reservation");
         }
 
         // Validate: chỉ cancel được khi PENDING
         if (!"PENDING".equalsIgnoreCase(reservation.getReservationStatus())) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED,
-                    "Chỉ có thể hủy reservation khi đang ở trạng thái PENDING. "
-                            + "Trạng thái hiện tại: " + reservation.getReservationStatus());
+                    "Reservation can only be cancelled while in PENDING status. "
+                            + "Current status: " + reservation.getReservationStatus());
         }
 
         String reason = req != null && req.getReason() != null ? req.getReason() : "Driver cancelled";
@@ -639,21 +639,21 @@ public class ReservationService {
         String currentStatus = reservation.getReservationStatus();
         if ("CANCELLED".equalsIgnoreCase(currentStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Reservation đã bị hủy trước đó");
+                    "Reservation was already cancelled");
         }
         if ("COMPLETED".equalsIgnoreCase(currentStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Không thể hủy reservation đã hoàn thành");
+                    "Cannot cancel a completed reservation");
         }
         if ("EXPIRED".equalsIgnoreCase(currentStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Không thể hủy reservation đã hết hạn");
+                    "Cannot cancel an expired reservation");
         }
 
         // CHECKED_IN: phải checkout trước mới cancel được
         if ("CHECKED_IN".equalsIgnoreCase(currentStatus)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Xe đã checkin. Vui lòng checkout trước khi hủy reservation.");
+                    "Vehicle is already checked in. Please checkout before cancelling the reservation.");
         }
 
         String reason = req != null && req.getReason() != null
@@ -769,7 +769,7 @@ public class ReservationService {
                     "buildingId", buildingId,
                     "buildingName", buildingName,
                     "reservationStart", req.getReservationStart().toString(),
-                    "message", "Building đang trong khung giờ cao điểm"
+                    "message", "Building is currently in peak hours"
             ));
         }
 

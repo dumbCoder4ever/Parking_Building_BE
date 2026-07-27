@@ -73,7 +73,7 @@ public class MaintenanceNotificationJob {
                 "floors", floors.size(),
                 "zones", zones.size(),
                 "slots", slots.size(),
-                "message", "Có hạng mục đang MAINTENANCE cần theo dõi");
+                "message", "There are items under MAINTENANCE that require attention");
 
         // Global admin broadcast at most once per 6 hours
         LocalDateTime lastGlobal = lastNotified.get("GLOBAL");
@@ -91,7 +91,7 @@ public class MaintenanceNotificationJob {
             notificationService.sendToStaffBuilding(buildingId, "MAINTENANCE_REMINDER", Map.of(
                     "buildingId", buildingId,
                     "maintenanceItems", e.getValue(),
-                    "message", "Building có " + e.getValue() + " hạng mục đang bảo trì"));
+                    "message", "Building has " + e.getValue() + " items under maintenance"));
             lastNotified.put(buildingId, now);
         }
 

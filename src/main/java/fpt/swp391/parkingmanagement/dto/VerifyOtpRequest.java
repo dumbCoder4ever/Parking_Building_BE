@@ -7,11 +7,11 @@ import lombok.Data;
 
 @Data
 public class VerifyOtpRequest {
-    @NotBlank(message = "Email không được để trống")
-    @Email(message = "Email không hợp lệ")
+    @NotBlank(message = "Email must not be blank")
+    @Email(message = "Invalid email format")
     private String email;
     
-    @NotBlank(message = "OTP không được để trống")
-    @Size(min = 6, max = 6, message = "OTP phải có 6 chữ số")
+    @NotBlank(message = "OTP must not be blank")
+    @Size(min = 6, max = 6, message = "OTP must be 6 digits")
     private String otp;
-} 
+}

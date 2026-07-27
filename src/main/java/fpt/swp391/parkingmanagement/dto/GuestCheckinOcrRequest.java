@@ -6,39 +6,39 @@ import lombok.Data;
 import org.springframework.web.multipart.MultipartFile;
 
 @Data
-@Schema(description = "Guest checkin bằng OCR: staff quét ảnh biển số xe → hệ thống nhận diện biển số → auto-assign slot → tạo session.")
+@Schema(description = "Guest checkin via OCR: staff scans a license plate image, the system detects the plate, auto-assigns a slot, and creates a session.")
 public class GuestCheckinOcrRequest {
 
-    @Schema(description = "Ảnh biển số xe. Staff chụp ảnh biển số xe khách → upload lên. BẮT BUỘC.")
+    @Schema(description = "License plate image. Required.")
     private MultipartFile plateImage;
 
-    @Schema(description = "Building ID nơi staff đang làm việc. BẮT BUỘC.")
+    @Schema(description = "Building ID where the staff is working. Required.")
     @NotBlank(message = "buildingId is required")
     private String buildingId;
 
-    @Schema(description = "Loại xe (MOTORCYCLE, CAR...). BẮT BUỘC.")
+    @Schema(description = "Vehicle type (MOTORCYCLE, CAR, etc.). Required.")
     @NotBlank(message = "vehicleTypeId is required")
     private String vehicleTypeId;
 
-    @Schema(description = "Màu xe (tùy chọn).")
+    @Schema(description = "Vehicle color (optional).")
     private String vehicleColor;
 
-    @Schema(description = "Hãng xe (tùy chọn).")
+    @Schema(description = "Vehicle brand (optional).")
     private String brand;
 
-    @Schema(description = "Dòng xe (tùy chọn).")
+    @Schema(description = "Vehicle model (optional).")
     private String model;
 
-    @Schema(description = "Tên khách (tùy chọn).")
+    @Schema(description = "Guest name (optional).")
     private String guestName;
 
-    @Schema(description = "SĐT khách (tùy chọn).")
+    @Schema(description = "Guest phone number (optional).")
     private String guestPhone;
 
-    @Schema(description = "Ghi chú (tùy chọn).")
+    @Schema(description = "Note (optional).")
     private String note;
 
-    @Schema(description = "Ảnh check-in lúc xe vào (tùy chọn). Upload ảnh → lưu URL tại đây.")
+    @Schema(description = "Check-in vehicle image (optional). Upload image and store URL here.")
     private MultipartFile checkinImage;
 
     /** Set programmatically after Cloudinary upload */

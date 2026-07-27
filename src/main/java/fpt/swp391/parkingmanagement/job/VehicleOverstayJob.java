@@ -74,7 +74,7 @@ public class VehicleOverstayJob {
                     "checkinTime", ps.getCheckinTime().toString(),
                     "parkedHours", parkedHours,
                     "maxParkingHours", maxHours,
-                    "message", "Xe đã vượt thời gian đỗ tối đa (" + maxHours + "h)");
+                    "message", "Vehicle exceeded maximum parking duration (" + maxHours + "h)");
 
             if (buildingId != null) {
                 notificationService.sendToStaffBuilding(buildingId, "VEHICLE_OVERSTAY", payload);

@@ -112,13 +112,13 @@ public class VnPayController {
             if ("00".equals(responseCode) && "00".equals(transactionStatus)) {
                 return ResponseEntity.ok(Map.of(
                         "status", "SUCCESS",
-                        "message", "Thanh toán thành công",
+                        "message", "Payment successful",
                         "payment", payment
                 ));
             } else {
                 return ResponseEntity.ok(Map.of(
                         "status", "FAILED",
-                        "message", "Thanh toán không thành công. Mã lỗi: " + responseCode,
+                        "message", "Payment failed. Error code: " + responseCode,
                         "payment", payment
                 ));
             }

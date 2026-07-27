@@ -47,7 +47,7 @@ public class VnPayService {
         vnpParams.put("vnp_Amount", String.valueOf(vnpAmount));
         vnpParams.put("vnp_CurrCode", config.getCurrCode());
         vnpParams.put("vnp_TxnRef", paymentId);
-        vnpParams.put("vnp_OrderInfo", "Thanh toan phi do xe:" + paymentId);
+        vnpParams.put("vnp_OrderInfo", "Parking fee payment:" + paymentId);
         vnpParams.put("vnp_OrderType", config.getOrderType());
         vnpParams.put("vnp_Locale", (language != null && !language.isEmpty()) ? language : config.getLocale());
         vnpParams.put("vnp_ReturnUrl", config.getReturnUrl());

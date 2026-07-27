@@ -55,7 +55,7 @@ public class PaymentReminderJob {
                     "plateNumber", plate != null ? plate : "",
                     "ticketCode", ticketCode != null ? ticketCode : "",
                     "checkinTime", ps.getCheckinTime() != null ? ps.getCheckinTime().toString() : "",
-                    "message", "Nhắc thanh toán: session chưa PAID sau " + minutes + " phút");
+                    "message", "Payment reminder: session not PAID after " + minutes + " minutes");
 
             if (buildingId != null) {
                 notificationService.sendToStaffBuilding(buildingId, "PAYMENT_REMINDER", payload);

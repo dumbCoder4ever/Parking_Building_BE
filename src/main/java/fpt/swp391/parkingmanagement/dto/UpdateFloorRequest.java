@@ -13,7 +13,7 @@ import lombok.Data;
 public class UpdateFloorRequest {
 
     @NotBlank(message = "Floor name is required")
-    @Schema(example = "Tầng xe máy")
+    @Schema(example = "Motorcycle floor")
     private String floorName;
 
     @NotBlank(message = "Vehicle type id is required")

@@ -51,7 +51,7 @@ public class AuthController {
             }
         } catch (Exception e) {
             baseResponse.setCode(500);
-            baseResponse.setMessage("Có lỗi xảy ra: " + e.getMessage());
+            baseResponse.setMessage("An error occurred: " + e.getMessage());
         }
 
         return ResponseEntity.ok(baseResponse);
@@ -69,16 +69,16 @@ public class AuthController {
 
             if (isValid) {
                 baseResponse.setCode(200);
-                baseResponse.setMessage("OTP hợp lệ");
+                baseResponse.setMessage("OTP is valid");
                 baseResponse.setData(Map.of("valid", true, "email", request.getEmail()));
             } else {
                 baseResponse.setCode(400);
-                baseResponse.setMessage("OTP không hợp lệ hoặc đã hết hạn");
+                baseResponse.setMessage("Invalid or expired OTP");
                 baseResponse.setData(Map.of("valid", false, "email", request.getEmail()));
             }
         } catch (Exception e) {
             baseResponse.setCode(500);
-            baseResponse.setMessage("Có lỗi xảy ra: " + e.getMessage());
+            baseResponse.setMessage("An error occurred: " + e.getMessage());
         }
 
         return ResponseEntity.ok(baseResponse);
@@ -100,16 +100,16 @@ public class AuthController {
 
             if (success) {
                 baseResponse.setCode(200);
-                baseResponse.setMessage("Đặt lại mật khẩu thành công");
+                baseResponse.setMessage("Password reset successful");
                 baseResponse.setData(Map.of("success", true, "email", request.getEmail()));
             } else {
                 baseResponse.setCode(400);
-                baseResponse.setMessage("OTP không hợp lệ hoặc email không tồn tại");
+                baseResponse.setMessage("Invalid OTP or email does not exist");
                 baseResponse.setData(Map.of("success", false, "email", request.getEmail()));
             }
         } catch (Exception e) {
             baseResponse.setCode(500);
-            baseResponse.setMessage("Có lỗi xảy ra: " + e.getMessage());
+            baseResponse.setMessage("An error occurred: " + e.getMessage());
         }
 
         return ResponseEntity.ok(baseResponse);
