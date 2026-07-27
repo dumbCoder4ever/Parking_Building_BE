@@ -259,8 +259,14 @@ public class DriverServiceImpl implements DriverService {
         if (vehicle != null && vehicle.getVehicleType() != null) {
             vehicleTypeId = vehicle.getVehicleType().getVehicleTypeId();
             vehicleTypeName = vehicle.getVehicleType().getTypeName();
-            estimatedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
-            
+            BigDecimal timeBasedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
+            // Staff-adjusted fee (incident UPDATE_PAYMENT) overrides time-based pricing
+            if (session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0) {
+                estimatedFee = session.getTotalFee();
+            } else {
+                estimatedFee = timeBasedFee;
+            }
+
             var policy = pricingService.getActivePolicy(vehicleTypeId);
             if (policy != null) {
                 basePrice = policy.getBasePrice();
