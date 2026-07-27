@@ -46,7 +46,7 @@ public class PeakHourNotificationJob {
                     "buildingId", buildingId,
                     "buildingName", building.getBuildingName() != null ? building.getBuildingName() : "",
                     "hour", hour,
-                    "message", "Building đang trong khung giờ cao điểm");
+                    "message", "Building is currently in peak hours");
             notificationService.sendToStaffBuilding(buildingId, "PEAK_HOUR_ALERT", payload);
             notificationService.broadcastToAdmins("PEAK_HOUR_ALERT", payload);
             lastNotifiedHour.put(buildingId, hour);

@@ -6,20 +6,20 @@ import lombok.Data;
 import org.springframework.web.multipart.MultipartFile;
 
 @Data
-@Schema(description = "Guest checkout bằng OCR: staff quét ảnh biển số → hệ thống nhận diện → tìm session đang hoạt động → checkout. Thanh toán CASH mặc định.")
+@Schema(description = "Guest checkout via OCR: staff scans a license plate image, the system detects the plate, finds the active session, and checks out. Default payment method is CASH.")
 public class GuestCheckoutOcrRequest {
 
-    @Schema(description = "Ảnh biển số xe lúc xe ra. Staff chụp ảnh biển số → upload lên. BẮT BUỘC.")
+    @Schema(description = "License plate image at exit. Required.")
     private MultipartFile plateImage;
 
-    @Schema(description = "Mã vé (ticketCode). Hệ thống dùng để xác nhận session chính xác. BẮT BUỘC.")
+    @Schema(description = "Ticket code (ticketCode). Used to confirm the correct session. Required.")
     @NotBlank(message = "ticketCode is required")
     private String ticketCode;
 
-    @Schema(description = "Phương thức thanh toán: CASH (mặc định), VNPAY, PAYOS, MOMO.")
+    @Schema(description = "Payment method: CASH (default), VNPAY, PAYOS, MOMO.")
     private String paymentMethod;
 
-    @Schema(description = "Ảnh check-out lúc xe ra (tùy chọn).")
+    @Schema(description = "Check-out vehicle image (optional).")
     private MultipartFile checkoutImage;
 
     /** Set programmatically after Cloudinary upload */

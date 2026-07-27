@@ -18,7 +18,7 @@ public class CreateFloorRequest {
     public static final String TRUCK_TYPE_ID = "33333333-3333-3333-3333-333333333334";
 
     @NotBlank(message = "Floor name is required")
-    @Schema(example = "Tầng xe máy")
+    @Schema(example = "Motorcycle floor")
     private String floorName;
 
     @NotBlank(message = "Vehicle type id is required")

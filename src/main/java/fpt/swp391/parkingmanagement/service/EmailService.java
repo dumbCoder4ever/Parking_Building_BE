@@ -27,7 +27,7 @@ public class EmailService {
 
             mailSender.send(message);
         } catch (MessagingException e) {
-            throw new RuntimeException("Gửi email thất bại: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to send email: " + e.getMessage(), e);
         }
     }
     
