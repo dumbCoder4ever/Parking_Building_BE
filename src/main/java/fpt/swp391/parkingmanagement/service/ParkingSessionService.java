@@ -396,8 +396,9 @@ public class ParkingSessionService {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
             policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                if (session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0) {
-                    total = session.getTotalFee();
+                BigDecimal storedFee = pricingService.resolveStoredSessionFee(session);
+                if (storedFee != null) {
+                    total = storedFee;
                 } else {
                     total = pricingService.calculateByPolicy(policy, hours);
                 }
@@ -1454,7 +1455,8 @@ public class ParkingSessionService {
         resp.setCheckinVehicleImage(ps.getCheckinVehicleImage());
         resp.setStatus(ps.getSessionStatus());
         resp.setParkingDuration(resolveParkingDurationMinutes(ps));
-        resp.setEstimatedFee(ps.getEstimatedFee());
+        BigDecimal storedFee = pricingService.resolveStoredSessionFee(ps);
+        resp.setEstimatedFee(storedFee != null ? storedFee : ps.getEstimatedFee());
 
         if (vehicleType != null) {
             PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
