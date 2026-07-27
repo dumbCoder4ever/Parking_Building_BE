@@ -291,10 +291,22 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
            "ORDER BY r.createdAt DESC")
     List<Reservation> findLatestActiveReservationByUserId(@Param("userId") String userId,
                                                           Pageable pageable);
-
     default Optional<Reservation> findFirstLatestActiveReservationByUserId(String userId) {
         return findLatestActiveReservationByUserId(userId, org.springframework.data.domain.PageRequest.of(0, 1))
                 .stream()
                 .findFirst();
     }
+
+    /**
+     * Find APPROVED reservations có reservationStart trong khoảng [from, to].
+     * Dùng cho ReservationReminderJob (T-15min, T-5min trước reservationStart).
+     */
+    @EntityGraph(attributePaths = {"slot", "slot.zone", "slot.zone.floor", "slot.zone.floor.building",
+            "vehicle", "vehicle.vehicleType", "user"})
+    @Query("SELECT r FROM Reservation r " +
+           "WHERE r.reservationStatus = 'APPROVED' " +
+           "AND r.reservationStart >= :from AND r.reservationStart < :to " +
+           "ORDER BY r.reservationStart ASC")
+    List<Reservation> findApprovedStartingBetween(@Param("from") LocalDateTime from,
+                                                   @Param("to") LocalDateTime to);
 }

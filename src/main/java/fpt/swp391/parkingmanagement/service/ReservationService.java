@@ -79,7 +79,6 @@ public class ReservationService {
     private final ZoneRepository zoneRepository;
     private final UserRepository userRepository;
     private final VehicleService vehicleService;
-    private final NotificationService notificationService;
     private final BuildingStaffRepository buildingStaffRepository;
     private final PricingService pricingService;
     private final PricingPolicyRepository pricingPolicyRepository;
@@ -103,7 +102,6 @@ public class ReservationService {
             ZoneRepository zoneRepository,
             UserRepository userRepository,
             VehicleService vehicleService,
-            NotificationService notificationService,
             BuildingStaffRepository buildingStaffRepository,
             PricingService pricingService,
             PricingPolicyRepository pricingPolicyRepository,
@@ -124,7 +122,6 @@ public class ReservationService {
         this.zoneRepository = zoneRepository;
         this.userRepository = userRepository;
         this.vehicleService = vehicleService;
-        this.notificationService = notificationService;
         this.buildingStaffRepository = buildingStaffRepository;
         this.pricingService = pricingService;
         this.pricingPolicyRepository = pricingPolicyRepository;
@@ -678,11 +675,6 @@ public class ReservationService {
 
         ReservationResponse response = toReservationResponse(reservation);
 
-        // Gửi thông báo cho driver
-        if (oldStatus != null && !oldStatus.equals("CANCELLED")) {
-            sendStatusChangeNotification(reservation, oldStatus, "CANCELLED");
-        }
-
         String buildingId = null;
         if (slot != null && slot.getZone() != null && slot.getZone().getFloor() != null
                 && slot.getZone().getFloor().getBuilding() != null) {
@@ -756,33 +748,6 @@ public class ReservationService {
         Integer gracePeriod = reservation.getGracePeriodMinutes() != null
                 ? reservation.getGracePeriodMinutes() : 15;
 
-        // Send notification via WebSocket
-        notificationService.sendToUser(user.getUsername(), "RESERVATION_CREATED", Map.of(
-                "reservationCode", reservation.getReservationCode(),
-                "buildingName", buildingName,
-                "vehicleType", vehicleTypeName,
-                "gracePeriodMinutes", gracePeriod
-        ));
-
-        if (buildingId != null && peakHourService.isPeakHour(buildingId, req.getReservationStart())) {
-            notificationService.sendToUser(user.getUsername(), "PEAK_HOUR_WARN", Map.of(
-                    "buildingId", buildingId,
-                    "buildingName", buildingName,
-                    "reservationStart", req.getReservationStart().toString(),
-                    "message", "Building đang trong khung giờ cao điểm"
-            ));
-        }
-
-        // Notify staff of the building about new reservation
-        if (buildingId != null) {
-            notificationService.sendToStaffBuilding(buildingId, "NEW_RESERVATION", Map.of(
-                    "reservationCode", reservation.getReservationCode(),
-                    "buildingName", buildingName,
-                    "vehicleType", vehicleTypeName,
-                    "plateNumber", vehicle.getPlateNumber()
-            ));
-        }
-
         auditLogService.record(
                 "RESERVATION_CREATE",
                 "RESERVATION",
@@ -825,39 +790,7 @@ public class ReservationService {
 
         ReservationResponse response = toReservationResponse(saved, ticket);
 
-        if (oldStatus != null && !oldStatus.equals(normalizedStatus)) {
-            sendStatusChangeNotification(reservation, oldStatus, normalizedStatus);
-        }
-
         return response;
-    }
-
-    private void sendStatusChangeNotification(Reservation reservation, String oldStatus, String newStatus) {
-        if (reservation.getUser() != null) {
-            User driver = reservation.getUser();
-            String message;
-            switch (newStatus) {
-                case "CANCELLED":
-                    message = "Your reservation " + reservation.getReservationCode() + " has been CANCELLED.";
-                    notificationService.sendToUser(driver.getUsername(), "RESERVATION_CANCELLED", Map.of(
-                            "reservationCode", reservation.getReservationCode()));
-                    break;
-                case "COMPLETED":
-                    message = "Your reservation " + reservation.getReservationCode() + " has been COMPLETED. Thank you for using our service.";
-                    // Checkout notification handled in ParkingSessionService
-                    break;
-                case "EXPIRED":
-                    message = "Your reservation " + reservation.getReservationCode() + " has EXPIRED.";
-                    notificationService.sendToUser(driver.getUsername(), "RESERVATION_EXPIRED", Map.of(
-                            "reservationCode", reservation.getReservationCode()));
-                    break;
-                default:
-                    message = "Your reservation status changed from " + oldStatus + " to " + newStatus;
-            }
-            ReservationResponse payload = toReservationResponse(reservation);
-            notificationService.sendToUser(driver.getUsername(), "RESERVATION_STATUS_CHANGED", payload);
-            log.info("NOTIFICATION TO {}: {}", driver.getUsername(), message);
-        }
     }
 
     @Transactional
@@ -875,7 +808,6 @@ public class ReservationService {
 
                 zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
 
-                sendAutoExpireNotification(reservation, "EXPIRED");
                 String buildingId = null;
                 if (slot.getZone() != null && slot.getZone().getFloor() != null
                         && slot.getZone().getFloor().getBuilding() != null) {
@@ -894,15 +826,6 @@ public class ReservationService {
         }
 
         return expiredCount;
-    }
-
-    private void sendAutoExpireNotification(Reservation reservation, String newStatus) {
-        if (reservation.getUser() != null) {
-            User driver = reservation.getUser();
-            notificationService.sendToUser(driver.getUsername(), "RESERVATION_EXPIRED", Map.of(
-                    "reservationCode", reservation.getReservationCode()));
-            log.info("NOTIFICATION TO {}: RESERVATION_EXPIRED for {}", driver.getUsername(), reservation.getReservationCode());
-        }
     }
 
     private List<Floor> resolveFloors(String buildingId) {

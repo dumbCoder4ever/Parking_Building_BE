@@ -124,4 +124,16 @@ public interface ZoneRepository extends JpaRepository<Zone, String> {
             )
             """, nativeQuery = true)
     int bulkMarkFullWhenNoAvailableByFloorId(@Param("floorId") String floorId);
+
+    /**
+     * Lay zone dang FULL (occupancy >= 90%) trong khu vuc.
+     * Tra ve Object[] { zoneId, zoneName, occupancy, maxCapacity, buildingId }
+     */
+    @Query("SELECT z.zoneId, z.zoneName, z.currentOccupancy, z.maxCapacity, z.floor.building.buildingId " +
+           "FROM Zone z " +
+           "WHERE z.maxCapacity IS NOT NULL AND z.maxCapacity > 0 " +
+           "AND z.currentOccupancy IS NOT NULL " +
+           "AND z.currentOccupancy * 1.0 / z.maxCapacity >= 0.9 " +
+           "ORDER BY z.currentOccupancy DESC")
+    List<Object[]> findHighOccupancyZones();
 }

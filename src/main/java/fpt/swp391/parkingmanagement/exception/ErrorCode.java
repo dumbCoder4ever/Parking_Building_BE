@@ -35,7 +35,10 @@ public enum ErrorCode {
     PLATE_ALREADY_PARKED("This plate number is already registered in an active parking session"),
     GUEST_ALREADY_PARKING("This vehicle is already checked in as a guest"),
     OCR_PLATE_NOT_DETECTED("Could not detect a license plate in the image"),
-    RESERVATION_EXISTS_FOR_PLATE("This plate number already has an active reservation");
+    RESERVATION_EXISTS_FOR_PLATE("This plate number already has an active reservation"),
+    VEHICLE_TYPE_MISMATCH("Vehicle type does not match the registered type for this plate"),
+    DRIVER_ACCOUNT_DEACTIVATED("Driver account is not active, cannot check-in"),
+    DRIVER_OWNED_PLATE_CANNOT_GUEST_CHECKIN("This plate is owned by a registered driver; use Driver walk-in flow instead");
 
     private final String message;
 

@@ -6,11 +6,14 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
+
+import jakarta.persistence.LockModeType;
 
 public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String> {
 
@@ -89,6 +92,34 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
     default java.util.Optional<ParkingSlot> findFirstAvailableByBuildingAndVehicleType(
             String buildingId, String vehicleTypeId) {
         return findAvailableByBuildingAndVehicleType(
+                buildingId, vehicleTypeId, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
+    /**
+     * Phiên bản pessimistic-write của auto-pick slot. Dùng cho walk-in flow
+     * (DRIVER_WALK_IN + GUEST) để tránh 2 transaction cùng pick 1 slot khi
+     * race condition xảy ra (cả 2 đều thấy slot AVAILABLE trước khi 1 bên update).
+     *
+     * Caller phải nằm trong @Transactional để giữ row-level lock cho tới khi commit.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"zone.floor.building", "zone.floor.vehicleType"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE b.buildingId = :buildingId " +
+            "AND vt.vehicleTypeId = :vehicleTypeId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "ORDER BY f.floorLevel ASC, ps.slotName ASC")
+    List<ParkingSlot> lockFirstAvailableByBuildingAndVehicleType(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId,
+            org.springframework.data.domain.Pageable pageable);
+
+    default java.util.Optional<ParkingSlot> lockFirstAvailableByBuildingAndVehicleType(
+            String buildingId, String vehicleTypeId) {
+        return lockFirstAvailableByBuildingAndVehicleType(
                 buildingId, vehicleTypeId, org.springframework.data.domain.PageRequest.of(0, 1))
                 .stream()
                 .findFirst();

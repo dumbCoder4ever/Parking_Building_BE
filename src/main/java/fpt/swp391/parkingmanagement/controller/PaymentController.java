@@ -9,6 +9,7 @@ import fpt.swp391.parkingmanagement.enums.PaidStatusFilter;
 import fpt.swp391.parkingmanagement.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,9 +28,19 @@ public class PaymentController {
     @Operation(summary = "Initiate payment for a parking session")
     @PostMapping("/initiate")
     public ResponseEntity<ApiResponse<PaymentResponseDTO>> initiatePayment(
-            @RequestBody PaymentRequestDTO paymentRequest) {
-        PaymentResponseDTO response = paymentService.initiatePayment(paymentRequest);
+            @RequestBody PaymentRequestDTO paymentRequest,
+            HttpServletRequest httpRequest) {
+        String clientIp = extractClientIp(httpRequest);
+        PaymentResponseDTO response = paymentService.initiatePayment(paymentRequest, clientIp);
         return ResponseEntity.ok(ApiResponse.ok("Payment initiated successfully", response));
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-FORWARDED-FOR");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     @Operation(summary = "Confirm successful payment from gateway callback")

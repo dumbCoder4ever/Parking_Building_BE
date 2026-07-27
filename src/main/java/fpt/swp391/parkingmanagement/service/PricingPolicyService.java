@@ -12,7 +12,6 @@ import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -85,18 +84,6 @@ public class PricingPolicyService {
         PricingPolicy policy = pricingPolicyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Pricing policy not found with id: " + id));
         return toResponseDTO(policy);
-    }
-
-    @Scheduled(fixedRate = 60000)
-    public void updateExpiredPolicies() {
-        try {
-            int updated = pricingPolicyRepository.updateExpiredPolicies();
-            if (updated > 0) {
-                log.info("Deactivated {} expired pricing policies", updated);
-            }
-        } catch (Exception e) {
-            log.error("Error deactivating expired pricing policies", e);
-        }
     }
 
     private PricingPolicy toEntity(PricingPolicyRequest request) {

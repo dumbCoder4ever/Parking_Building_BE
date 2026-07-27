@@ -33,7 +33,6 @@ class ParkingSessionServiceTest {
     @Mock private PricingService pricingService;
     @Mock private VehicleTypeRepository vehicleTypeRepository;
     @Mock private PlateRecognizerService ocrService;
-    @Mock private NotificationService notificationService;
     @Mock private BuildingRuleService buildingRuleService;
     @Mock private AuditLogService auditLogService;
     @Mock private ZoneStatusSyncService zoneStatusSyncService;
