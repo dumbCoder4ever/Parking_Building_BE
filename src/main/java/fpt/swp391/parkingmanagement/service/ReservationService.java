@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -464,12 +465,31 @@ public class ReservationService {
             resp.setCheckinTime(session.getCheckinTime());
             resp.setCheckoutTime(session.getCheckoutTime());
             resp.setTotalFee(session.getTotalFee());
+            resp.setEstimatedFee(resolveReservationEstimatedFee(reservation, session, policy));
             resp.setCheckinVehicleImage(session.getCheckinVehicleImage());
             resp.setCheckoutVehicleImage(session.getCheckoutVehicleImage());
             resp.setParkingDuration(session.getParkingDuration());
             resp.setPaymentStatus(session.getPaymentStatus());
+        } else {
+            resp.setEstimatedFee(reservation.getEstimatedFee());
         }
         return resp;
+    }
+
+    private BigDecimal resolveReservationEstimatedFee(
+            Reservation reservation, ParkingSession session, PricingPolicy policy) {
+        BigDecimal storedSessionFee = pricingService.resolveStoredSessionFee(session);
+        if (storedSessionFee != null) {
+            return storedSessionFee;
+        }
+        if (reservation.getEstimatedFee() != null
+                && reservation.getEstimatedFee().compareTo(BigDecimal.ZERO) > 0) {
+            return reservation.getEstimatedFee();
+        }
+        if (policy != null) {
+            return pricingService.calculateByPolicy(policy, 1);
+        }
+        return BigDecimal.ZERO;
     }
 
     // ============ STAFF APIs ============
@@ -1041,10 +1061,18 @@ public class ReservationService {
             resp.setCheckinTime(effectiveSession.getCheckinTime());
             resp.setCheckoutTime(effectiveSession.getCheckoutTime());
             resp.setTotalFee(effectiveSession.getTotalFee());
+            resp.setEstimatedFee(resolveReservationEstimatedFee(
+                    reservation, effectiveSession,
+                    reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null
+                            ? pricingService.getActivePolicy(
+                                    reservation.getVehicle().getVehicleType().getVehicleTypeId())
+                            : null));
             resp.setCheckinVehicleImage(effectiveSession.getCheckinVehicleImage());
             resp.setCheckoutVehicleImage(effectiveSession.getCheckoutVehicleImage());
             resp.setParkingDuration(effectiveSession.getParkingDuration());
             resp.setPaymentStatus(effectiveSession.getPaymentStatus());
+        } else {
+            resp.setEstimatedFee(reservation.getEstimatedFee());
         }
 
         return resp;

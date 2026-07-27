@@ -157,6 +157,9 @@ public class IncidentServiceImpl implements IncidentService {
             if ("RESOLVED".equals(normalized) && request.getResolutionAction() != null) {
                 executeResolutionAction(incident, request);
             }
+            if ("RESOLVED".equals(normalized) && request.getAdjustedAmount() != null) {
+                applyAdjustedSessionFee(incident, request.getAdjustedAmount());
+            }
         }
 
         Incident saved = incidentRepository.save(incident);
@@ -230,12 +233,7 @@ public class IncidentServiceImpl implements IncidentService {
                 break;
 
             case RESOLUTION_ACTION_UPDATE_PAYMENT:
-                if (session != null && request.getAdjustedAmount() != null) {
-                    validateAdjustedAmount(session, request.getAdjustedAmount());
-                    session.setEstimatedFee(request.getAdjustedAmount());
-                    session.setTotalFee(request.getAdjustedAmount());
-                    parkingSessionRepository.save(session);
-                }
+                log.info("Payment adjustment for incident {}", incident.getIncidentId());
                 break;
 
             case RESOLUTION_ACTION_REASSIGN_SLOT:
@@ -262,6 +260,27 @@ public class IncidentServiceImpl implements IncidentService {
             default:
                 log.warn("Unknown resolution action: {}", action);
         }
+    }
+
+    /**
+     * Apply staff-adjusted fee to session (and linked reservation).
+     */
+    private void applyAdjustedSessionFee(Incident incident, BigDecimal amount) {
+        ParkingSession session = incident.getSession();
+        if (session == null || amount == null) {
+            return;
+        }
+        validateAdjustedAmount(session, amount);
+        session.setEstimatedFee(amount);
+        session.setTotalFee(amount);
+        parkingSessionRepository.save(session);
+
+        Reservation reservation = session.getReservation();
+        if (reservation != null) {
+            reservation.setEstimatedFee(amount);
+            reservationRepository.save(reservation);
+        }
+        log.info("Adjusted session {} fee to {} via incident {}", session.getSessionId(), amount, incident.getIncidentId());
     }
 
     /**
@@ -981,8 +1000,7 @@ public class IncidentServiceImpl implements IncidentService {
                 .reservationCode(r.getReservationCode())
                 .reservationStatus(r.getReservationStatus())
                 .reservationStart(r.getReservationStart())
-                .createdAt(r.getCreatedAt())
-                .estimatedFee(r.getEstimatedFee());  // THEM: estimatedFee
+                .createdAt(r.getCreatedAt());
 
         if (effectiveSlot != null) {
             ParkingSlot s = effectiveSlot;
@@ -1034,7 +1052,10 @@ public class IncidentServiceImpl implements IncidentService {
 
             b.sessionEstimatedFee(estimatedFee)
                     .sessionTotalFee(displayTotalFee)
-                    .sessionPaymentStatus(paymentStatus);
+                    .sessionPaymentStatus(paymentStatus)
+                    .estimatedFee(displayTotalFee);
+        } else {
+            b.estimatedFee(r.getEstimatedFee());
         }
         return b.build();
     }
