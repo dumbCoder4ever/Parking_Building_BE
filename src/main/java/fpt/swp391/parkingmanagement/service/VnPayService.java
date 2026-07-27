@@ -31,7 +31,7 @@ public class VnPayService {
     public String createPaymentUrl(String paymentId, BigDecimal amount,
                                    String clientIp, String bankCode, String language) {
         // Timezone GMT+7 giống JSP sample
-        Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
+        Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
         SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
 
         String vnpCreateDate = formatter.format(cld.getTime());
