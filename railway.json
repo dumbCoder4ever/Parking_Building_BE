@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "./gradlew bootJar -x test"
+    "buildCommand": "bash gradlew bootJar -x test"
   },
   "deploy": {
     "startCommand": "java -jar build/libs/parkingmanagement-0.0.1-SNAPSHOT.jar",
