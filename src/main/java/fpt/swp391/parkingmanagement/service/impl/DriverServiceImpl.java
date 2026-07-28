@@ -307,7 +307,7 @@ public class DriverServiceImpl implements DriverService {
                 .hourlyRate(hourlyRate)
                 .estimatedFee(estimatedFee)
                 .totalFee(session.getTotalFee())
-                .isCheckoutCompleted(session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0)
+                .isCheckoutCompleted("COMPLETED".equalsIgnoreCase(session.getSessionStatus()))
                 .checkinType(session.getCheckinType() != null ? session.getCheckinType().name() : null)
                 .build();
     }

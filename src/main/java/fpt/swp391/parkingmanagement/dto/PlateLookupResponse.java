@@ -13,9 +13,10 @@ import lombok.NoArgsConstructor;
 @Schema(description = "Plate lookup result for staff check-in screen. Prioritizes PENDING reservation before guest session.")
 public class PlateLookupResponse {
 
-    @Schema(description = "RESERVATION | GUEST_SESSION | NOT_FOUND")
+    @Schema(description = "RESERVATION | GUEST_SESSION | WALK_IN_DRIVER | NOT_FOUND")
     private String lookupType;
 
     private ReservationResponse reservation;
     private GuestCheckinResponse guestSession;
+    private WalkInDriverInfo vehicle;
 }
