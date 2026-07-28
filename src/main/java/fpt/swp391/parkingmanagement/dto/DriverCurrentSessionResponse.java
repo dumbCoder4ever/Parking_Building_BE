@@ -41,4 +41,7 @@ public class DriverCurrentSessionResponse {
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
     private BigDecimal estimatedFee;
+    private BigDecimal totalFee;            // Phí thực tế (sau checkout)
+    private boolean isCheckoutCompleted;     // Flag đã checkout chưa
+    private String checkinType;              // RESERVATION, DRIVER_WALK_IN, GUEST
 }

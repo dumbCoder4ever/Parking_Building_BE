@@ -171,6 +171,7 @@ public class ParkingSessionService {
         session.setReservation(reservation);
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.RESERVATION);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
@@ -922,6 +923,7 @@ public class ParkingSessionService {
         ParkingSession session = new ParkingSession();
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.GUEST);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("ACTIVE");
@@ -1602,6 +1604,7 @@ public class ParkingSessionService {
         session.setReservation(matched);
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.RESERVATION);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
@@ -1747,6 +1750,7 @@ public class ParkingSessionService {
         ParkingSession session = new ParkingSession();
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.GUEST);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
@@ -1990,6 +1994,7 @@ private void applyHierarchyQuick(QuickCheckinResponse resp, ParkingSlot slot) {
         session.setSlot(slot);
         session.setTicket(savedTicket);
         session.setUser(driver);
+        session.setCheckinType(ParkingSession.CheckinType.DRIVER_WALK_IN);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
