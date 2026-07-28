@@ -229,7 +229,9 @@ public class DriverServiceImpl implements DriverService {
         int parkingHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
 
         Reservation reservation = session.getReservation();
-        Vehicle vehicle = reservation != null ? reservation.getVehicle() : null;
+        // Walk-in session: vehicle từ session.vehicle (reservation = null)
+        // Reservation session: vehicle từ reservation.vehicle
+        Vehicle vehicle = session.getVehicle() != null ? session.getVehicle() : (reservation != null ? reservation.getVehicle() : null);
         LocalDateTime reservationStart = reservation != null ? reservation.getReservationStart() : null;
 
         String buildingId = null, buildingName = null, floorId = null, floorName = null,
