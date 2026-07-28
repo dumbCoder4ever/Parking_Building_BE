@@ -46,17 +46,28 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps JOIN ps.reservation r WHERE r.user.userId = :userId ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLastByUserIdOrderByCheckInTimeDesc(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
-            "JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
-            "WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
+    @Query("SELECT ps FROM ParkingSession ps " +
+            "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building " +
+            "LEFT JOIN FETCH ps.vehicle v LEFT JOIN FETCH v.vehicleType " +
+            "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType " +
+            "LEFT JOIN FETCH ps.ticket " +
+            "WHERE ((r IS NOT NULL AND r.user.userId = :userId) OR ps.user.userId = :userId) AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findActiveByUserId(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.reservation r JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
-            "JOIN FETCH ps.ticket JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
-            "WHERE r.user.userId = :userId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC")
+    @Query("SELECT ps FROM ParkingSession ps " +
+            "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building " +
+            "LEFT JOIN FETCH ps.vehicle v LEFT JOIN FETCH v.vehicleType " +
+            "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType " +
+            "LEFT JOIN FETCH ps.ticket " +
+            "WHERE ((r IS NOT NULL AND r.user.userId = :userId) OR ps.user.userId = :userId) AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC")
     List<ParkingSession> findAllActiveByUserId(@Param("userId") String userId);
 
-    @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.user.userId = :userId ORDER BY ps.checkinTime DESC")
+    @Query("SELECT ps FROM ParkingSession ps " +
+            "LEFT JOIN FETCH ps.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor f LEFT JOIN FETCH f.building " +
+            "LEFT JOIN FETCH ps.vehicle v LEFT JOIN FETCH v.vehicleType " +
+            "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.user LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType " +
+            "LEFT JOIN FETCH ps.ticket " +
+            "WHERE ((r IS NOT NULL AND r.user.userId = :userId) OR ps.user.userId = :userId) ORDER BY ps.checkinTime DESC")
     List<ParkingSession> findByUser(@Param("userId") String userId, Pageable pageable);
 
     @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketCode = :ticketCode")
