@@ -16,6 +16,12 @@ import java.util.UUID;
 @Table(name = "parking_sessions")
 public class ParkingSession {
 
+    public enum CheckinType {
+        RESERVATION,
+        DRIVER_WALK_IN,
+        GUEST
+    }
+
     @Id
     @Column(name = "session_id", length = 36)
     private String sessionId;
@@ -53,6 +59,10 @@ public class ParkingSession {
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private User user;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "checkin_type", length = 30)
+    private CheckinType checkinType;
 
     private LocalDateTime checkinTime;
 
