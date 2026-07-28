@@ -262,12 +262,8 @@ public class DriverServiceImpl implements DriverService {
             vehicleTypeId = vehicle.getVehicleType().getVehicleTypeId();
             vehicleTypeName = vehicle.getVehicleType().getTypeName();
 
-            // Ưu tiên dùng totalFee đã tính ở checkout, nếu chưa có thì tính ước lượng
-            if (session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0) {
-                estimatedFee = session.getTotalFee();
-            } else {
-                estimatedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
-            }
+            // Tính estimated fee theo thời gian thực mỗi lần gọi current session
+            estimatedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
 
             var policy = pricingService.getActivePolicy(vehicleTypeId);
             if (policy != null) {
@@ -304,7 +300,7 @@ public class DriverServiceImpl implements DriverService {
                 .hourlyRate(hourlyRate)
                 .estimatedFee(estimatedFee)
                 .totalFee(session.getTotalFee())
-                .isCheckoutCompleted(session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0)
+                .isCheckoutCompleted("COMPLETED".equalsIgnoreCase(session.getSessionStatus()))
                 .checkinType(session.getCheckinType() != null ? session.getCheckinType().name() : null)
                 .build();
     }

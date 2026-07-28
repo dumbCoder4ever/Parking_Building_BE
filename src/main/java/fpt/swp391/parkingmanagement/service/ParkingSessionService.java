@@ -29,6 +29,7 @@ import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
+import fpt.swp391.parkingmanagement.dto.WalkInDriverInfo;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
@@ -1198,9 +1199,10 @@ public class ParkingSessionService {
     }
 
     /**
-     * Tra cá»©u nhanh biá»ƒn sá»‘ cho mÃ n staff check-in:
+     * Tra cứu nhanh biển số cho màn staff check-in:
      * 1) reservation PENDING/APPROVED (driver)
-     * 2) guest session ACTIVE (walk-in Ä‘Ã£ check-in)
+     * 2) guest session ACTIVE (walk-in đã check-in)
+     * 3) driver đã đăng ký xe nhưng không có reservation (WALK_IN_DRIVER)
      */
     @Transactional(readOnly = true)
     public PlateLookupResponse lookupByPlate(String plateNumber, String buildingId) {
@@ -1210,6 +1212,8 @@ public class ParkingSessionService {
         }
 
         Vehicle vehicle = vehicleOpt.get();
+
+        // 1) Reservation PENDING/APPROVED (driver co dat cho truoc)
         Optional<Reservation> matchedReservation = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId())
                 .filter(r -> matchesBuilding(r, buildingId));
         if (matchedReservation.isPresent()) {
@@ -1219,12 +1223,46 @@ public class ParkingSessionService {
                     .build();
         }
 
-        return findActiveGuestSessionByVehicle(vehicle.getVehicleId())
-                .map(ps -> PlateLookupResponse.builder()
-                        .lookupType("GUEST_SESSION")
-                        .guestSession(mapToGuestCheckinResponse(ps))
-                        .build())
-                .orElseGet(() -> PlateLookupResponse.builder().lookupType("NOT_FOUND").build());
+        // 2) Guest session ACTIVE (walk-in da check-in, dang trong bai)
+        Optional<ParkingSession> activeGuest = findActiveGuestSessionByVehicle(vehicle.getVehicleId());
+        if (activeGuest.isPresent()) {
+            return PlateLookupResponse.builder()
+                    .lookupType("GUEST_SESSION")
+                    .guestSession(mapToGuestCheckinResponse(activeGuest.get()))
+                    .build();
+        }
+
+        // 3) Driver da dang ky xe nhung chua co reservation -> walk-in driver
+        if ("ACTIVE".equalsIgnoreCase(vehicle.getStatus()) && vehicle.getUser() != null) {
+            return PlateLookupResponse.builder()
+                    .lookupType("WALK_IN_DRIVER")
+                    .vehicle(toWalkInDriverInfo(vehicle))
+                    .build();
+        }
+
+        return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+    }
+
+    private WalkInDriverInfo toWalkInDriverInfo(Vehicle vehicle) {
+        WalkInDriverInfo.WalkInDriverInfoBuilder b = WalkInDriverInfo.builder()
+                .vehicleId(vehicle.getVehicleId())
+                .userId(vehicle.getUser().getUserId())
+                .plateNumber(vehicle.getPlateNumber())
+                .brand(vehicle.getBrand())
+                .model(vehicle.getModel())
+                .vehicleColor(vehicle.getVehicleColor());
+
+        if (vehicle.getVehicleType() != null) {
+            b.vehicleTypeId(vehicle.getVehicleType().getVehicleTypeId())
+             .vehicleTypeName(vehicle.getVehicleType().getTypeName());
+        }
+
+        User owner = vehicle.getUser();
+        b.driverFullName(owner.getFullName())
+         .driverPhone(owner.getPhoneNumber())
+         .driverEmail(owner.getEmail());
+
+        return b.build();
     }
 
     private Optional<ParkingSession> findActiveGuestSessionByPlate(String plateNumber) {

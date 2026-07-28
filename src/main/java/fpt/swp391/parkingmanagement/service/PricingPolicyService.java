@@ -99,6 +99,20 @@ public class PricingPolicyService {
             policy.setStatus(request.getStatus());
         }
         policy.setPricingType(request.getPricingType() != null ? request.getPricingType() : "STANDARD");
+        // Tier fields
+        policy.setTier1Hours(request.getTier1Hours());
+        policy.setTier1Price(request.getTier1Price());
+        policy.setTier2Hours(request.getTier2Hours());
+        policy.setTier2Price(request.getTier2Price());
+        policy.setTier3Hours(request.getTier3Hours());
+        policy.setTier3Price(request.getTier3Price());
+        policy.setTier4Hours(request.getTier4Hours());
+        policy.setTier4Price(request.getTier4Price());
+        policy.setPerDayPrice(request.getPerDayPrice());
+        policy.setOvernightFee(request.getOvernightFee());
+        policy.setLostTicketFee(request.getLostTicketFee());
+        policy.setPeakHourMultiplier(request.getPeakHourMultiplier());
+        policy.setMaxDailyFee(request.getMaxDailyFee());
         return policy;
     }
 
@@ -116,6 +130,20 @@ public class PricingPolicyService {
         if (request.getPricingType() != null && !request.getPricingType().isBlank()) {
             policy.setPricingType(request.getPricingType());
         }
+        // Tier fields
+        policy.setTier1Hours(request.getTier1Hours());
+        policy.setTier1Price(request.getTier1Price());
+        policy.setTier2Hours(request.getTier2Hours());
+        policy.setTier2Price(request.getTier2Price());
+        policy.setTier3Hours(request.getTier3Hours());
+        policy.setTier3Price(request.getTier3Price());
+        policy.setTier4Hours(request.getTier4Hours());
+        policy.setTier4Price(request.getTier4Price());
+        policy.setPerDayPrice(request.getPerDayPrice());
+        policy.setOvernightFee(request.getOvernightFee());
+        policy.setLostTicketFee(request.getLostTicketFee());
+        policy.setPeakHourMultiplier(request.getPeakHourMultiplier());
+        policy.setMaxDailyFee(request.getMaxDailyFee());
     }
 
     private PricingPolicyResponse toResponseDTO(PricingPolicy policy) {
@@ -132,6 +160,19 @@ public class PricingPolicyService {
         dto.setVehicleTypeId(policy.getVehicleType().getVehicleTypeId());
         dto.setTypeName(policy.getVehicleType().getTypeName());
         dto.setPricingType(policy.getPricingType());
+        dto.setTier1Hours(policy.getTier1Hours());
+        dto.setTier1Price(policy.getTier1Price());
+        dto.setTier2Hours(policy.getTier2Hours());
+        dto.setTier2Price(policy.getTier2Price());
+        dto.setTier3Hours(policy.getTier3Hours());
+        dto.setTier3Price(policy.getTier3Price());
+        dto.setTier4Hours(policy.getTier4Hours());
+        dto.setTier4Price(policy.getTier4Price());
+        dto.setPerDayPrice(policy.getPerDayPrice());
+        dto.setOvernightFee(policy.getOvernightFee());
+        dto.setLostTicketFee(policy.getLostTicketFee());
+        dto.setPeakHourMultiplier(policy.getPeakHourMultiplier());
+        dto.setMaxDailyFee(policy.getMaxDailyFee());
         return dto;
     }
 

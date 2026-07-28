@@ -17,13 +17,17 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     Optional<Vehicle> findByPlateNumberIgnoreCase(String plateNumber);
 
     @Query("""
-            SELECT v FROM Vehicle v
+            SELECT DISTINCT v FROM Vehicle v
+            LEFT JOIN FETCH v.vehicleType
+            LEFT JOIN FETCH v.user
             WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '') = :normalizedPlate
             """)
     Optional<Vehicle> findByNormalizedPlateNumber(@Param("normalizedPlate") String normalizedPlate);
 
     @Query("""
-            SELECT v FROM Vehicle v
+            SELECT DISTINCT v FROM Vehicle v
+            LEFT JOIN FETCH v.vehicleType
+            LEFT JOIN FETCH v.user
             WHERE REPLACE(REPLACE(REPLACE(UPPER(v.plateNumber), '-', ''), ' ', ''), '.', '')
                   LIKE CONCAT(:prefix, '%')
             """)
@@ -56,9 +60,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, String> {
     List<Vehicle> findByUserUserIdOrderByCreatedAtDesc(String userId);
 
     /**
-     * FIX N+1: Load vehicleType eagerly for plate lookup in checkin/checkout flows.
+     * FIX N+1: Load vehicleType + user eagerly for plate lookup in checkin/checkout flows.
+     * Cần cả user để trả WALK_IN_DRIVER info cho staff (xem ParkingSessionService.lookupByPlate).
      */
-    @Query("SELECT v FROM Vehicle v LEFT JOIN FETCH v.vehicleType WHERE v.plateNumber = :plateNumber")
+    @Query("SELECT v FROM Vehicle v LEFT JOIN FETCH v.vehicleType LEFT JOIN FETCH v.user WHERE v.plateNumber = :plateNumber")
     Optional<Vehicle> findByPlateNumberGraph(@Param("plateNumber") String plateNumber);
 
     boolean existsByPlateNumber(String plateNumber);
