@@ -373,7 +373,12 @@ public class ParkingSessionService {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
             policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                total = pricingService.calculateByPolicy(policy, hours);
+                BigDecimal storedFee = pricingService.resolveStoredSessionFee(session);
+                if (storedFee != null) {
+                    total = storedFee;
+                } else {
+                    total = pricingService.calculateByPolicy(policy, hours);
+                }
                 basePrice = policy.getBasePrice();
                 hourlyRate = policy.getHourlyRate();
             }
@@ -458,7 +463,7 @@ public class ParkingSessionService {
             // Kiểm tra có ticket không - nếu không thì yêu cầu resolve incident
             if (session.getTicket() == null || session.getTicket().getIsLost() == Boolean.TRUE) {
                 throw new BaseAPIException(ErrorCode.BAD_REQUEST,
-                        "Session chưa được authorize qua incident resolution. Driver cần yêu cầu staff xử lý trước.");
+                        "Session is not authorized via incident resolution. The driver must request staff assistance first.");
             }
         }
 
@@ -851,7 +856,7 @@ public class ParkingSessionService {
 
         VehicleType vehicleType = vehicleTypeRepository.findById(req.getVehicleTypeId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
-                        "KhÃ´ng tÃ¬m tháº¥y loáº¡i xe: " + req.getVehicleTypeId()));
+                        "Vehicle type not found: " + req.getVehicleTypeId()));
 
         // 1. OCR biá»ƒn sá»‘
         PlateRecognizerService.OcrResult ocr;
@@ -859,12 +864,12 @@ public class ParkingSessionService {
             ocr = ocrService.recognizeFromUpload(req.getPlateImage());
         } catch (Exception e) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "KhÃ´ng thá»ƒ Ä‘á»c áº£nh biá»ƒn sá»‘: " + e.getMessage());
+                    "Unable to read license plate image: " + e.getMessage());
         }
         String plateNumber = ocr.plateNumber();
         if (plateNumber == null || ocr.confidence() < 0.3) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "KhÃ´ng nháº­n diá»‡n Ä‘Æ°á»£c biá»ƒn sá»‘ tá»« áº£nh. Vui lÃ²ng chá»¥p láº¡i hoáº·c nháº­p tay.");
+                    "Could not detect a license plate from the image. Please retake the photo or enter manually.");
         }
         final String finalPlateNumber = plateNumber.toUpperCase();
 
@@ -874,16 +879,16 @@ public class ParkingSessionService {
             ParkingSession dup = existingSession.get();
             String dupTicket = dup.getTicket() != null ? dup.getTicket().getTicketCode() : "N/A";
             throw new BaseAPIException(ErrorCode.PLATE_ALREADY_PARKED,
-                    "Biá»ƒn sá»‘ " + finalPlateNumber + " Ä‘Ã£ Ä‘ang Ä‘á»— trong bÃ£i. "
-                            + "Ticket: " + dupTicket + ". Vui lÃ²ng checkout trÆ°á»›c.");
+                    "Plate number " + finalPlateNumber + " is already parked. "
+                            + "Ticket: " + dupTicket + ". Please checkout first.");
         }
 
         // 3. TÃ¬m slot trá»‘ng theo building + vehicleType (Æ°u tiÃªn táº§ng tháº¥p)
         ParkingSlot slot = parkingSlotRepository
                 .findFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
-                        "KhÃ´ng cÃ³ slot trá»‘ng nÃ o cho loáº¡i xe " + vehicleType.getTypeName()
-                                + " táº¡i building nÃ y."));
+                        "No available slots for vehicle type " + vehicleType.getTypeName()
+                                + " at this building."));
 
         // 4. TÃ¬m hoáº·c táº¡o Vehicle - FIX N+1: use graph query
         Vehicle vehicle = vehicleRepository.findByPlateNumberGraph(finalPlateNumber)
@@ -996,12 +1001,12 @@ public class ParkingSessionService {
         ParkingSession session = parkingSessionRepository
                 .findActiveSessionGraphByTicketId(ticket.getTicketId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
-                        "KhÃ´ng tÃ¬m tháº¥y session ACTIVE cho ticket: " + ticketCode));
+                        "No active guest session found for ticket: " + ticketCode));
 
         // 3. Verify Ä‘Ã¢y lÃ  guest session (khÃ´ng cÃ³ reservation)
         if (session.getReservation() != null) {
             throw new BaseAPIException(ErrorCode.INVALID_REQUEST,
-                    "ÄÃ¢y lÃ  session cá»§a driver cÃ³ reservation. KhÃ´ng dÃ¹ng Ä‘Æ°á»£c luá»“ng guest checkout.");
+                    "This is a driver session with a reservation. Guest checkout flow cannot be used.");
         }
 
         String buildingId = resolveBuildingId(session.getSlot());
@@ -1011,13 +1016,13 @@ public class ParkingSessionService {
         Vehicle sessionVehicle = session.getVehicle();
         if (sessionVehicle == null) {
             throw new BaseAPIException(ErrorCode.VEHICLE_NOT_FOUND,
-                    "Session khÃ´ng cÃ³ thÃ´ng tin xe.");
+                    "Session has no vehicle information.");
         }
         String sessionPlate = sessionVehicle.getPlateNumber().toUpperCase();
         if (!scannedPlate.equals(sessionPlate)) {
             throw new BaseAPIException(ErrorCode.PLATE_MISMATCH,
-                    "Biá»ƒn sá»‘ quÃ©t (" + scannedPlate + ") khÃ´ng khá»›p vá»›i biá»ƒn sá»‘ Ä‘Äƒng kÃ½ (" + sessionPlate
-                            + "). Kiá»ƒm tra láº¡i xe hoáº·c dÃ¹ng tÃ¬m kiáº¿m thá»§ cÃ´ng.");
+                    "Scanned plate (" + scannedPlate + ") does not match registered plate (" + sessionPlate
+                            + "). Verify the vehicle or use manual search.");
         }
 
         // 6. TÃ­nh phÃ­
@@ -1054,7 +1059,7 @@ public class ParkingSessionService {
         if (electronicPayment) {
             if (!"PAID".equalsIgnoreCase(session.getPaymentStatus())) {
                 throw new BaseAPIException(ErrorCode.PAYMENT_NOT_COMPLETED,
-                        "Thanh toÃ¡n Ä‘iá»‡n tá»­ chÆ°a hoÃ n táº¥t.");
+                        "Electronic payment is not completed.");
             }
             savedPayment = findLatestSessionPayment(session.getSessionId(), List.of("PAID", "CONFIRMED"))
                     .orElseThrow(() -> new BaseAPIException(ErrorCode.PAYMENT_NOT_FOUND));
@@ -1312,9 +1317,9 @@ public class ParkingSessionService {
             log.info("GUEST checkin REJECTED - plate {} has ACTIVE reservation {}, status: {}",
                     plateNumber, r.getReservationCode(), r.getReservationStatus());
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Biển số " + plateNumber + " đã có reservation đang hoạt động (mã: "
-                            + r.getReservationCode() + ", trạng thái: " + r.getReservationStatus()
-                            + "). Vui lòng dùng chế độ DRIVER để checkin.");
+                    "Plate number " + plateNumber + " already has an active reservation (code: "
+                            + r.getReservationCode() + ", status: " + r.getReservationStatus()
+                            + "). Please use DRIVER mode to check in.");
         }
     }
 
@@ -1428,7 +1433,8 @@ public class ParkingSessionService {
         resp.setCheckinVehicleImage(ps.getCheckinVehicleImage());
         resp.setStatus(ps.getSessionStatus());
         resp.setParkingDuration(resolveParkingDurationMinutes(ps));
-        resp.setEstimatedFee(ps.getEstimatedFee());
+        BigDecimal storedFee = pricingService.resolveStoredSessionFee(ps);
+        resp.setEstimatedFee(storedFee != null ? storedFee : ps.getEstimatedFee());
 
         if (vehicleType != null) {
             PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
@@ -1478,21 +1484,28 @@ public class ParkingSessionService {
     public PlateRecognizerService.OcrResult recognizePlate(MultipartFile plateImage) {
         if (plateImage == null || plateImage.isEmpty()) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "Cáº§n cung cáº¥p áº£nh biá»ƒn sá»‘ (plateImage).");
+                    "License plate image (plateImage) is required.");
         }
 
         PlateRecognizerService.OcrResult ocr = ocrService.recognizeFromUpload(plateImage);
         String plateNumber = ocr.plateNumber();
         if (plateNumber == null || ocr.confidence() < 0.3) {
             throw new BaseAPIException(ErrorCode.OCR_FAILED,
-                    "KhÃ´ng nháº­n diá»‡n Ä‘Æ°á»£c biá»ƒn sá»‘ tá»« áº£nh. Vui lÃ²ng chá»¥p láº¡i rÃµ nÃ©t hÆ¡n.");
+                    "Could not detect a license plate from the image. Please retake a clearer photo.");
         }
         log.info("Quick checkin: OCR detected '{}' (confidence {})", plateNumber, ocr.confidence());
         return ocr;
     }
 
     private String resolvePlateNumber(QuickCheckinRequest req) {
-        return recognizePlate(req.getPlateImage()).plateNumber();
+        if (req.getPlateNumber() != null && !req.getPlateNumber().isBlank()) {
+            String normalized = req.getPlateNumber().trim().toUpperCase();
+            log.info("Quick checkin: using provided plate '{}'", normalized);
+            return normalized;
+        }
+        String fromOcr = recognizePlate(req.getPlateImage()).plateNumber();
+        req.setPlateNumber(fromOcr);
+        return fromOcr;
     }
 
     /**
@@ -1514,14 +1527,14 @@ public class ParkingSessionService {
                 .filter(r -> matchesBuilding(r, req.getBuildingId()))
                 .findFirst()
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.RESERVATION_NOT_FOUND,
-                        "KhÃ´ng tÃ¬m tháº¥y reservation nÃ o cho biá»ƒn sá»‘ " + normalizedPlate + " táº¡i building nÃ y. "
-                                + "Vui lÃ²ng kiá»ƒm tra láº¡i biá»ƒn sá»‘ hoáº·c chuyá»ƒn sang cháº¿ Ä‘á»™ Guest."));
+                        "No reservation found for plate " + normalizedPlate + " at this building. "
+                                + "Please verify the plate number or switch to Guest mode."));
 
         // 3b. Validate: khÃ´ng cho checkin sá»›m hÆ¡n reservationStart
         LocalDateTime reservationStart = matched.getReservationStart();
         if (LocalDateTime.now().isBefore(reservationStart)) {
             throw new BaseAPIException(ErrorCode.CHECKIN_TOO_EARLY,
-                    "ChÆ°a Ä‘áº¿n giá» checkin. Reservation báº¯t Ä‘áº§u lÃºc " + reservationStart + ". Giá» hiá»‡n táº¡i: " + LocalDateTime.now() + ".");
+                    "Too early to check in. Reservation starts at " + reservationStart + ". Current time: " + LocalDateTime.now() + ".");
         }
 
         // 3c. Validate: biá»ƒn sá»‘ quÃ©t pháº£i khá»›p vá»›i biá»ƒn sá»‘ Ä‘Äƒng kÃ½ trong reservation
@@ -1530,8 +1543,8 @@ public class ParkingSessionService {
             String registeredPlate = resVehicle.getPlateNumber().toUpperCase();
             if (!normalizedPlate.equals(registeredPlate)) {
                 throw new BaseAPIException(ErrorCode.PLATE_MISMATCH,
-                        "Biá»ƒn sá»‘ quÃ©t (" + normalizedPlate + ") khÃ´ng khá»›p vá»›i biá»ƒn sá»‘ Ä‘Äƒng kÃ½ (" + registeredPlate + "). "
-                                + "Kiá»ƒm tra láº¡i xe hoáº·c dÃ¹ng cháº¿ Ä‘á»™ Guest.");
+                        "Scanned plate (" + normalizedPlate + ") does not match registered plate (" + registeredPlate + "). "
+                                + "Verify the vehicle or use Guest mode.");
             }
             // 3c.bis: NEW - kiem tra driver con ACTIVE khong (tranh account LOCKED van check-in duoc)
             User ownerDriver = resVehicle.getUser();
@@ -1546,13 +1559,13 @@ public class ParkingSessionService {
         String status = matched.getReservationStatus();
         if (!isCheckinEligibleStatus(status)) {
             throw new BaseAPIException(ErrorCode.RESERVATION_NOT_APPROVED,
-                    "Reservation khÃ´ng á»Ÿ tráº¡ng thÃ¡i PENDING (hiá»‡n táº¡i: " + status + ")");
+                    "Reservation is not in PENDING status (current: " + status + ")");
         }
 
         ParkingSlot slot = matched.getSlot();
         if (!"RESERVED".equalsIgnoreCase(slot.getSlotStatus())) {
             throw new BaseAPIException(ErrorCode.SLOT_NOT_RESERVED,
-                    "Slot " + slot.getSlotName() + " khÃ´ng á»Ÿ tráº¡ng thÃ¡i RESERVED");
+                    "Slot " + slot.getSlotName() + " is not in RESERVED status");
         }
 
         validateNoActiveSessionForPlate(normalizedPlate);
@@ -1560,10 +1573,10 @@ public class ParkingSessionService {
         // 5. Kiá»ƒm tra ticket â€” query ngÆ°á»£c tá»« reservationId (Reservation khÃ´ng cÃ³ field ticket)
         Ticket ticket = ticketRepository.findByReservationReservationId(matched.getReservationId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND,
-                        "Reservation khÃ´ng cÃ³ ticket"));
+                        "Reservation has no ticket"));
         if (ticket.getIsUsed()) {
             throw new BaseAPIException(ErrorCode.TICKET_ALREADY_USED,
-                    "VÃ© Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng trÆ°á»›c Ä‘Ã³. MÃ£: " + ticket.getTicketCode());
+                    "Ticket was already used previously. Code: " + ticket.getTicketCode());
         }
 
         // 6. TÃ­nh pricing
@@ -1662,11 +1675,11 @@ public class ParkingSessionService {
         // 2. Validate vehicleTypeId
         if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
             throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
-                    "vehicleTypeId lÃ  báº¯t buá»™c cho cháº¿ Ä‘á»™ Guest");
+                    "vehicleTypeId is required for Guest mode");
         }
         VehicleType vehicleType = vehicleTypeRepository.findById(req.getVehicleTypeId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
-                        "KhÃ´ng tÃ¬m tháº¥y loáº¡i xe: " + req.getVehicleTypeId()));
+                        "Vehicle type not found: " + req.getVehicleTypeId()));
 
         // 3. Plate number already resolved by caller (OCR / request)
         String normalizedPlate = plateNumber.toUpperCase();
@@ -1688,7 +1701,7 @@ public class ParkingSessionService {
             log.info("GUEST checkin REJECTED - plate {} has ACTIVE reservation {}, status: {}",
                     normalizedPlate, r.getReservationCode(), r.getReservationStatus());
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Biá»ƒn sá»‘ " + normalizedPlate + " Ä‘Ã£ cÃ³ reservation Ä‘ang hoáº¡t Ä‘á»™ng (mÃ£: " + r.getReservationCode() + ", tráº¡ng thÃ¡i: " + r.getReservationStatus() + "). Vui lÃ²ng dÃ¹ng cháº¿ Ä‘á»™ DRIVER Ä‘á»ƒ checkin.");
+                    "Plate number " + normalizedPlate + " already has an active reservation (code: " + r.getReservationCode() + ", status: " + r.getReservationStatus() + "). Please use DRIVER mode to check in.");
         }
         
         // 3c. NEW: BLOCK Guest checkin neu bien so thuoc ve driver da dang ky trong he thong.
@@ -1710,8 +1723,8 @@ public class ParkingSessionService {
         ParkingSlot slot = parkingSlotRepository
                 .findFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
-                        "KhÃ´ng cÃ³ slot trá»‘ng nÃ o cho loáº¡i xe " + vehicleType.getTypeName()
-                                + " táº¡i building nÃ y."));
+                        "No available slots for vehicle type " + vehicleType.getTypeName()
+                                + " at this building."));
 
         // 5. TÃ¬m hoáº·c táº¡o Vehicle - FIX N+1: use graph query
         Vehicle vehicle = resolveVehicleByPlate(normalizedPlate)
@@ -1795,7 +1808,7 @@ public class ParkingSessionService {
                 .flatMap(vehicle -> parkingSessionRepository.findAnyActiveSessionByVehicleId(vehicle.getVehicleId()));
         if (existing.isPresent()) {
             throw new BaseAPIException(ErrorCode.PLATE_ALREADY_PARKED,
-                    "Biá»ƒn sá»‘ " + plateNumber + " Ä‘Ã£ Ä‘ang Ä‘á»— trong bÃ£i. Vui lÃ²ng checkout trÆ°á»›c.");
+                    "Plate number " + plateNumber + " is already parked. Please checkout first.");
         }
     }
 
@@ -1851,7 +1864,7 @@ private void applyHierarchyQuick(QuickCheckinResponse resp, ParkingSlot slot) {
         // 1. Staff must be assigned to this building
         checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
 
-        // 2. OCR read plate
+// 2. OCR read plate
         String plateNumber = resolvePlateNumber(req);
         String normalizedPlate = plateNumber.toUpperCase();
 

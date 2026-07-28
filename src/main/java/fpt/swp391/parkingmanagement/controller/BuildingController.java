@@ -146,8 +146,8 @@ public class BuildingController {
                     + "Same scoring as GET /api/manager/analytics/slot-suggestion — does not auto-reserve.")
     public ResponseEntity<ApiResponse<List<SlotSuggestionResponse>>> getBuildingSlotSuggestions(
             @Parameter(description = "", example = "") @PathVariable String buildingId,
-            @Parameter(description = "ID loại xe", example = "") @RequestParam String vehicleTypeId,
-            @Parameter(description = "Số slot gợi ý (mặc định 5, tối đa 20)")
+            @Parameter(description = "Vehicle type ID", example = "") @RequestParam String vehicleTypeId,
+            @Parameter(description = "Number of suggested slots (default 5, max 20)")
             @RequestParam(defaultValue = "5") int limit) {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Slot suggestions retrieved successfully",

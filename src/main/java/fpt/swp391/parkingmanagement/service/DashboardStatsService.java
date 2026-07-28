@@ -84,15 +84,19 @@ public class DashboardStatsService {
                         dashboardExecutor);
         CompletableFuture<List<PaymentMethodStatsResponse>> methodsF =
                 CompletableFuture.supplyAsync(
-                        () -> buildPaymentMethodStats(scopedBuildingId),
+                        () -> buildPaymentMethodStats(trendFrom, trendTo, scopedBuildingId),
                         dashboardExecutor);
         CompletableFuture<List<RevenueTrendItem>> trendF =
                 CompletableFuture.supplyAsync(
                         () -> buildRevenueTrend(trendFrom, trendTo, scopedBuildingId),
                         dashboardExecutor);
+        CompletableFuture<List<RevenueTrendByMethodItem>> trendByMethodF =
+                CompletableFuture.supplyAsync(
+                        () -> buildRevenueTrendByPaymentMethod(trendFrom, trendTo, scopedBuildingId),
+                        dashboardExecutor);
 
         CompletableFuture.allOf(
-                occupancyF, sessionsF, reservationsF, usersF, incidentsF, methodsF, trendF).join();
+                occupancyF, sessionsF, reservationsF, usersF, incidentsF, methodsF, trendF, trendByMethodF).join();
 
         return DashboardStatsResponse.builder()
                 .generatedAt(now)
@@ -103,6 +107,7 @@ public class DashboardStatsService {
                 .incidents(incidentsF.join())
                 .revenueByPaymentMethod(methodsF.join())
                 .revenueTrend(trendF.join())
+                .revenueTrendByPaymentMethod(trendByMethodF.join())
                 .build();
     }
 
@@ -259,11 +264,24 @@ public class DashboardStatsService {
                 .build();
     }
 
-    private List<PaymentMethodStatsResponse> buildPaymentMethodStats(String buildingId) {
-        return paymentRepository.sumRevenueByPaymentMethod(null, null, buildingId).stream()
+    private List<PaymentMethodStatsResponse> buildPaymentMethodStats(
+            LocalDateTime from, LocalDateTime to, String buildingId) {
+        return paymentRepository.sumRevenueByPaymentMethod(from, to, buildingId).stream()
                 .map(p -> PaymentMethodStatsResponse.builder()
                         .method(p.getPaymentMethod())
                         .totalRevenue(p.getTotalRevenue() != null ? p.getTotalRevenue() : BigDecimal.ZERO)
+                        .count(p.getCount() != null ? p.getCount() : 0L)
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private List<RevenueTrendByMethodItem> buildRevenueTrendByPaymentMethod(
+            LocalDateTime from, LocalDateTime to, String buildingId) {
+        return paymentRepository.getRevenueTrendByPaymentMethod(from, to, buildingId).stream()
+                .map(p -> RevenueTrendByMethodItem.builder()
+                        .date(p.getDate())
+                        .method(p.getPaymentMethod())
+                        .revenue(p.getRevenue() != null ? p.getRevenue() : BigDecimal.ZERO)
                         .count(p.getCount() != null ? p.getCount() : 0L)
                         .build())
                 .collect(Collectors.toList());

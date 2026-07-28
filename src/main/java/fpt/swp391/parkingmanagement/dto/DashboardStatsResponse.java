@@ -21,4 +21,5 @@ public class DashboardStatsResponse {
     private IncidentStatsResponse incidents;
     private List<PaymentMethodStatsResponse> revenueByPaymentMethod;
     private List<RevenueTrendItem> revenueTrend;
+    private List<RevenueTrendByMethodItem> revenueTrendByPaymentMethod;
 }

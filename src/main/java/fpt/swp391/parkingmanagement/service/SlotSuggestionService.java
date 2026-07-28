@@ -61,7 +61,7 @@ public class SlotSuggestionService {
 
             // Lower floor + less occupied zone => higher score
             double score = 100.0 - (floorLevel * 8.0) - (occupancyRatio * 40.0);
-            String reason = "Ưu tiên tầng thấp (L" + floorLevel + ")"
+            String reason = "Lower floor preferred (L" + floorLevel + ")"
                     + ", zone occupancy " + Math.round(occupancyRatio * 100) + "%";
 
             scored.add(SlotSuggestionResponse.builder()

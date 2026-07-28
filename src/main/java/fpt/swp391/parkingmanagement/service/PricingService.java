@@ -38,6 +38,23 @@ public class PricingService {
         return basePrice.add(hourlyRate.multiply(BigDecimal.valueOf(hours - 1)));
     }
 
+    /**
+     * Fee stored on session (incident adjustment or check-in estimate).
+     * Returns null when session has no meaningful stored fee yet.
+     */
+    public BigDecimal resolveStoredSessionFee(fpt.swp391.parkingmanagement.entity.ParkingSession session) {
+        if (session == null) {
+            return null;
+        }
+        if (session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0) {
+            return session.getTotalFee();
+        }
+        if (session.getEstimatedFee() != null && session.getEstimatedFee().compareTo(BigDecimal.ZERO) > 0) {
+            return session.getEstimatedFee();
+        }
+        return null;
+    }
+
     @CacheEvict(value = "pricingPolicies", allEntries = true)
     public void evictAllPricingCache() {
         // Method rỗng - chỉ để evict cache khi Manager cập nhật pricing policy

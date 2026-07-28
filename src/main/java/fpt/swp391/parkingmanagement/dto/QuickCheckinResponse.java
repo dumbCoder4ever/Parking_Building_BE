@@ -7,13 +7,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@Schema(description = "Response cho quick checkin. Chứa thông tin session vừa tạo cùng biển số đã OCR.")
+@Schema(description = "Quick checkin response. Contains the newly created session and OCR-detected plate number.")
 public class QuickCheckinResponse {
 
-    @Schema(description = "Loại checkin: DRIVER (có reservation) hoặc GUEST (vãng lai).")
+    @Schema(description = "Checkin type: DRIVER (with reservation) or GUEST (walk-in).")
     private String checkinType;
 
-    @Schema(description = "Mã vé để checkout. Driver: mã TKT-xxx, Guest: mã G-xxx.")
+    @Schema(description = "Ticket code for checkout. Driver: TKT-xxx, Guest: G-xxx.")
     private String ticketCode;
 
     private String sessionId;
@@ -23,7 +23,7 @@ public class QuickCheckinResponse {
     private String brand;
     private String model;
 
-    @Schema(description = "ID loại xe (MOTORCYCLE, CAR...).")
+    @Schema(description = "Vehicle type ID (MOTORCYCLE, CAR, etc.).")
     private String vehicleTypeId;
     private String vehicleTypeName;
 
@@ -39,14 +39,14 @@ public class QuickCheckinResponse {
     private LocalDateTime checkinTime;
     private String checkinVehicleImage;
 
-    @Schema(description = "Thời gian đỗ (phút). Check-in mới = 0.")
+    @Schema(description = "Parking duration in minutes. New check-in = 0.")
     private Integer parkingDuration;
 
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
     private BigDecimal estimatedFee;
 
-    @Schema(description = "Thông tin cảnh báo nếu biển số đang có session ACTIVE khác (chỉ khi checkin driver).")
+    @Schema(description = "Warning if the plate already has another ACTIVE session (driver checkin only).")
     private PlateDuplicateInfo duplicateActiveSession;
 
     @Schema(description = "User ID của driver (chỉ có khi checkinType = DRIVER hoặc DRIVER_WALK_IN).")

@@ -268,6 +268,9 @@ public class DriverServiceImpl implements DriverService {
             } else {
                 estimatedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
             }
+            BigDecimal timeBasedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
+            BigDecimal storedFee = pricingService.resolveStoredSessionFee(session);
+            estimatedFee = storedFee != null ? storedFee : timeBasedFee;
 
             var policy = pricingService.getActivePolicy(vehicleTypeId);
             if (policy != null) {

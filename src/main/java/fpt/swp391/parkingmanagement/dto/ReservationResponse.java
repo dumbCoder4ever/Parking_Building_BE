@@ -49,6 +49,8 @@ public class ReservationResponse {
     private BigDecimal hourlyRate;
     private Integer maxHours;
     private String vehicleTypeName;
+    /** Current session/reservation fee (may differ from basePrice after incident adjustment). */
+    private BigDecimal estimatedFee;
 
     // Parking session info
     private String sessionId;

@@ -31,7 +31,7 @@ public class VnPayService {
     public String createPaymentUrl(String paymentId, BigDecimal amount,
                                    String clientIp, String bankCode, String language) {
         // Timezone GMT+7 giống JSP sample
-        Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));
+        Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
         SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
 
         String vnpCreateDate = formatter.format(cld.getTime());
@@ -47,7 +47,7 @@ public class VnPayService {
         vnpParams.put("vnp_Amount", String.valueOf(vnpAmount));
         vnpParams.put("vnp_CurrCode", config.getCurrCode());
         vnpParams.put("vnp_TxnRef", paymentId);
-        vnpParams.put("vnp_OrderInfo", "Thanh toan phi do xe:" + paymentId);
+        vnpParams.put("vnp_OrderInfo", "Parking fee payment:" + paymentId);
         vnpParams.put("vnp_OrderType", config.getOrderType());
         vnpParams.put("vnp_Locale", (language != null && !language.isEmpty()) ? language : config.getLocale());
         vnpParams.put("vnp_ReturnUrl", config.getReturnUrl());

@@ -35,7 +35,7 @@ public class BuildingRuleService {
             CODE_NO_OVERNIGHT, CODE_MAX_PARKING_HOURS, CODE_OPERATING_HOURS, CODE_VEHICLE_TYPE_CURFEW);
     private static final Set<String> STATUSES = Set.of("ACTIVE", "INACTIVE");
     private static final String DEFAULT_PARKING_RULES =
-            "Vui lòng đặt trước chỗ đỗ xe. Xuất trình mã vé khi check-in. Giữ vé cẩn thận khi rời khỏi bãi đỗ.";
+            "Please reserve a parking slot in advance. Present your ticket code at check-in. Keep your ticket safe when leaving the parking lot.";
 
     private final BuildingRuleRepository buildingRuleRepository;
     private final BuildingRepository buildingRepository;

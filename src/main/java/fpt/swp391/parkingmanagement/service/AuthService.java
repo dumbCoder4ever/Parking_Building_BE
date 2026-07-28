@@ -81,7 +81,7 @@ public class AuthService {
         if (user.isEmpty()) {
             ForgotPasswordResponse response = new ForgotPasswordResponse();
             response.setSuccess(false);
-            response.setMessage("Email không tồn tại trong hệ thống");
+            response.setMessage("Email does not exist in the system");
             response.setEmail(email);
             return response;
         }
@@ -90,7 +90,7 @@ public class AuthService {
         String otp = otpService.generateOtp(email);
 
         // Gửi email chứa OTP
-        String subject = "Mã OTP Đặt Lại Mật Khẩu";
+        String subject = "Password Reset OTP";
         String htmlContent = """
                 <html>
                 <body style='font-family:Arial,sans-serif; max-width:600px; margin:0 auto; padding:20px;'>
@@ -99,7 +99,7 @@ public class AuthService {
                             Parking management
                         </h2>
                         <h3 style='color:#28a745; text-align:center; margin-bottom:20px;'>
-                            Mã OTP Đặt Lại Mật Khẩu
+                            Password Reset OTP
                         </h3>
                         <div style='background-color:#ffffff; padding:20px; border-radius:8px; border:2px solid #007bff; text-align:center; margin:20px 0;'>
                             <h1 style='color:#007bff; font-size:32px; letter-spacing:5px; margin:0;'>
@@ -107,14 +107,14 @@ public class AuthService {
                             </h1>
                         </div>
                         <p style='color:#6c757d; text-align:center; margin-bottom:15px;'>
-                            <strong>Mã OTP này có hiệu lực trong 5 phút</strong>
+                            <strong>This OTP is valid for 5 minutes</strong>
                         </p>
                         <p style='color:#6c757d; text-align:center; margin-bottom:15px;'>
-                            Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.
+                            If you did not request a password reset, please ignore this email.
                         </p>
                         <hr style='border:none; border-top:1px solid #dee2e6; margin:20px 0;'>
                         <p style='color:#6c757d; font-size:12px; text-align:center;'>
-                            Email này được gửi tự động, vui lòng không trả lời.
+                            This is an automated email. Please do not reply.
                         </p>
                     </div>
                 </body>
@@ -126,13 +126,13 @@ public class AuthService {
 
             ForgotPasswordResponse response = new ForgotPasswordResponse();
             response.setSuccess(true);
-            response.setMessage("Mã OTP đã được gửi đến email của bạn");
+            response.setMessage("OTP has been sent to your email");
             response.setEmail(email);
             return response;
         } catch (Exception e) {
             ForgotPasswordResponse response = new ForgotPasswordResponse();
             response.setSuccess(false);
-            response.setMessage("Không thể gửi email. Vui lòng thử lại sau");
+            response.setMessage("Unable to send email. Please try again later");
             response.setEmail(email);
             return response;
         }
