@@ -262,12 +262,8 @@ public class DriverServiceImpl implements DriverService {
             vehicleTypeId = vehicle.getVehicleType().getVehicleTypeId();
             vehicleTypeName = vehicle.getVehicleType().getTypeName();
 
-            // Ưu tiên dùng totalFee đã tính ở checkout, nếu chưa có thì tính ước lượng
-            if (session.getTotalFee() != null && session.getTotalFee().compareTo(BigDecimal.ZERO) > 0) {
-                estimatedFee = session.getTotalFee();
-            } else {
-                estimatedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
-            }
+            // Ưu tiên dùng totalFee/estimatedFee đã lưu trên session (incident/checkout),
+            // nếu chưa có thì tính ước lượng theo pricing policy.
             BigDecimal timeBasedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
             BigDecimal storedFee = pricingService.resolveStoredSessionFee(session);
             estimatedFee = storedFee != null ? storedFee : timeBasedFee;

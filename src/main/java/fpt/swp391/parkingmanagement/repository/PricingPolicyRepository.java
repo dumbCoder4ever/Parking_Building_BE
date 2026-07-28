@@ -41,12 +41,23 @@ public interface PricingPolicyRepository extends JpaRepository<PricingPolicy, St
             + "order by p.createdAt desc")
     List<PricingPolicy> findAllActiveForVehicleTypes(@Param("vehicleTypeIds") Collection<String> vehicleTypeIds);
 
+    /**
+     * Lấy ACTIVE policy cho vehicle type. Khi có nhiều policy ACTIVE cho cùng vehicle type
+     * (do migrate nhiều lần), ưu tiên TIERED > DAILY > OVERNIGHT > HOURLY để đảm bảo
+     * deterministic và tương thích với logic calculateByPolicy.
+     */
     @EntityGraph(attributePaths = {"vehicleType"})
     @Query("select p from PricingPolicy p where p.vehicleType.vehicleTypeId = :vehicleTypeId "
             + "and p.status = 'ACTIVE' "
             + "and (p.effectiveFrom is null or p.effectiveFrom <= current_timestamp) "
             + "and (p.effectiveTo is null or p.effectiveTo >= current_timestamp) "
-            + "order by p.createdAt desc limit 1")
+            + "order by case p.pricingType "
+            + "  when 'TIERED' then 1 "
+            + "  when 'DAILY' then 2 "
+            + "  when 'OVERNIGHT' then 3 "
+            + "  when 'HOURLY' then 4 "
+            + "  else 5 end, "
+            + "  p.createdAt desc limit 1")
     Optional<PricingPolicy> findActiveForVehicleType(@Param("vehicleTypeId") String vehicleTypeId);
 
     @Query("select p.vehicleType from PricingPolicy p where p.vehicleType.vehicleTypeId = :vehicleTypeId")
