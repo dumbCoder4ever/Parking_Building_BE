@@ -82,6 +82,7 @@ public class ParkingSessionController {
         if (plateImage != null && !plateImage.isEmpty() && buildingId != null && !buildingId.isBlank()) {
             QuickCheckinRequest req = new QuickCheckinRequest();
             req.setPlateImage(plateImage);
+            req.setPlateNumber(plateNumber);
             req.setBuildingId(buildingId);
             req.setVehicleTypeId(vehicleTypeId);
             req.setVehicleColor(vehicleColor);

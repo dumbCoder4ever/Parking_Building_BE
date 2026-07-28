@@ -61,6 +61,7 @@ public class VehicleOverstayJob {
             }
 
             String buildingId = building != null ? building.getBuildingId() : null;
+
             auditLogService.recordSystem(
                     "VEHICLE_OVERSTAY",
                     "PARKING_SESSION",

@@ -10,8 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Kết quả tra cứu biển số cho màn staff check-in. "
-        + "Ưu tiên reservation PENDING -> active guest session -> driver đã đăng ký xe (WALK_IN_DRIVER).")
+@Schema(description = "Plate lookup result for staff check-in screen. Prioritizes PENDING reservation before guest session.")
 public class PlateLookupResponse {
 
     @Schema(description = "RESERVATION | GUEST_SESSION | WALK_IN_DRIVER | NOT_FOUND")

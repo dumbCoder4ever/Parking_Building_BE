@@ -11,11 +11,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -61,14 +63,26 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.ok("Payment failure recorded", response));
     }
 
-    @Operation(summary = "Staff lists payments (filter: PAID or UNPAID)")
+    @Operation(
+            summary = "Staff lists payments",
+            description = "Filter by paid status, payment method (CASH/VNPAY/PAYOS/MOMO), and payment time range. "
+                    + "When paymentMethod is set, results are scoped to that method instead of the latest mixed payments.")
     @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping
     public ResponseEntity<ApiResponse<List<StaffPaymentListItemResponse>>> getAllPayments(
-            @Parameter(description = "Filter: PAID or UNPAID")
+            Authentication auth,
+            @Parameter(description = "Filter: PAID, UNPAID, or ALL")
             @RequestParam(required = false) PaidStatusFilter status,
+            @Parameter(description = "Filter by payment method, e.g. PAYOS")
+            @RequestParam(required = false) String paymentMethod,
+            @Parameter(description = "Filter from payment time (ISO-8601)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @Parameter(description = "Filter to payment time (ISO-8601)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int limit) {
-        List<StaffPaymentListItemResponse> payments = paymentService.getAllPaymentsForStaff(status, limit);
+        List<StaffPaymentListItemResponse> payments = paymentService.getAllPaymentsForStaff(
+                auth.getName(), status, paymentMethod, from, to, page, limit);
         return ResponseEntity.ok(ApiResponse.ok("Payments retrieved successfully", payments));
     }
 
@@ -85,10 +99,12 @@ public class PaymentController {
     }
 
     @Operation(summary = "Get payment details by payment ID")
+    @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
     @GetMapping("/{paymentId}")
     public ResponseEntity<ApiResponse<PaymentResponseDTO>> getPaymentDetails(
+            Authentication auth,
             @PathVariable String paymentId) {
-        PaymentResponseDTO response = paymentService.getPaymentDetails(paymentId);
+        PaymentResponseDTO response = paymentService.getPaymentDetails(paymentId, auth.getName());
         return ResponseEntity.ok(ApiResponse.ok("Payment details retrieved successfully", response));
     }
 }

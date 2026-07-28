@@ -6,17 +6,20 @@ import lombok.Data;
 import org.springframework.web.multipart.MultipartFile;
 
 @Data
-@Schema(description = "Quick checkin: staff chỉ cần quét ảnh biển số. Hệ thống tự nhận diện biển số, tìm reservation (driver) hoặc auto-assign slot (guest), rồi tạo session.")
+@Schema(description = "Quick checkin: staff scans a license plate image. The system OCRs the plate, finds a reservation (driver) or auto-assigns a slot (guest), then creates a session.")
 public class QuickCheckinRequest {
 
-    @Schema(description = "Ảnh biển số xe. Staff chụp ảnh biển số → upload lên. BẮT BUỘC. Hệ thống OCR tự nhận diện biển số, tìm reservation (driver) hoặc auto-assign slot (guest), rồi tạo session.")
+    @Schema(description = "License plate image. Required unless plateNumber is already provided from a prior OCR step.")
     private MultipartFile plateImage;
 
-    @Schema(description = "Building ID nơi staff đang làm việc. BẮT BUỘC. Hệ thống dùng để auto-assign slot (guest) và validate reservation (driver).")
+    @Schema(description = "Pre-recognized plate number from FE OCR preview. When set, check-in skips a second OCR call.")
+    private String plateNumber;
+
+    @Schema(description = "Building ID where the staff is working. Required. Used to auto-assign slots (guest) and validate reservations (driver).")
     @NotBlank(message = "buildingId is required")
     private String buildingId;
 
-    @Schema(description = "Loại xe cho guest checkin (khi không tìm thấy reservation). BẮT BUỘC nếu plate không có reservation.")
+    @Schema(description = "Vehicle type for guest checkin when no reservation is found. Required if the plate has no reservation.")
     private String vehicleTypeId;
 
     private String vehicleColor;

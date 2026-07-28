@@ -26,14 +26,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/sessions")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('STAFF','MANAGER','ADMIN')")
-@Tag(name = "Quick Checkin (Deprecated)", description = "Sẽ bị xóa. Dùng POST /api/sessions/checkin với plateImage.")
+@Tag(name = "Quick Checkin (Deprecated)", description = "Will be removed. Use POST /api/sessions/checkin with plateImage.")
 public class QuickSessionController {
 
     private final ParkingSessionService parkingSessionService;
     private final CloudinaryService cloudinaryService;
 
     @Operation(summary = "Quick Check-in (Driver + Guest) — DEPRECATED",
-            description = "Endpoint cũ. Dùng POST /api/sessions/checkin với plateImage thay thế.")
+            description = "Deprecated endpoint. Use POST /api/sessions/checkin with plateImage instead.")
     @PostMapping(value = "/quick-checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<QuickCheckinResponse>> quickCheckin(
             @ModelAttribute QuickCheckinRequest req,
