@@ -41,7 +41,10 @@ public class BuildingRuleController {
     @Operation(
             summary = "Create building rule",
             description = "Allowed ruleCode: NO_OVERNIGHT, MAX_PARKING_HOURS, OPERATING_HOURS, VEHICLE_TYPE_CURFEW. "
-                    + "VEHICLE_TYPE_CURFEW ruleValue format: TypeName:HH:mm (e.g. Truck:22:00).")
+                    + "OPERATING_HOURS / NO_OVERNIGHT ruleValue (optional): HH:mm-HH:mm within building hours "
+                    + "(e.g. 08:00-22:00) or single HH:mm for NO_OVERNIGHT cutoff. "
+                    + "VEHICLE_TYPE_CURFEW ruleValue format: TypeName:HH:mm (e.g. Truck:22:00). "
+                    + "MAX_PARKING_HOURS ruleValue: positive integer hours (e.g. 8).")
     @PostMapping
     @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<ApiResponse<BuildingRuleResponse>> create(
