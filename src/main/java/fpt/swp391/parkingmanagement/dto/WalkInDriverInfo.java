@@ -44,4 +44,18 @@ public class WalkInDriverInfo {
     private String checkinVehicleImage;
     /** URL ảnh xe lúc check-out (neu da check-out). */
     private String checkoutVehicleImage;
+
+    // ── Location hierarchy (for staff checkout screen display) ─────────────
+    /** Slot id đang giữ xe (null nếu lookup pre-checkin chưa có session). */
+    private String slotId;
+    private String slotName;
+    private String slotStatus;
+    private String zoneId;
+    private String zoneName;
+    private String floorId;
+    private String floorName;
+    private Integer floorLevel;
+    private String buildingId;
+    private String buildingName;
+    private String buildingAddress;
 }

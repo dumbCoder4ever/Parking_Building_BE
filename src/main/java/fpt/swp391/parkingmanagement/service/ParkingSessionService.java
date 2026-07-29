@@ -1513,6 +1513,31 @@ public class ParkingSessionService {
         info.setCheckinVehicleImage(session.getCheckinVehicleImage());
         info.setCheckoutVehicleImage(session.getCheckoutVehicleImage());
 
+        // Populate slot/zone/floor/building hierarchy để staff checkout screen hiển thị location.
+        if (session.getSlot() != null) {
+            ParkingSlot slot = session.getSlot();
+            info.setSlotId(slot.getSlotId());
+            info.setSlotName(slot.getSlotName());
+            info.setSlotStatus(slot.getSlotStatus());
+            if (slot.getZone() != null) {
+                Zone zone = slot.getZone();
+                info.setZoneId(zone.getZoneId());
+                info.setZoneName(zone.getZoneName());
+                if (zone.getFloor() != null) {
+                    Floor floor = zone.getFloor();
+                    info.setFloorId(floor.getFloorId());
+                    info.setFloorName(floor.getFloorName());
+                    info.setFloorLevel(floor.getFloorLevel());
+                    if (floor.getBuilding() != null) {
+                        Building building = floor.getBuilding();
+                        info.setBuildingId(building.getBuildingId());
+                        info.setBuildingName(building.getBuildingName());
+                        info.setBuildingAddress(building.getAddress());
+                    }
+                }
+            }
+        }
+
         int parkingMinutes = resolveParkingDurationMinutes(session);
         info.setParkingDuration(parkingMinutes);
 
