@@ -10,6 +10,8 @@ import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
+import fpt.swp391.parkingmanagement.dto.ReservationResponse;
+import fpt.swp391.parkingmanagement.dto.TicketLookupResponse;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
@@ -55,6 +57,23 @@ public class ParkingSessionController {
             Authentication auth) {
         PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId);
         return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
+    }
+
+    @Operation(summary = "Lookup by ticket code for staff checkout",
+            description = """
+                    Tra cứu nhanh theo ticketCode trước khi staff checkout.
+                    Phân biệt rõ giữa:
+                    - RESERVATION / DRIVER_SESSION: driver có reservation (đã book trước).
+                    - WALK_IN_DRIVER: driver đã đăng ký xe nhưng không qua reservation (walk-in).
+                    - GUEST_SESSION: khách vãng lai (không phải driver đăng ký).
+                    Trả về `isWalkInDriver=true` và `isGuest=true` để FE render UI/label phù hợp.
+                    """)
+    @GetMapping("/sessions/ticket/{ticketCode}/lookup")
+    public ResponseEntity<ApiResponse<TicketLookupResponse>> lookupByTicket(
+            @PathVariable String ticketCode,
+            Authentication auth) {
+        TicketLookupResponse resp = parkingSessionService.lookupByTicketCode(ticketCode);
+        return ResponseEntity.ok(ApiResponse.ok("Ticket lookup completed", resp));
     }
 
     @Operation(summary = "Unified Staff Check-in",

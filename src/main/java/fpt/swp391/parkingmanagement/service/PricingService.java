@@ -33,10 +33,10 @@ public class PricingService {
         }
         BigDecimal fee = calculateByPolicy(policy, totalHours);
         log.info("[PRICING] calculateFee vehicleTypeId={}, totalHours={}, policyId={}, pricingType={}, "
-                + "basePrice={}, hourlyRate={}, maxHours={} "
+                + "basePrice={}, hourlyRate={}, includedHours={}, maxHours={} "
                 + "(tier1={}h/{}d, tier2={}h/{}d, tier3={}h/{}d, tier4={}h/{}d, perDay={}d) -> fee={}",
                 vehicleTypeId, totalHours, policy.getPolicyId(), policy.getPricingType(),
-                policy.getBasePrice(), policy.getHourlyRate(), policy.getMaxHours(),
+                policy.getBasePrice(), policy.getHourlyRate(), policy.getIncludedHours(), policy.getMaxHours(),
                 policy.getTier1Hours(), policy.getTier1Price(),
                 policy.getTier2Hours(), policy.getTier2Price(),
                 policy.getTier3Hours(), policy.getTier3Price(),
@@ -48,8 +48,7 @@ public class PricingService {
     public BigDecimal calculateByPolicy(PricingPolicy policy, int totalHours) {
         if (policy == null || totalHours <= 0) return BigDecimal.ZERO;
 
-        int maxHours = policy.getMaxHours() != null ? policy.getMaxHours() : 24;
-        int hours = Math.min(totalHours, maxHours);
+        int hours = totalHours; // KHÔNG giới hạn maxHours - để calculateTiered xử lý >24h
 
         BigDecimal basePrice = nz(policy.getBasePrice());
         BigDecimal hourlyRate = nz(policy.getHourlyRate());
@@ -59,6 +58,16 @@ public class PricingService {
         // TIERED: giá theo bậc thang. Ví dụ Car: <=2h=20k, <=6h=40k, <=12h=60k, <=24h=100k, +1 ngày=100k
         if ("TIERED".equals(type)) {
             return calculateTiered(policy, hours);
+        }
+
+        // TIERED_HOURLY: tính theo bậc thang
+        // Mỗi bậc = includedHours tiếng, mỗi bậc = basePrice
+        // Ví dụ: Car basePrice=5000, includedHours=3
+        //   1-3 giờ = 5000, 4-6 giờ = 10000, 7-9 giờ = 15000
+        if ("TIERED_HOURLY".equals(type)) {
+            int includedHours = policy.getIncludedHours() != null ? policy.getIncludedHours() : 3;
+            int fullBlocks = (hours - 1) / includedHours + 1;
+            return basePrice.multiply(BigDecimal.valueOf(fullBlocks));
         }
 
         // DAILY: charge theo ngày (perDayPrice * ceil(hours/24))

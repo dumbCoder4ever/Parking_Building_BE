@@ -28,10 +28,10 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
      * Loads reservation, vehicle, slot chain in one query.
      */
     @Query("SELECT t FROM Ticket t "
-            + "JOIN FETCH t.reservation r "
-            + "JOIN FETCH r.vehicle rv JOIN FETCH rv.vehicleType "
-            + "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
-            + "JOIN FETCH r.user "
+            + "LEFT JOIN FETCH t.reservation r "
+            + "LEFT JOIN FETCH r.vehicle rv LEFT JOIN FETCH rv.vehicleType "
+            + "LEFT JOIN FETCH r.slot s LEFT JOIN FETCH s.zone z LEFT JOIN FETCH z.floor LEFT JOIN FETCH z.floor.building "
+            + "LEFT JOIN FETCH r.user "
             + "WHERE t.ticketCode = :ticketCode")
     Optional<Ticket> findByTicketCodeGraph(@Param("ticketCode") String ticketCode);
 }
