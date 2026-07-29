@@ -19,6 +19,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -276,10 +277,13 @@ class ParkingSessionServiceWalkInTest {
     void testWalkIn_ActiveSessionExists() {
         when(vehicleRepository.findByPlateNumberGraph(anyString())).thenReturn(Optional.empty());
         when(vehicleRepository.findByNormalizedPlateNumber(anyString())).thenReturn(Optional.of(vehicle));
+        // validateNoActiveSessionForDriver query ACTIVE sessions theo userId, so khớp vehicle V-1 → PLATE_ALREADY_PARKED.
         ParkingSession active = new ParkingSession();
         active.setSessionId("session-existing");
         active.setSessionStatus("ACTIVE");
-        when(parkingSessionRepository.findAnyActiveSessionByVehicleId(anyString())).thenReturn(Optional.of(active));
+        active.setVehicle(vehicle);
+        when(parkingSessionRepository.findActiveSessionsByUserId(eq(driver.getUserId())))
+                .thenReturn(List.of(active));
 
         assertThatThrownBy(() -> invokeWalkIn())
                 .isInstanceOf(BaseAPIException.class)

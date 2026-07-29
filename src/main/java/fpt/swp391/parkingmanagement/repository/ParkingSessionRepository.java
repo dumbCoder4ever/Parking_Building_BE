@@ -6,9 +6,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -141,6 +143,10 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
             + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findActiveByVehicleId(@Param("vehicleId") String vehicleId);
 
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.vehicle.vehicleId = :vehicleId "
+            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') ORDER BY ps.checkinTime DESC limit 1")
+    Optional<ParkingSession> findActiveByReservationVehicleId(@Param("vehicleId") String vehicleId);
+
     @Query("SELECT ps FROM ParkingSession ps WHERE ps.vehicle.vehicleId = :vehicleId "
             + "ORDER BY ps.checkinTime DESC limit 1")
     Optional<ParkingSession> findLatestByVehicleId(@Param("vehicleId") String vehicleId);
@@ -207,6 +213,14 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
         return findActiveGuestSessionsByVehicleId(vehicleId, PageRequest.of(0, 1)).stream().findFirst();
     }
 
+    @Query("SELECT ps FROM ParkingSession ps WHERE ps.reservation.reservationId = :reservationId ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findSessionsByReservationReservationId(
+            @Param("reservationId") String reservationId, Pageable pageable);
+
+    default Optional<ParkingSession> findByReservationReservationId(String reservationId) {
+        return findSessionsByReservationReservationId(reservationId, PageRequest.of(0, 1)).stream().findFirst();
+    }
+
     @Query("SELECT ps FROM ParkingSession ps "
             + "LEFT JOIN FETCH ps.vehicle gv "
             + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
@@ -221,6 +235,23 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
         return findActiveSessionsByPlateNumber(plateNumber, PageRequest.of(0, 1)).stream().findFirst();
     }
 
+    /**
+     * Chặn trùng session cho 1 driver ở entry-point tạo session mới: tìm session
+     * ACTIVE/PENDING_PAYMENT trên BẤT KỲ vehicle nào của user đó (qua reservation.user
+     * cho reservation flow, qua ps.user cho walk-in driver flow).
+     */
+    @Query("""
+            SELECT ps FROM ParkingSession ps
+            LEFT JOIN ps.reservation r
+            WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')
+              AND (
+                  (r IS NOT NULL AND r.user.userId = :userId)
+                  OR (ps.user IS NOT NULL AND ps.user.userId = :userId)
+              )
+            """)
+    List<ParkingSession> findActiveSessionsByUserId(@Param("userId") String userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT ps FROM ParkingSession ps "
             + "LEFT JOIN FETCH ps.vehicle gv "
             + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
@@ -232,8 +263,27 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     List<ParkingSession> findActiveSessionsIncludingReservationByVehicleId(
             @Param("vehicleId") String vehicleId, Pageable pageable);
 
+    /** Read-only variant (khong @Lock) cho staff lookup, tranh loi "Cannot execute statement in a READ ONLY transaction". */
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.vehicle gv "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
+            + "LEFT JOIN FETCH ps.ticket "
+            + "WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
+            + "AND ((gv IS NOT NULL AND gv.vehicleId = :vehicleId) "
+            + "OR (rv IS NOT NULL AND rv.vehicleId = :vehicleId)) "
+            + "ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findActiveSessionsIncludingReservationByVehicleIdReadOnly(
+            @Param("vehicleId") String vehicleId, Pageable pageable);
+
     default Optional<ParkingSession> findAnyActiveSessionByVehicleId(String vehicleId) {
         return findActiveSessionsIncludingReservationByVehicleId(vehicleId, PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
+    /** Read-only variant cho staff lookupByPlate / lookupByTicketCode. */
+    default Optional<ParkingSession> findAnyActiveSessionByVehicleIdReadOnly(String vehicleId) {
+        return findActiveSessionsIncludingReservationByVehicleIdReadOnly(vehicleId, PageRequest.of(0, 1))
                 .stream()
                 .findFirst();
     }

@@ -38,7 +38,11 @@ public enum ErrorCode {
     RESERVATION_EXISTS_FOR_PLATE("This plate number already has an active reservation"),
     VEHICLE_TYPE_MISMATCH("Vehicle type does not match the registered type for this plate"),
     DRIVER_ACCOUNT_DEACTIVATED("Driver account is not active, cannot check-in"),
-    DRIVER_OWNED_PLATE_CANNOT_GUEST_CHECKIN("This plate is owned by a registered driver; use Driver walk-in flow instead");
+    DRIVER_OWNED_PLATE_CANNOT_GUEST_CHECKIN("This plate is owned by a registered driver; use Driver walk-in flow instead"),
+    DRIVER_HAS_ACTIVE_SESSION("Driver is currently parking another vehicle; please checkout first before parking a different one"),
+    HAS_RESERVATION_OTHER_VEHICLE("Driver already has an active reservation for another vehicle; please check-in via that reservation instead"),
+    ALREADY_CHECKED_OUT("This plate has already been checked out"),
+    GUEST_HAS_ACTIVE_SESSION("This guest already has an active parking session");
 
     private final String message;
 

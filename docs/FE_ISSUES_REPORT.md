@@ -15,6 +15,7 @@
 | 3 | 🟡 Medium | Label "Total Fee" gây nhầm lẫn với `estimatedFee` | `currentSession.jsx` |
 | 4 | 🟡 Medium | `parkingHours` ceil có thể sai ở biên thời gian | (BE) `DriverServiceImpl.java` |
 | 5 | 🟠 High | Staff checkout không phân biệt được Driver Reservation vs Walk-in Driver vs Guest | Staff checkout page + thiếu BE API lookup theo `ticketCode` |
+| 6 | 🟠 High | Phân luồng check-in/checkout theo `context` + chống trùng session | Staff check-in/checkout page |
 
 ---
 
@@ -441,12 +442,144 @@ return (
 
 ---
 
+## Issue #6 — Phân luồng check-in/checkout theo context + chống trùng session 🟠
+
+### Mô tả
+Trước đây, API `GET /api/sessions/plate/{plate}/lookup` đồng thời phục vụ **cả check-in và checkout** với cùng 1 logic (trả RESERVATION + WALK_IN_DRIVER + GUEST). Sau khi refactor, API này được **tách theo context** để phục vụ đúng mục đích, đồng thời bổ sung các rào chống trùng session.
+
+### Thay đổi API
+
+| API | Check-in (`context=checkin`) | Checkout (`context=checkout`) |
+|---|---|---|
+| `GET /api/sessions/plate/{plate}/lookup?context=...` | Trả 3 loại: RESERVATION + WALK_IN_DRIVER + GUEST (cả khi chưa có session) | Chỉ trả `GUEST_SESSION` (walk-in driver đi qua ticketCode path) |
+| `GET /api/sessions/plate/{plate}/ticket-code` | (không dùng) | Chỉ phục vụ WALK_IN_DRIVER (guest đã có ticketCode riêng qua lookup-plate) |
+| `GET /api/sessions/ticket/{ticketCode}/lookup` | (không dùng) | Trả GUEST + WALK_IN_DRIVER |
+
+Driver RESERVATION checkout: FE tự gọi `/api/reservations/{id}` (không qua lookup plate).
+
+### Các giá trị `lookupType` (PlateLookupResponse)
+
+| `lookupType` | Ý nghĩa | `isWalkInDriver` | `isGuest` | Field data |
+|---|---|---|---|---|
+| `RESERVATION_EXISTS` | Reservation PENDING/APPROVED | `false` | `false` | `reservation` |
+| `RESERVATION_CHECKED_IN` | Reservation đã vào bãi | `false` | `false` | (không) |
+| `WALK_IN_DRIVER` | Driver đăng ký xe, có/chưa có session | **`true`** | `false` | `walkInDriver` hoặc `vehicle` |
+| `GUEST_SESSION` | Khách vãng lai | `false` | **`true`** | `guestSession` |
+| `ALREADY_CHECKED_IN` | Đã có session ACTIVE trên plate này | (false) | (false) | (duplicateActiveSession) |
+| `ALREADY_CHECKED_OUT` | Plate từng có session nhưng đã checkout (context=checkout) | `false` | `false` | (không) |
+| `DRIVER_HAS_ACTIVE_SESSION` | Driver đang giữ session trên 1 xe khác | (false) | (false) | (không) |
+| `HAS_RESERVATION_OTHER_VEHICLE` | Driver đã đặt reservation, đang scan xe khác | (false) | (false) | (không) |
+| `NOT_FOUND` | Không khớp | `false` | `false` | (không) |
+
+### Rào chống trùng session (bắt buộc)
+
+**Quét lại biển số đã check-in (cả checkin & checkout):**
+- Nếu plate đã có session ACTIVE/PENDING_PAYMENT → API lookup trả `ALREADY_CHECKED_IN`. FE hiện modal "Xe này đã được gửi, không thể tiếp tục".
+
+**1 driver + 2 xe khác nhau:**
+- Nếu user (driver) đã có session ACTIVE/PENDING_PAYMENT trên 1 vehicle và đang scan/walk-in 1 vehicle khác → trả `DRIVER_HAS_ACTIVE_SESSION`. Bắt buộc checkout xe trước khi gửi xe khác.
+- Áp dụng cả check-in (walk-in) và check-out.
+
+**Guest + 2 session:** Cùng luật. `findAnyActiveSessionByVehicleIdReadOnly` đã chặn.
+
+**Reservation + walk-in đồng thời:**
+- Driver có reservation PENDING/APPROVED trên xe A, scan plate xe B (walk-in) → `HAS_RESERVATION_OTHER_VEHICLE`. Bắt buộc check-in theo reservation.
+
+### Fix khuyến nghị **cho FE team**
+
+**Bước 1 — Check-in: gọi lookup-by-plate với `context=checkin`.**
+
+```js
+// FE check-in page
+const resp = await api.get(
+  `/api/sessions/plate/${plate}/lookup`,
+  { params: { buildingId, context: 'checkin' } }
+);
+const { lookupType, isWalkInDriver, isGuest, reservation, walkInDriver, guestSession, vehicle } = resp.data.data;
+```
+
+**Bước 2 — Checkout: 3 luồng riêng.**
+
+```js
+// a) Guest checkout: scan plate -> goi context=checkout
+const guestResp = await api.get(
+  `/api/sessions/plate/${plate}/lookup`,
+  { params: { buildingId, context: 'checkout' } }
+);
+
+// b) Walk-in driver checkout: scan plate -> ticket-code -> lookup ticket
+const ticketResp = await api.get(`/api/sessions/plate/${plate}/ticket-code`);
+const { ticketCode, lookupType } = ticketResp.data.data;
+const detailResp = await api.get(`/api/sessions/ticket/${ticketCode}/lookup`);
+
+// c) Driver reservation checkout: FE tu goi (khong qua lookup plate)
+const reservationResp = await api.get(`/api/reservations/${reservationId}`);
+```
+
+**Bước 3 — Render UI theo `lookupType`.**
+
+```jsx
+const TYPE_LABELS = {
+  RESERVATION_EXISTS: 'Driver (Reservation)',
+  WALK_IN_DRIVER: 'Walk-in Driver',
+  GUEST_SESSION: 'Guest',
+  ALREADY_CHECKED_IN: 'Already Checked In',
+  DRIVER_HAS_ACTIVE_SESSION: 'Driver đang giữ xe khác',
+  HAS_RESERVATION_OTHER_VEHICLE: 'Đã đặt reservation',
+  ALREADY_CHECKED_OUT: 'Đã thanh toán',
+  NOT_FOUND: 'Không tìm thấy',
+};
+
+// Lookup xong -> show modal/alert theo lookupType
+switch (lookupType) {
+  case 'ALREADY_CHECKED_IN':
+    showModal('Xe đã được gửi, không thể tiếp tục');
+    return;
+  case 'DRIVER_HAS_ACTIVE_SESSION':
+    showModal('Bạn đang gửi xe khác, vui lòng checkout trước');
+    return;
+  case 'HAS_RESERVATION_OTHER_VEHICLE':
+    showModal('Bạn đã đặt reservation, vui lòng check-in theo reservation');
+    return;
+  case 'ALREADY_CHECKED_OUT':
+    showModal('Xe đã thanh toán, không thể quét lại');
+    return;
+  case 'NOT_FOUND':
+    showError('Không tìm thấy thông tin');
+    return;
+  default:
+    renderCheckoutForm({ reservation, walkInDriver, guestSession });
+}
+```
+
+**Bước 4 — Check-in entry-point cũng phải handle lỗi từ BE.**
+
+Các API `POST /api/sessions/checkin`, `POST /api/sessions/{sessionId}/checkin-reservation` sẽ throw `DRIVER_HAS_ACTIVE_SESSION` / `ALREADY_CHECKED_IN` (HTTP 400 hoặc 409). FE cần catch và hiển thị message thân thiện thay vì fail silent.
+
+### Đã thay đổi (BE side)
+
+| File | Thay đổi |
+|------|---------|
+| `controller/ParkingSessionController.java` | Thêm `@RequestParam context` cho endpoint plate lookup (default `checkin`) |
+| `service/ParkingSessionService.java` | Đổi signature `lookupByPlate(plate, buildingId, context)`, tách 2 hàm `lookupByPlateForCheckin` / `lookupByPlateForCheckout`, thêm `guardAgainstDuplicateSessions` |
+| `service/ParkingSessionService.java` | Thêm `validateNoActiveSessionForDriver(userId)` cho check-in entry-points |
+| `repository/ParkingSessionRepository.java` | Thêm `existsByVehicleUserUserIdAndSessionStatusIn` |
+| `exception/ErrorCode.java` | Thêm `DRIVER_HAS_ACTIVE_SESSION`, `ALREADY_CHECKED_OUT` |
+
+### Lưu ý quan trọng cho FE
+- **Default `context=checkin`**: nếu FE cũ không truyền param, BE mặc định là check-in path (backward-compatible).
+- **Đừng hard-code `lookupType` switch chỉ 4 case cũ** — phải handle thêm `ALREADY_CHECKED_IN`, `DRIVER_HAS_ACTIVE_SESSION`, `HAS_RESERVATION_OTHER_VEHICLE`, `ALREADY_CHECKED_OUT`.
+- **Walk-in driver checkout KHÔNG gọi lookup-plate** — phải đi qua `ticket-code` rồi `ticket/lookup`.
+
+---
+
 ## Recommended Action Items
 
 **FE Team (priority high):**
 1. [ ] Fix polling realtime (#1) — Option A hoặc B
 2. [ ] Đổi label "Total Fee" → "Estimated Total" (#3) — Option A
 3. [ ] Tích hợp lookup theo ticketCode (#5) — theo hướng dẫn Issue #5
+4. [ ] Tích hợp `context=checkin|checkout` cho lookup-by-plate + handle 4 `lookupType` mới: `ALREADY_CHECKED_IN`, `DRIVER_HAS_ACTIVE_SESSION`, `HAS_RESERVATION_OTHER_VEHICLE`, `ALREADY_CHECKED_OUT` (#6)
 
 **BE Team (priority medium):**
 1. [x] ~~Thêm field `pricingTiers` vào `DriverCurrentSessionResponse` (#2)~~
