@@ -8,6 +8,7 @@ import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
+import fpt.swp391.parkingmanagement.dto.PlateTicketCodeResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
@@ -43,20 +44,55 @@ public class ParkingSessionController {
     private final CloudinaryService cloudinaryService;
     private final TicketRepository ticketRepository;
 
-    @Operation(summary = "Lookup plate for staff check-in",
+    @Operation(summary = "Lookup plate for staff check-in / checkout",
             description = """
-                    Tra cứu nhanh biển số trước khi check-in.
-                    - Ưu tiên reservation PENDING/APPROVED (driver).
-                    - Nếu không có reservation thì trả guest session ACTIVE (nếu có).
-                    - `buildingId` tùy chọn để lọc reservation theo bãi.
+                    Tra cứu nhanh biển số trước khi check-in hoặc checkout (FE gọi cùng 1 endpoint).
+
+                    Query param `context` (default `checkin`) phân luồng logic:
+                    - `context=checkin`: trả RESERVATION + WALK_IN_DRIVER + GUEST (3 loại).
+                    - `context=checkout`: chỉ trả GUEST_SESSION (walk-in driver đi qua ticketCode path).
+
+                    Rào chống trùng session:
+                    - `ALREADY_CHECKED_IN`: plate này/user này đã có session ACTIVE.
+                    - `DRIVER_HAS_ACTIVE_SESSION`: user đang giữ 1 xe khác.
+                    - `HAS_RESERVATION_OTHER_VEHICLE`: user đã đặt reservation nhưng scan xe khác (walk-in).
+                    - `ALREADY_CHECKED_OUT`: plate từng có session nhưng đã checkout (chỉ context=checkout).
                     """)
     @GetMapping("/sessions/plate/{plateNumber}/lookup")
     public ResponseEntity<ApiResponse<PlateLookupResponse>> lookupByPlate(
             @PathVariable String plateNumber,
             @RequestParam(required = false) String buildingId,
+            @RequestParam(required = false, defaultValue = "checkin") String context,
             Authentication auth) {
-        PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId);
+        PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId, context);
         return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
+    }
+
+    @Operation(summary = "Resolve plate -> ticketCode (step 1 for staff checkout walk-in driver)",
+            description = """
+                    Tra cứu nhanh plate -> ticketCode cho staff checkout walk-in driver flow.
+
+                    Sau khi staff quet bien so, FE goi API nay de lay ticketCode,
+                    roi tiep tuc goi /api/sessions/ticket/{ticketCode}/lookup de lay full info.
+
+                    Phan biet lookupType:
+                    - WALK_IN_DRIVER: walk-in co user (driver dang ky xe, khong co reservation).
+                    - GUEST          : walk-in khong co user.
+
+                    Driver RESERVATION checkout KHONG dung API nay — FE goi /api/reservations/{id}.
+
+                    Tra { found:false } neu:
+                    - plate khong ton tai;
+                    - vehicle thuoc driver dang co reservation ACTIVE (FE phai dung reservation API);
+                    - user dang giu session ACTIVE tren 1 vehicle khac (chong trung session);
+                    - chua co session ACTIVE/PENDING_PAYMENT tren plate nay.
+                    """)
+    @GetMapping("/sessions/plate/{plateNumber}/ticket-code")
+    public ResponseEntity<ApiResponse<PlateTicketCodeResponse>> resolveTicketCodeByPlate(
+            @PathVariable String plateNumber,
+            Authentication auth) {
+        PlateTicketCodeResponse resp = parkingSessionService.resolveTicketCodeByPlate(plateNumber);
+        return ResponseEntity.ok(ApiResponse.ok("Plate -> ticketCode resolved", resp));
     }
 
     @Operation(summary = "Lookup by ticket code for staff checkout",
