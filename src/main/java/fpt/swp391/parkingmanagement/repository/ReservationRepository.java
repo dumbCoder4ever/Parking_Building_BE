@@ -183,6 +183,18 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
     }
 
     /**
+     * Tìm reservation đã CHECKED_IN (driver đã check-in nhưng chưa checkout).
+     * Dùng trong lookupByPlate để detect driver reservation đang active.
+     */
+    @Query("SELECT r FROM Reservation r " +
+           "JOIN FETCH r.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building " +
+           "JOIN FETCH r.vehicle v JOIN FETCH v.vehicleType " +
+           "JOIN FETCH r.user " +
+           "WHERE v.vehicleId = :vehicleId " +
+           "AND r.reservationStatus = 'CHECKED_IN'")
+    Optional<Reservation> findCheckedInByVehicleId(@Param("vehicleId") String vehicleId);
+
+    /**
      * Tìm reservation PENDING/APPROVED theo biển số (đã chuẩn hóa: bỏ -, space, dấu chấm).
      * Dùng trong quick checkin / staff by-plate: OCR thường trả 29D225555 trong khi DB lưu 29D2-25555.
      */

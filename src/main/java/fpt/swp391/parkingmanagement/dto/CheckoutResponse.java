@@ -34,4 +34,13 @@ public class CheckoutResponse {
     private String sessionStatus;
     private String paymentStatus;
     private String checkoutVehicleImage;
+
+    private BigDecimal estimatedFee;
+    private String plateNumber;
+    private String vehicleBrand;
+    private String vehicleModel;
+    private String vehicleColor;
+    private String driverFullName;
+    private String driverPhone;
+    private String driverEmail;
 }

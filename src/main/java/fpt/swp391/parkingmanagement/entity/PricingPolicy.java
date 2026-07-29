@@ -38,6 +38,15 @@ public class PricingPolicy {
     @Column(name = "hourly_rate")
     private BigDecimal hourlyRate;
 
+    /**
+     * Number of hours included in basePrice.
+     * Used for TIERED_HOURLY pricing type.
+     * Example: if includedHours=3, basePrice covers first 3 hours,
+     * then hourlyRate applies for each additional hour.
+     */
+    @Column(name = "included_hours")
+    private Integer includedHours;
+
     @Column(name = "overnight_fee")
     private BigDecimal overnightFee;
 

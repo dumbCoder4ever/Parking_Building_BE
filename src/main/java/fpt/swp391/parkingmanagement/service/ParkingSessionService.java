@@ -29,6 +29,7 @@ import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.ReservationResponse;
+import fpt.swp391.parkingmanagement.dto.TicketLookupResponse;
 import fpt.swp391.parkingmanagement.dto.WalkInDriverInfo;
 import fpt.swp391.parkingmanagement.entity.Building;
 import fpt.swp391.parkingmanagement.entity.Floor;
@@ -549,7 +550,7 @@ public class ParkingSessionService {
 
         ParkingSlot slot = saved.getSlot();
         if (slot != null) {
-            zoneStatusSyncService.updateSlotStatus(slot, "PENDING_EXIT");
+            zoneStatusSyncService.updateSlotStatus(slot, "AVAILABLE");
         }
 
         CheckoutResponse resp = new CheckoutResponse();
@@ -571,6 +572,25 @@ public class ParkingSessionService {
         }
         if (slot != null) {
             applyHierarchy(resp, slot);
+        }
+
+        if (policy != null) {
+            resp.setEstimatedFee(pricingService.calculateByPolicy(policy, hours));
+        }
+
+        if (session.getVehicle() != null) {
+            Vehicle v = session.getVehicle();
+            resp.setPlateNumber(v.getPlateNumber());
+            resp.setVehicleBrand(v.getBrand());
+            resp.setVehicleModel(v.getModel());
+            resp.setVehicleColor(v.getVehicleColor());
+
+            if (v.getUser() != null) {
+                User driver = v.getUser();
+                resp.setDriverFullName(driver.getFullName());
+                resp.setDriverPhone(driver.getPhoneNumber());
+                resp.setDriverEmail(driver.getEmail());
+            }
         }
 
         return resp;
@@ -1228,7 +1248,17 @@ public class ParkingSessionService {
                     .build();
         }
 
-        // 2) Guest session ACTIVE (walk-in da check-in, dang trong bai)
+        // 2) Reservation CHECKED_IN (driver đã check-in, đang trong bãi)
+        Optional<Reservation> checkedInReservation = reservationRepository.findCheckedInByVehicleId(vehicle.getVehicleId())
+                .filter(r -> matchesBuilding(r, buildingId));
+        if (checkedInReservation.isPresent()) {
+            return PlateLookupResponse.builder()
+                    .lookupType("DRIVER_SESSION")
+                    .reservation(toReservationPreview(checkedInReservation.get()))
+                    .build();
+        }
+
+        // 3) Guest session ACTIVE (walk-in da check-in, dang trong bai)
         Optional<ParkingSession> activeGuest = findActiveGuestSessionByVehicle(vehicle.getVehicleId());
         if (activeGuest.isPresent()) {
             return PlateLookupResponse.builder()
@@ -1237,7 +1267,7 @@ public class ParkingSessionService {
                     .build();
         }
 
-        // 3) Driver da dang ky xe nhung chua co reservation -> walk-in driver
+        // 4) Driver da dang ky xe nhung chua co reservation -> walk-in driver
         if ("ACTIVE".equalsIgnoreCase(vehicle.getStatus()) && vehicle.getUser() != null) {
             return PlateLookupResponse.builder()
                     .lookupType("WALK_IN_DRIVER")
@@ -1280,6 +1310,87 @@ public class ParkingSessionService {
 
     private Optional<ParkingSession> findActiveGuestSessionByVehicle(String vehicleId) {
         return parkingSessionRepository.findActiveGuestByVehicleId(vehicleId);
+    }
+
+    /**
+     * Tra cứu theo ticketCode trước khi staff checkout.
+     * Phân biệt rõ 3 loại để FE render UI phù hợp:
+     *   - RESERVATION / DRIVER_SESSION: có reservation (đặt trước).
+     *   - WALK_IN_DRIVER: driver đã đăng ký xe, không qua reservation.
+     *   - GUEST_SESSION: khách vãng lai (không phải driver đăng ký).
+     */
+    @Transactional(readOnly = true)
+    public TicketLookupResponse lookupByTicketCode(String ticketCode) {
+        Optional<Ticket> ticketOpt = ticketRepository.findByTicketCodeGraph(ticketCode);
+        if (ticketOpt.isEmpty()) {
+            return TicketLookupResponse.builder()
+                    .lookupType("NOT_FOUND")
+                    .isWalkInDriver(false)
+                    .isGuest(false)
+                    .build();
+        }
+
+        Ticket ticket = ticketOpt.get();
+        Reservation reservation = ticket.getReservation();
+
+        // Case 1: Ticket thuộc reservation -> driver có đặt chỗ
+        if (reservation != null) {
+            ReservationResponse preview = toReservationPreview(reservation);
+            String status = reservation.getReservationStatus() == null ? "" : reservation.getReservationStatus().toUpperCase();
+            String lookupType;
+            switch (status) {
+                case "CHECKED_IN":
+                case "ACTIVE":
+                    lookupType = "DRIVER_SESSION";
+                    break;
+                case "PENDING":
+                case "APPROVED":
+                case "CONFIRMED":
+                    lookupType = "RESERVATION";
+                    break;
+                default:
+                    lookupType = "RESERVATION";
+                    break;
+            }
+            return TicketLookupResponse.builder()
+                    .lookupType(lookupType)
+                    .isWalkInDriver(false)
+                    .isGuest(false)
+                    .reservation(preview)
+                    .build();
+        }
+
+        // Case 2: Ticket không có reservation -> tìm session ACTIVE/PENDING_PAYMENT theo ticket
+        Optional<ParkingSession> activeSession =
+                parkingSessionRepository.findActiveSessionByTicketId(ticket.getTicketId());
+        if (activeSession.isPresent()) {
+            ParkingSession session = activeSession.get();
+            Vehicle vehicle = session.getVehicle();
+
+            // Nếu vehicle thuộc user đã đăng ký -> walk-in driver
+            if (vehicle != null && vehicle.getUser() != null) {
+                return TicketLookupResponse.builder()
+                        .lookupType("WALK_IN_DRIVER")
+                        .isWalkInDriver(true)
+                        .isGuest(false)
+                        .walkInDriver(toWalkInDriverInfo(vehicle))
+                        .build();
+            }
+
+            // Ngược lại là guest (không có user liên kết)
+            return TicketLookupResponse.builder()
+                    .lookupType("GUEST_SESSION")
+                    .isWalkInDriver(false)
+                    .isGuest(true)
+                    .guestSession(mapToGuestCheckinResponse(session))
+                    .build();
+        }
+
+        return TicketLookupResponse.builder()
+                .lookupType("NOT_FOUND")
+                .isWalkInDriver(false)
+                .isGuest(false)
+                .build();
     }
 
     private Optional<Vehicle> resolveVehicleByPlate(String plateNumber) {
@@ -1471,8 +1582,20 @@ public class ParkingSessionService {
         resp.setCheckinVehicleImage(ps.getCheckinVehicleImage());
         resp.setStatus(ps.getSessionStatus());
         resp.setParkingDuration(resolveParkingDurationMinutes(ps));
-        BigDecimal storedFee = pricingService.resolveStoredSessionFee(ps);
-        resp.setEstimatedFee(storedFee != null ? storedFee : ps.getEstimatedFee());
+
+        int parkingMinutes = resolveParkingDurationMinutes(ps);
+        int parkingHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
+        boolean isCompleted = "COMPLETED".equalsIgnoreCase(ps.getSessionStatus());
+
+        if (isCompleted) {
+            BigDecimal storedFee = pricingService.resolveStoredSessionFee(ps);
+            resp.setEstimatedFee(storedFee != null ? storedFee : ps.getEstimatedFee());
+        } else {
+            String vtId = vehicleType != null ? vehicleType.getVehicleTypeId() : null;
+            if (vtId != null) {
+                resp.setEstimatedFee(pricingService.calculateFee(vtId, parkingHours));
+            }
+        }
 
         if (vehicleType != null) {
             PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());

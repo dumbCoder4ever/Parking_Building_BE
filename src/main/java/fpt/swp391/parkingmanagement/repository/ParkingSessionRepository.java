@@ -76,6 +76,10 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
     Optional<ParkingSession> findCurrentSessionByUser(@Param("ticketId") String ticketId);
 
+    @Query("SELECT ps FROM ParkingSession ps JOIN FETCH ps.ticket t JOIN FETCH ps.vehicle v "
+            + "WHERE t.ticketId = :ticketId AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    Optional<ParkingSession> findActiveSessionByTicketId(@Param("ticketId") String ticketId);
+
     /**
      * FIX N+1: Full graph fetch for checkout operations.
      * Loads slot->zone->floor->building chain and vehicle->vehicleType in one query.

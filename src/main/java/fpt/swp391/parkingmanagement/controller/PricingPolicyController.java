@@ -4,6 +4,7 @@ import fpt.swp391.parkingmanagement.dto.ApiResponse;
 import fpt.swp391.parkingmanagement.dto.PricingPolicyRequest;
 import fpt.swp391.parkingmanagement.dto.PricingPolicyResponse;
 import fpt.swp391.parkingmanagement.service.PricingPolicyService;
+import fpt.swp391.parkingmanagement.service.PricingService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import java.util.List;
 public class PricingPolicyController {
 
     private final PricingPolicyService pricingPolicyService;
+    private final PricingService pricingService;
 
     @Operation(summary = "Create pricing policy")
     @PostMapping
@@ -79,5 +81,12 @@ public class PricingPolicyController {
     public ResponseEntity<ApiResponse<Void>> deletePricingPolicy(@PathVariable String id) {
         pricingPolicyService.deletePricingPolicy(id);
         return ResponseEntity.ok(ApiResponse.ok("Pricing policy deleted successfully", null));
+    }
+
+    @Operation(summary = "Clear pricing cache (use after updating policies)")
+    @PostMapping("/cache/clear")
+    public ResponseEntity<ApiResponse<Void>> clearCache() {
+        pricingService.evictAllPricingCache();
+        return ResponseEntity.ok(ApiResponse.ok("Pricing cache cleared successfully", null));
     }
 }
