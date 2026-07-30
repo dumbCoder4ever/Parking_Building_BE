@@ -964,8 +964,14 @@ public class ReservationService {
 
         VehicleType floorVehicleType = floor.getVehicleType();
         VehicleType vehicleType = vehicle.getVehicleType();
-        if (floorVehicleType == null || vehicleType == null
-                || !floorVehicleType.getVehicleTypeId().equals(vehicleType.getVehicleTypeId())) {
+        if (floorVehicleType == null || vehicleType == null) {
+            throw new RuntimeException("Selected slot does not support this vehicle type");
+        }
+        boolean sameTypeId = floorVehicleType.getVehicleTypeId().equals(vehicleType.getVehicleTypeId());
+        boolean sameTypeName = floorVehicleType.getTypeName() != null
+                && vehicleType.getTypeName() != null
+                && floorVehicleType.getTypeName().equalsIgnoreCase(vehicleType.getTypeName());
+        if (!sameTypeId && !sameTypeName) {
             throw new RuntimeException("Selected slot does not support this vehicle type");
         }
     }

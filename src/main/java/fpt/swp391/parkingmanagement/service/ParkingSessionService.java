@@ -685,19 +685,7 @@ public class ParkingSessionService {
         buildingRuleService.validateForEntry(building, vehicleType, LocalDateTime.now());
 
         // FIX N+1: fuzzy plate lookup để không tạo vehicle trùng khi format biển số khác nhau
-        Vehicle vehicle = resolveVehicleByPlate(plateNumber)
-                .orElseGet(() -> {
-                    Vehicle v = new Vehicle();
-                    v.setPlateNumber(plateNumber);
-                    v.setVehicleType(vehicleType);
-                    v.setStatus("ACTIVE");
-                    return vehicleRepository.save(v);
-                });
-
-        if (vehicle.getVehicleType() == null) {
-            vehicle.setVehicleType(vehicleType);
-            vehicleRepository.save(vehicle);
-        }
+        Vehicle vehicle = resolveOrCreateGuestVehicle(plateNumber, vehicleType);
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -907,33 +895,22 @@ public class ParkingSessionService {
         }
 
         // 3. TÃ¬m slot trá»‘ng theo building + vehicleType (Æ°u tiÃªn táº§ng tháº¥p)
-        ParkingSlot slot = parkingSlotRepository
-                .findFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
+        ParkingSlot slot = findGuestSlot(req.getBuildingId(), vehicleType)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
                         "No available slots for vehicle type " + vehicleType.getTypeName()
                                 + " at this building."));
 
         // 4. TÃ¬m hoáº·c táº¡o Vehicle - FIX N+1: use graph query
-        Vehicle vehicle = vehicleRepository.findByPlateNumberGraph(finalPlateNumber)
-                .orElseGet(() -> {
-                    Vehicle v = new Vehicle();
-                    v.setPlateNumber(finalPlateNumber);
-                    v.setVehicleType(vehicleType);
-                    v.setVehicleColor(req.getVehicleColor());
-                    v.setBrand(req.getBrand());
-                    v.setModel(req.getModel());
-                    v.setStatus("ACTIVE");
-                    return vehicleRepository.save(v);
-                });
-
-        // 5. Cáº­p nháº­t thÃ´ng tin xe náº¿u cÃ³ thay Ä‘á»•i
-        if (req.getVehicleColor() != null) vehicle.setVehicleColor(req.getVehicleColor());
-        if (req.getBrand() != null) vehicle.setBrand(req.getBrand());
-        if (req.getModel() != null) vehicle.setModel(req.getModel());
-        vehicleRepository.save(vehicle);
+        VehicleType slotVehicleType = resolveSlotVehicleType(slot, vehicleType);
+        Vehicle vehicle = resolveOrCreateGuestVehicle(
+                finalPlateNumber,
+                slotVehicleType,
+                req.getVehicleColor(),
+                req.getBrand(),
+                req.getModel());
 
         // 6. TÃ­nh pricing
-        PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+        PricingPolicy policy = pricingService.getActivePolicy(slotVehicleType.getVehicleTypeId());
         BigDecimal basePrice = policy != null ? policy.getBasePrice() : BigDecimal.ZERO;
         BigDecimal hourlyRate = policy != null ? policy.getHourlyRate() : BigDecimal.ZERO;
         BigDecimal estimatedFee = policy != null
@@ -1722,24 +1699,18 @@ public class ParkingSessionService {
         System.out.println("[DEBUG-6b654b] validateNoActiveSessionForPlate PASSED - no active session found for plate: " + normalizedPlate);
 
         // 4. TÃ¬m slot trá»‘ng theo building + vehicleType (Æ°u tiÃªn táº§ng tháº¥p)
-        ParkingSlot slot = parkingSlotRepository
-                .findFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
+        ParkingSlot slot = findGuestSlot(req.getBuildingId(), vehicleType)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
                         "No available slots for vehicle type " + vehicleType.getTypeName()
                                 + " at this building."));
 
+        VehicleType slotVehicleType = resolveSlotVehicleType(slot, vehicleType);
+
         // 5. TÃ¬m hoáº·c táº¡o Vehicle - FIX N+1: use graph query
-        Vehicle vehicle = resolveVehicleByPlate(normalizedPlate)
-                .orElseGet(() -> {
-                    Vehicle v = new Vehicle();
-                    v.setPlateNumber(normalizedPlate);
-                    v.setVehicleType(vehicleType);
-                    v.setStatus("ACTIVE");
-                    return vehicleRepository.save(v);
-                });
+        Vehicle vehicle = resolveOrCreateGuestVehicle(normalizedPlate, slotVehicleType);
 
         // 6. TÃ­nh pricing
-        PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+        PricingPolicy policy = pricingService.getActivePolicy(slotVehicleType.getVehicleTypeId());
         BigDecimal basePrice = policy != null ? policy.getBasePrice() : BigDecimal.ZERO;
         BigDecimal hourlyRate = policy != null ? policy.getHourlyRate() : BigDecimal.ZERO;
         BigDecimal estimatedFee = policy != null
@@ -1790,8 +1761,8 @@ public class ParkingSessionService {
         resp.setVehicleColor(vehicle.getVehicleColor());
         resp.setBrand(vehicle.getBrand());
         resp.setModel(vehicle.getModel());
-        resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
-        resp.setVehicleTypeName(vehicleType.getTypeName());
+        resp.setVehicleTypeId(slotVehicleType.getVehicleTypeId());
+        resp.setVehicleTypeName(slotVehicleType.getTypeName());
         resp.setCheckinTime(now);
         resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
         resp.setParkingDuration(0);
@@ -1919,6 +1890,72 @@ public class ParkingSessionService {
      * - DRIVER (cÃ³ reservation): tÃ­nh tá»« reservationStart + gracePeriod
      * - GUEST (khÃ´ng reservation): tÃ­nh tá»« checkinTime
      */
+    private Optional<ParkingSlot> findGuestSlot(String buildingId, VehicleType vehicleType) {
+        return parkingSlotRepository.findFirstAvailableByBuildingAndVehicleType(
+                        buildingId, vehicleType.getVehicleTypeId())
+                .or(() -> parkingSlotRepository.findFirstAvailableByBuildingAndVehicleTypeName(
+                        buildingId, vehicleType.getTypeName()));
+    }
+
+    private VehicleType resolveSlotVehicleType(ParkingSlot slot, VehicleType fallback) {
+        if (slot != null && slot.getZone() != null && slot.getZone().getFloor() != null
+                && slot.getZone().getFloor().getVehicleType() != null) {
+            return slot.getZone().getFloor().getVehicleType();
+        }
+        return fallback;
+    }
+
+    private Vehicle resolveOrCreateGuestVehicle(String plateNumber, VehicleType vehicleType) {
+        return resolveOrCreateGuestVehicle(plateNumber, vehicleType, null, null, null);
+    }
+
+    private Vehicle resolveOrCreateGuestVehicle(
+            String plateNumber,
+            VehicleType vehicleType,
+            String vehicleColor,
+            String brand,
+            String model) {
+        String normalizedPlate = plateNumber.toUpperCase();
+        Vehicle vehicle = resolveVehicleByPlate(normalizedPlate)
+                .orElseGet(() -> {
+                    Vehicle v = new Vehicle();
+                    v.setPlateNumber(normalizedPlate);
+                    v.setVehicleType(vehicleType);
+                    v.setStatus("ACTIVE");
+                    return vehicleRepository.save(v);
+                });
+        boolean changed = false;
+        if (vehicle.getVehicleType() == null
+                || !vehicleTypesCompatible(vehicle.getVehicleType(), vehicleType)) {
+            vehicle.setVehicleType(vehicleType);
+            changed = true;
+        }
+        if (vehicleColor != null) {
+            vehicle.setVehicleColor(vehicleColor);
+            changed = true;
+        }
+        if (brand != null) {
+            vehicle.setBrand(brand);
+            changed = true;
+        }
+        if (model != null) {
+            vehicle.setModel(model);
+            changed = true;
+        }
+        return changed ? vehicleRepository.save(vehicle) : vehicle;
+    }
+
+    private boolean vehicleTypesCompatible(VehicleType left, VehicleType right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.getVehicleTypeId().equals(right.getVehicleTypeId())) {
+            return true;
+        }
+        return left.getTypeName() != null && right.getTypeName() != null
+                && left.getTypeName().equalsIgnoreCase(right.getTypeName());
+    }
+
     private long calculateParkingMinutes(ParkingSession session, LocalDateTime checkoutTime) {
         Reservation reservation = session.getReservation();
         LocalDateTime effectiveStart;
