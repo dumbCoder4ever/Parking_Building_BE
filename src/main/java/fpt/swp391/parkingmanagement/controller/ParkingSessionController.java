@@ -8,8 +8,10 @@ import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.ParkingSessionResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinResponse;
 import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
+import fpt.swp391.parkingmanagement.dto.PlateTicketCodeResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
+import fpt.swp391.parkingmanagement.dto.TicketLookupResponse;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
 import fpt.swp391.parkingmanagement.repository.TicketRepository;
@@ -55,6 +57,32 @@ public class ParkingSessionController {
             Authentication auth) {
         PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId);
         return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
+    }
+
+    @Operation(summary = "Resolve plate -> ticketCode (staff checkout step 1)",
+            description = """
+                    Tra cứu plate -> ticketCode cho staff checkout walk-in driver / guest flow.
+                    Driver có reservation: FE gọi /api/reservations thay vì API này.
+                    """)
+    @GetMapping("/sessions/plate/{plateNumber}/ticket-code")
+    public ResponseEntity<ApiResponse<PlateTicketCodeResponse>> resolveTicketCodeByPlate(
+            @PathVariable String plateNumber,
+            Authentication auth) {
+        PlateTicketCodeResponse resp = parkingSessionService.resolveTicketCodeByPlate(plateNumber);
+        return ResponseEntity.ok(ApiResponse.ok("Plate -> ticketCode resolved", resp));
+    }
+
+    @Operation(summary = "Lookup by ticket code for staff checkout",
+            description = """
+                    Tra cứu theo ticketCode trước khi staff checkout.
+                    Phân biệt RESERVATION / DRIVER_SESSION / WALK_IN_DRIVER / GUEST_SESSION.
+                    """)
+    @GetMapping("/sessions/ticket/{ticketCode}/lookup")
+    public ResponseEntity<ApiResponse<TicketLookupResponse>> lookupByTicket(
+            @PathVariable String ticketCode,
+            Authentication auth) {
+        TicketLookupResponse resp = parkingSessionService.lookupByTicketCode(ticketCode);
+        return ResponseEntity.ok(ApiResponse.ok("Ticket lookup completed", resp));
     }
 
     @Operation(summary = "Unified Staff Check-in",
