@@ -40,5 +40,6 @@ public class DriverCurrentSessionResponse {
     
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
+    private Integer maxHours;
     private BigDecimal estimatedFee;
 }

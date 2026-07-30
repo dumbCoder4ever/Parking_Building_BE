@@ -459,9 +459,9 @@ public class ReservationService {
             PricingPolicy policy) {
         ReservationResponse resp = toReservationResponseCore(reservation, ticket);
         if (policy != null) {
-            resp.setBasePrice(policy.getBasePrice());
-            resp.setHourlyRate(policy.getHourlyRate());
-            resp.setMaxHours(policy.getMaxHours());
+            resp.setBasePrice(pricingService.resolveDisplayBasePrice(policy));
+            resp.setHourlyRate(pricingService.resolveDisplayHourlyRate(policy));
+            resp.setMaxHours(pricingService.resolveDisplayMaxHours(policy));
         }
         if (session != null) {
             resp.setSessionId(session.getSessionId());
@@ -1049,9 +1049,9 @@ public class ReservationService {
             resp.setVehicleTypeName(reservation.getSlot().getZone().getFloor().getVehicleType().getTypeName());
         }
         if (policy != null) {
-            resp.setBasePrice(policy.getBasePrice());
-            resp.setHourlyRate(policy.getHourlyRate());
-            resp.setMaxHours(policy.getMaxHours());
+            resp.setBasePrice(pricingService.resolveDisplayBasePrice(policy));
+            resp.setHourlyRate(pricingService.resolveDisplayHourlyRate(policy));
+            resp.setMaxHours(pricingService.resolveDisplayMaxHours(policy));
         }
 
         // Session (đã load sẵn hoặc query nếu null)

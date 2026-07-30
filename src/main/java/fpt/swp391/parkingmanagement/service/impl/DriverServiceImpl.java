@@ -229,7 +229,10 @@ public class DriverServiceImpl implements DriverService {
         int parkingHours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
 
         Reservation reservation = session.getReservation();
-        Vehicle vehicle = reservation != null ? reservation.getVehicle() : null;
+        Vehicle vehicle = session.getVehicle();
+        if (vehicle == null && reservation != null) {
+            vehicle = reservation.getVehicle();
+        }
         LocalDateTime reservationStart = reservation != null ? reservation.getReservationStart() : null;
 
         String buildingId = null, buildingName = null, floorId = null, floorName = null,
@@ -254,21 +257,26 @@ public class DriverServiceImpl implements DriverService {
         BigDecimal estimatedFee = BigDecimal.ZERO;
         BigDecimal basePrice = null;
         BigDecimal hourlyRate = null;
-        String vehicleTypeId = null, vehicleTypeName = null;
+        Integer maxHours = null;
+        String vehicleTypeId = null;
+        String vehicleTypeName = null;
 
+        vehicleTypeId = pricingService.resolveVehicleTypeId(vehicle, session.getSlot());
         if (vehicle != null && vehicle.getVehicleType() != null) {
-            vehicleTypeId = vehicle.getVehicleType().getVehicleTypeId();
             vehicleTypeName = vehicle.getVehicleType().getTypeName();
-            BigDecimal timeBasedFee = pricingService.calculateFee(vehicleTypeId, parkingHours);
-            BigDecimal storedFee = pricingService.resolveStoredSessionFee(session);
-            estimatedFee = storedFee != null ? storedFee : timeBasedFee;
-
-            var policy = pricingService.getActivePolicy(vehicleTypeId);
-            if (policy != null) {
-                basePrice = policy.getBasePrice();
-                hourlyRate = policy.getHourlyRate();
-            }
+        } else if (session.getSlot() != null && session.getSlot().getZone() != null
+                && session.getSlot().getZone().getFloor() != null
+                && session.getSlot().getZone().getFloor().getVehicleType() != null) {
+            vehicleTypeName = session.getSlot().getZone().getFloor().getVehicleType().getTypeName();
         }
+
+        PricingPolicy policy = vehicleTypeId != null ? pricingService.getActivePolicy(vehicleTypeId) : null;
+        if (policy != null) {
+            basePrice = pricingService.resolveDisplayBasePrice(policy);
+            hourlyRate = pricingService.resolveDisplayHourlyRate(policy);
+            maxHours = pricingService.resolveDisplayMaxHours(policy);
+        }
+        estimatedFee = pricingService.resolveGuestSessionEstimatedFee(session, policy, parkingMinutes);
 
         return DriverCurrentSessionResponse.builder()
                 .sessionId(session.getSessionId())
@@ -296,6 +304,7 @@ public class DriverServiceImpl implements DriverService {
                 .paymentStatus(session.getPaymentStatus())
                 .basePrice(basePrice)
                 .hourlyRate(hourlyRate)
+                .maxHours(maxHours)
                 .estimatedFee(estimatedFee)
                 .build();
     }

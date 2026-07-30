@@ -1580,13 +1580,13 @@ public class ParkingSessionService {
         PricingPolicy policy = vtId != null ? pricingService.getActivePolicy(vtId) : null;
         if (policy != null) {
             if (resp.getBasePrice() == null) {
-                resp.setBasePrice(policy.getBasePrice());
+                resp.setBasePrice(pricingService.resolveDisplayBasePrice(policy));
             }
             if (resp.getHourlyRate() == null) {
-                resp.setHourlyRate(policy.getHourlyRate());
+                resp.setHourlyRate(pricingService.resolveDisplayHourlyRate(policy));
             }
             if (resp.getMaxHours() == null) {
-                resp.setMaxHours(policy.getMaxHours());
+                resp.setMaxHours(pricingService.resolveDisplayMaxHours(policy));
             }
         }
 
@@ -1811,9 +1811,9 @@ public class ParkingSessionService {
         if (vtId != null) {
             PricingPolicy policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                resp.setBasePrice(policy.getBasePrice());
-                resp.setHourlyRate(policy.getHourlyRate());
-                resp.setMaxHours(policy.getMaxHours());
+                resp.setBasePrice(pricingService.resolveDisplayBasePrice(policy));
+                resp.setHourlyRate(pricingService.resolveDisplayHourlyRate(policy));
+                resp.setMaxHours(pricingService.resolveDisplayMaxHours(policy));
             }
         }
 
