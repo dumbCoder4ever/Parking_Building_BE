@@ -31,6 +31,7 @@ class IncidentServiceImplTest {
     @Mock private ParkingSessionRepository parkingSessionRepository;
     @Mock private ParkingSlotRepository parkingSlotRepository;
     @Mock private ReservationRepository reservationRepository;
+    @Mock private PaymentRepository paymentRepository;
     @Mock private UserRepository userRepository;
     @Mock private BuildingStaffRepository buildingStaffRepository;
     @InjectMocks private IncidentServiceImpl incidentService;
@@ -331,6 +332,8 @@ class IncidentServiceImplTest {
         when(userRepository.findByEmail("staff@test.com")).thenReturn(Optional.of(testStaff));
         when(buildingStaffRepository.findBuildingIdsByUserId("user-staff-1")).thenReturn(List.of("building-1"));
         when(parkingSessionRepository.save(any(ParkingSession.class))).thenReturn(testSession);
+        when(paymentRepository.findBySessionSessionIdAndPaymentStatusInOrderByCreatedAtDesc(
+                any(), any(), any())).thenReturn(Collections.emptyList());
         when(incidentRepository.save(any(Incident.class))).thenAnswer(i -> i.getArgument(0));
         IncidentUpdateRequest request = new IncidentUpdateRequest();
         request.setResolutionAction("UPDATE_PAYMENT");

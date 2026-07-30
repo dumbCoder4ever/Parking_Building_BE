@@ -28,6 +28,7 @@ import fpt.swp391.parkingmanagement.exception.ResourceNotFoundException;
 import fpt.swp391.parkingmanagement.repository.IncidentRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSlotRepository;
+import fpt.swp391.parkingmanagement.repository.PaymentRepository;
 import fpt.swp391.parkingmanagement.repository.ReservationRepository;
 import fpt.swp391.parkingmanagement.repository.UserRepository;
 import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
@@ -38,6 +39,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+
+import org.springframework.data.domain.PageRequest;
+
+import fpt.swp391.parkingmanagement.entity.Payment;
 
 @Service
 @RequiredArgsConstructor
@@ -73,6 +78,7 @@ public class IncidentServiceImpl implements IncidentService {
     private final ParkingSessionRepository parkingSessionRepository;
     private final ParkingSlotRepository parkingSlotRepository;
     private final ReservationRepository reservationRepository;
+    private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
     private final BuildingStaffRepository buildingStaffRepository;
     private final AuditLogService auditLogService;
@@ -233,7 +239,11 @@ public class IncidentServiceImpl implements IncidentService {
                 break;
 
             case RESOLUTION_ACTION_UPDATE_PAYMENT:
-                log.info("Payment adjustment for incident {}", incident.getIncidentId());
+                if (request.getAdjustedAmount() != null) {
+                    applyAdjustedSessionFee(incident, request.getAdjustedAmount());
+                } else {
+                    log.info("Payment adjustment for incident {} (no adjustedAmount provided)", incident.getIncidentId());
+                }
                 break;
 
             case RESOLUTION_ACTION_REASSIGN_SLOT:
@@ -280,7 +290,23 @@ public class IncidentServiceImpl implements IncidentService {
             reservation.setEstimatedFee(amount);
             reservationRepository.save(reservation);
         }
+        syncSessionPaymentAmounts(session, amount);
         log.info("Adjusted session {} fee to {} via incident {}", session.getSessionId(), amount, incident.getIncidentId());
+    }
+
+    private void syncSessionPaymentAmounts(ParkingSession session, BigDecimal amount) {
+        List<Payment> payments = paymentRepository.findBySessionSessionIdAndPaymentStatusInOrderByCreatedAtDesc(
+                session.getSessionId(),
+                List.of("PAID", "CONFIRMED", "SUCCESS", "PENDING"),
+                PageRequest.of(0, 20));
+        for (Payment payment : payments) {
+            payment.setAmount(amount);
+            paymentRepository.save(payment);
+        }
+        if (!payments.isEmpty()) {
+            log.info("Synced {} payment record(s) for session {} to amount {}",
+                    payments.size(), session.getSessionId(), amount);
+        }
     }
 
     /**

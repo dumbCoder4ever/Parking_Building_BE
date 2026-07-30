@@ -282,7 +282,12 @@ public class ParkingSessionService {
             String vtId = session.getVehicle().getVehicleType().getVehicleTypeId();
             policy = pricingService.getActivePolicy(vtId);
             if (policy != null) {
-                total = pricingService.calculateByPolicy(policy, hours);
+                BigDecimal storedFee = pricingService.resolveStoredSessionFee(session);
+                if (storedFee != null) {
+                    total = storedFee;
+                } else {
+                    total = pricingService.calculateByPolicy(policy, hours);
+                }
                 basePrice = policy.getBasePrice();
                 hourlyRate = policy.getHourlyRate();
             }
