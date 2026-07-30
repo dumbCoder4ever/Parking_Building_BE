@@ -989,6 +989,10 @@ public class ReservationService {
                     existing.setVehicleColor(req.getVehicleColor());
                     existing.setBrand(req.getBrand());
                     existing.setModel(req.getModel());
+                    existing.setVehicleType(vt);
+                    if (existing.getUser() == null) {
+                        existing.setUser(user);
+                    }
                     applyVehicleImage(existing, req);
                     return vehicleRepository.save(existing);
                 })
