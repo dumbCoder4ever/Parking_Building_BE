@@ -1233,32 +1233,41 @@ public class ParkingSessionService {
     @Transactional(readOnly = true)
     public PlateLookupResponse lookupByPlateForCheckin(String plateNumber, String buildingId) {
         Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(plateNumber);
-        if (vehicleOpt.isEmpty()) {
-            return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+
+        if (vehicleOpt.isPresent()) {
+            Vehicle vehicle = vehicleOpt.get();
+            PlateLookupResponse activeOnPlate = guardActiveSessionForPlate(vehicle);
+            if (activeOnPlate != null) {
+                return activeOnPlate;
+            }
         }
 
-        Vehicle vehicle = vehicleOpt.get();
-        PlateLookupResponse activeOnPlate = guardActiveSessionForPlate(vehicle);
-        if (activeOnPlate != null) {
-            return activeOnPlate;
-        }
-
-        Optional<Reservation> pendingRes = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId())
-                .filter(r -> matchesBuilding(r, buildingId));
+        Optional<Reservation> pendingRes = findPendingReservationsByPlate(plateNumber).stream()
+                .filter(r -> matchesBuilding(r, buildingId))
+                .findFirst();
         if (pendingRes.isPresent()) {
             return PlateLookupResponse.builder()
-                    .lookupType("RESERVATION_EXISTS")
+                    .lookupType("RESERVATION")
                     .reservation(toReservationPreview(pendingRes.get()))
                     .isWalkInDriver(false)
                     .isGuest(false)
                     .build();
         }
 
+        if (vehicleOpt.isEmpty()) {
+            return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+        }
+
+        Vehicle vehicle = vehicleOpt.get();
+
         Optional<Reservation> checkedInRes = reservationRepository.findCheckedInByVehicleId(vehicle.getVehicleId())
                 .filter(r -> matchesBuilding(r, buildingId));
         if (checkedInRes.isPresent()) {
             return PlateLookupResponse.builder()
-                    .lookupType("RESERVATION_CHECKED_IN")
+                    .lookupType("RESERVATION")
+                    .reservation(toReservationPreview(checkedInRes.get()))
+                    .isWalkInDriver(false)
+                    .isGuest(false)
                     .build();
         }
 
