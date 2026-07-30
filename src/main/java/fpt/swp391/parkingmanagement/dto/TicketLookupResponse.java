@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "Ticket lookup result for staff checkout screen.")
 public class TicketLookupResponse {
 
-    @Schema(description = "RESERVATION | DRIVER_SESSION | GUEST_SESSION | WALK_IN_DRIVER | NOT_FOUND")
+    @Schema(description = "RESERVATION | DRIVER_SESSION | GUEST | GUEST_SESSION | WALK_IN_DRIVER | NOT_FOUND")
     private String lookupType;
 
     @Schema(description = "True if session belongs to walk-in driver (no reservation).")

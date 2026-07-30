@@ -273,6 +273,14 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
             + "JOIN FETCH ps.ticket t "
             + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
             + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
+            + "WHERE t.ticketCode = :ticketCode AND ps.reservation IS NULL "
+            + "AND ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')")
+    Optional<ParkingSession> findActiveGuestSessionByTicketCode(@Param("ticketCode") String ticketCode);
+
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "JOIN FETCH ps.ticket t "
+            + "JOIN FETCH ps.vehicle v JOIN FETCH v.vehicleType "
+            + "JOIN FETCH ps.slot s JOIN FETCH s.zone z JOIN FETCH z.floor f JOIN FETCH f.building "
             + "WHERE t.ticketCode = :ticketCode AND ps.reservation IS NULL")
     Optional<ParkingSession> findGuestSessionByTicketCode(@Param("ticketCode") String ticketCode);
 

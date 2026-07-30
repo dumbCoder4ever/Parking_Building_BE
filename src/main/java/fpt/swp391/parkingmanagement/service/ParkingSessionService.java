@@ -1216,7 +1216,8 @@ public class ParkingSessionService {
     @Transactional(readOnly = true)
     public PlateLookupResponse lookupByPlate(String plateNumber, String buildingId, String context) {
         String normalizedContext = context == null ? "checkin" : context.trim().toLowerCase();
-        if ("checkout".equals(normalizedContext)) {
+        if ("checkout".equals(normalizedContext) || "exit".equals(normalizedContext)
+                || "vehicle-exit".equals(normalizedContext) || "vehicle_exit".equals(normalizedContext)) {
             return lookupByPlateForCheckout(plateNumber);
         }
         return lookupByPlateForCheckin(plateNumber, buildingId);
@@ -1315,6 +1316,18 @@ public class ParkingSessionService {
 
     @Transactional(readOnly = true)
     public PlateLookupResponse lookupByPlateForCheckout(String plateNumber) {
+        Optional<ParkingSession> activeGuest = findActiveGuestSessionByPlate(plateNumber);
+        if (activeGuest.isPresent()) {
+            ParkingSession ps = activeGuest.get();
+            return PlateLookupResponse.builder()
+                    .lookupType("GUEST")
+                    .guestSession(mapToGuestCheckinResponse(ps))
+                    .duplicateActiveSession(buildDuplicateInfo(ps, "GUEST"))
+                    .isWalkInDriver(false)
+                    .isGuest(true)
+                    .build();
+        }
+
         Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(plateNumber);
         if (vehicleOpt.isEmpty()) {
             return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
@@ -1326,19 +1339,6 @@ public class ParkingSessionService {
                     .lookupType("NOT_FOUND")
                     .isWalkInDriver(false)
                     .isGuest(false)
-                    .build();
-        }
-
-        Optional<ParkingSession> activeSession = parkingSessionRepository
-                .findActiveGuestByVehicleId(vehicle.getVehicleId());
-        if (activeSession.isPresent()) {
-            ParkingSession ps = activeSession.get();
-            return PlateLookupResponse.builder()
-                    .lookupType("GUEST_SESSION")
-                    .guestSession(mapToGuestCheckinResponse(ps))
-                    .duplicateActiveSession(buildDuplicateInfo(ps, "GUEST_SESSION"))
-                    .isWalkInDriver(false)
-                    .isGuest(true)
                     .build();
         }
 
@@ -1356,16 +1356,17 @@ public class ParkingSessionService {
             return null;
         }
         ParkingSession ps = activeSession.get();
-        String sessionLookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST_SESSION";
+        boolean isGuest = vehicle.getUser() == null;
+        String sessionLookupType = isGuest ? "GUEST" : "WALK_IN_DRIVER";
         PlateLookupResponse.PlateLookupResponseBuilder builder = PlateLookupResponse.builder()
-                .lookupType("ALREADY_CHECKED_IN")
+                .lookupType(isGuest ? "GUEST" : "ALREADY_CHECKED_IN")
                 .duplicateActiveSession(buildDuplicateInfo(ps, sessionLookupType))
-                .isWalkInDriver(vehicle.getUser() != null)
-                .isGuest(vehicle.getUser() == null);
-        if (vehicle.getUser() != null) {
-            builder.walkInDriver(buildWalkInDriverInfo(ps, vehicle));
-        } else {
+                .isWalkInDriver(!isGuest)
+                .isGuest(isGuest);
+        if (isGuest) {
             builder.guestSession(mapToGuestCheckinResponse(ps));
+        } else {
+            builder.walkInDriver(buildWalkInDriverInfo(ps, vehicle));
         }
         return builder.build();
     }
@@ -1424,7 +1425,31 @@ public class ParkingSessionService {
      */
     @Transactional(readOnly = true)
     public TicketLookupResponse lookupByTicketCode(String ticketCode) {
+        Optional<ParkingSession> activeGuestOrWalkIn =
+                parkingSessionRepository.findActiveGuestSessionByTicketCode(ticketCode);
+        if (activeGuestOrWalkIn.isPresent()) {
+            ParkingSession session = activeGuestOrWalkIn.get();
+            Vehicle vehicle = session.getVehicle();
+            if (vehicle != null && vehicle.getUser() != null) {
+                return TicketLookupResponse.builder()
+                        .lookupType("WALK_IN_DRIVER")
+                        .isWalkInDriver(true)
+                        .isGuest(false)
+                        .walkInDriver(buildWalkInDriverInfo(session, vehicle))
+                        .build();
+            }
+            return TicketLookupResponse.builder()
+                    .lookupType("GUEST")
+                    .isWalkInDriver(false)
+                    .isGuest(true)
+                    .guestSession(mapToGuestCheckinResponse(session))
+                    .build();
+        }
+
         Optional<Ticket> ticketOpt = ticketRepository.findByTicketCodeGraph(ticketCode);
+        if (ticketOpt.isEmpty()) {
+            ticketOpt = ticketRepository.findByTicketCode(ticketCode);
+        }
         if (ticketOpt.isEmpty()) {
             return TicketLookupResponse.builder()
                     .lookupType("NOT_FOUND")
@@ -1449,29 +1474,6 @@ public class ParkingSessionService {
                     .isWalkInDriver(false)
                     .isGuest(false)
                     .reservation(preview)
-                    .build();
-        }
-
-        Optional<ParkingSession> activeSession =
-                parkingSessionRepository.findActiveSessionByTicketId(ticket.getTicketId());
-        if (activeSession.isPresent()) {
-            ParkingSession session = activeSession.get();
-            Vehicle vehicle = session.getVehicle();
-
-            if (vehicle != null && vehicle.getUser() != null) {
-                return TicketLookupResponse.builder()
-                        .lookupType("WALK_IN_DRIVER")
-                        .isWalkInDriver(true)
-                        .isGuest(false)
-                        .walkInDriver(buildWalkInDriverInfo(session, vehicle))
-                        .build();
-            }
-
-            return TicketLookupResponse.builder()
-                    .lookupType("GUEST_SESSION")
-                    .isWalkInDriver(false)
-                    .isGuest(true)
-                    .guestSession(mapToGuestCheckinResponse(session))
                     .build();
         }
 
@@ -1867,7 +1869,8 @@ public class ParkingSessionService {
     }
 
     public GuestCheckinResponse getGuestSessionByTicketCode(String ticketCode) {
-        ParkingSession ps = parkingSessionRepository.findGuestSessionByTicketCode(ticketCode)
+        ParkingSession ps = parkingSessionRepository.findActiveGuestSessionByTicketCode(ticketCode)
+                .or(() -> parkingSessionRepository.findGuestSessionByTicketCode(ticketCode))
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
                         "No guest session found for ticket: " + ticketCode));
         GuestCheckinResponse resp = mapToGuestCheckinResponse(ps);
