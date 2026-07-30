@@ -49,6 +49,7 @@ import fpt.swp391.parkingmanagement.repository.UserRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleRepository;
 import fpt.swp391.parkingmanagement.repository.VehicleTypeRepository;
 import fpt.swp391.parkingmanagement.repository.ZoneRepository;
+import fpt.swp391.parkingmanagement.config.ParkingConfig;
 import fpt.swp391.parkingmanagement.repository.BuildingStaffRepository;
 import fpt.swp391.parkingmanagement.repository.PricingPolicyRepository;
 import fpt.swp391.parkingmanagement.service.PricingService;
@@ -88,7 +89,7 @@ public class ReservationService {
     private final BuildingRuleService buildingRuleService;
     private final PeakHourService peakHourService;
     private final AuditLogService auditLogService;
-    private final SystemConfigService systemConfigService;
+    private final ParkingConfig parkingConfig;
     private final ZoneStatusSyncService zoneStatusSyncService;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -111,7 +112,7 @@ public class ReservationService {
             BuildingRuleService buildingRuleService,
             PeakHourService peakHourService,
             AuditLogService auditLogService,
-            SystemConfigService systemConfigService,
+            ParkingConfig parkingConfig,
             ZoneStatusSyncService zoneStatusSyncService) {
         this.parkingSlotRepository = parkingSlotRepository;
         this.buildingRepository = buildingRepository;
@@ -131,7 +132,7 @@ public class ReservationService {
         this.buildingRuleService = buildingRuleService;
         this.peakHourService = peakHourService;
         this.auditLogService = auditLogService;
-        this.systemConfigService = systemConfigService;
+        this.parkingConfig = parkingConfig;
         this.zoneStatusSyncService = zoneStatusSyncService;
     }
 
@@ -746,8 +747,7 @@ public class ReservationService {
         reservation.setUser(user);
         reservation.setVehicle(vehicle);
         reservation.setReservationStatus("PENDING");
-        reservation.setGracePeriodMinutes(
-                systemConfigService.getInt(SystemConfigService.GRACE_PERIOD_MINUTES, 15));
+        reservation.setGracePeriodMinutes(parkingConfig.getGracePeriodMinutes());
         reservation = reservationRepository.save(reservation);
 
         Ticket ticket = new Ticket();
@@ -887,8 +887,14 @@ public class ReservationService {
 
         VehicleType floorVehicleType = floor.getVehicleType();
         VehicleType vehicleType = vehicle.getVehicleType();
-        if (floorVehicleType == null || vehicleType == null
-                || !floorVehicleType.getVehicleTypeId().equals(vehicleType.getVehicleTypeId())) {
+        if (floorVehicleType == null || vehicleType == null) {
+            throw new RuntimeException("Selected slot does not support this vehicle type");
+        }
+        boolean sameTypeId = floorVehicleType.getVehicleTypeId().equals(vehicleType.getVehicleTypeId());
+        boolean sameTypeName = floorVehicleType.getTypeName() != null
+                && vehicleType.getTypeName() != null
+                && floorVehicleType.getTypeName().equalsIgnoreCase(vehicleType.getTypeName());
+        if (!sameTypeId && !sameTypeName) {
             throw new RuntimeException("Selected slot does not support this vehicle type");
         }
     }
@@ -912,6 +918,10 @@ public class ReservationService {
                     existing.setVehicleColor(req.getVehicleColor());
                     existing.setBrand(req.getBrand());
                     existing.setModel(req.getModel());
+                    existing.setVehicleType(vt);
+                    if (existing.getUser() == null) {
+                        existing.setUser(user);
+                    }
                     applyVehicleImage(existing, req);
                     return vehicleRepository.save(existing);
                 })

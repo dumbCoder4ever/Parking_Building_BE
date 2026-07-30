@@ -24,7 +24,7 @@ public class Vehicle {
     private String vehicleId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
+    @JoinColumn(name = "user_id", nullable = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private User user;

@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Thông tin xe + driver cho trường hợp lookup walk-in driver (không có reservation).")
+@Schema(description = "Vehicle + driver info for walk-in driver checkout lookup.")
 public class WalkInDriverInfo {
 
     private String vehicleId;
@@ -28,25 +28,18 @@ public class WalkInDriverInfo {
     private String driverPhone;
     private String driverEmail;
 
-    // Pricing info
     private BigDecimal basePrice;
     private BigDecimal hourlyRate;
     private BigDecimal estimatedFee;
 
-    // Session info
     private String ticketCode;
     private String sessionId;
     private LocalDateTime checkinTime;
     private String sessionStatus;
-    /** Tổng thời gian đỗ (phút). */
     private Integer parkingDuration;
-    /** URL ảnh xe lúc check-in (de staff xac minh). */
     private String checkinVehicleImage;
-    /** URL ảnh xe lúc check-out (neu da check-out). */
     private String checkoutVehicleImage;
 
-    // ── Location hierarchy (for staff checkout screen display) ─────────────
-    /** Slot id đang giữ xe (null nếu lookup pre-checkin chưa có session). */
     private String slotId;
     private String slotName;
     private String slotStatus;

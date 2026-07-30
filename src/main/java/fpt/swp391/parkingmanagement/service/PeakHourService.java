@@ -1,5 +1,6 @@
 package fpt.swp391.parkingmanagement.service;
 
+import fpt.swp391.parkingmanagement.config.ParkingConfig;
 import fpt.swp391.parkingmanagement.dto.PeakHourAnalysisResponse;
 import fpt.swp391.parkingmanagement.dto.PeakHourBucketResponse;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
@@ -19,7 +20,7 @@ import java.util.Set;
 public class PeakHourService {
 
     private final ParkingSessionRepository parkingSessionRepository;
-    private final SystemConfigService systemConfigService;
+    private final ParkingConfig parkingConfig;
 
     @Transactional(readOnly = true)
     public PeakHourAnalysisResponse analyze(String buildingId, LocalDate fromDay, LocalDate toDay) {
@@ -51,7 +52,7 @@ public class PeakHourService {
             variance += (c - average) * (c - average);
         }
         double stdDev = Math.sqrt(variance / 24.0);
-        double factor = systemConfigService.getDouble(SystemConfigService.PEAK_HOUR_STDDEV_FACTOR, 1.0);
+        double factor = parkingConfig.getPeakHourStddevFactor();
         double threshold = average + stdDev * factor;
 
         // Also mark top-3 hours as peak so sparse data still surfaces peaks

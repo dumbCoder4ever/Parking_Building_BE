@@ -10,19 +10,18 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Plate -> ticketCode resolver. Step 1 cho staff checkout flow: " +
-        "sau khi staff quet bien so, lay ticketCode roi goi lookupByTicketCode.")
+@Schema(description = "Plate -> ticketCode resolver for staff checkout flow.")
 public class PlateTicketCodeResponse {
 
-    @Schema(description = "true neu tim thay ticketCode cho plate, false neu khong co session ACTIVE/PENDING_PAYMENT.")
+    @Schema(description = "true if ticketCode found for ACTIVE/PENDING_PAYMENT session on plate.")
     private boolean found;
 
-    @Schema(description = "ticketCode cua session ACTIVE/PENDING_PAYMENT gan nhat. Null neu khong tim thay.")
+    @Schema(description = "ticketCode of latest ACTIVE/PENDING_PAYMENT session. Null if not found.")
     private String ticketCode;
 
-    @Schema(description = "sessionId cua session tuong ung. Null neu khong tim thay.")
+    @Schema(description = "sessionId of matching session. Null if not found.")
     private String sessionId;
 
-    @Schema(description = "Loai session: RESERVATION (qua dat cho), GUEST (walk-in khong co user), WALK_IN_DRIVER (walk-in co user). Null neu khong tim thay.")
+    @Schema(description = "RESERVATION | GUEST | WALK_IN_DRIVER. Null if not found.")
     private String lookupType;
 }

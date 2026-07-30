@@ -5,9 +5,10 @@ import fpt.swp391.parkingmanagement.entity.BuildingRule;
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.repository.BuildingRuleRepository;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
+import fpt.swp391.parkingmanagement.config.ParkingConfig;
 import fpt.swp391.parkingmanagement.service.AuditLogService;
 import fpt.swp391.parkingmanagement.service.BuildingRuleService;
-import fpt.swp391.parkingmanagement.service.SystemConfigService;
+import fpt.swp391.parkingmanagement.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,16 +32,17 @@ public class VehicleOverstayJob {
 
     private final ParkingSessionRepository parkingSessionRepository;
     private final BuildingRuleRepository buildingRuleRepository;
-    private final SystemConfigService systemConfigService;
+    private final ParkingConfig parkingConfig;
+    private final NotificationService notificationService;
     private final AuditLogService auditLogService;
 
     @Scheduled(fixedRate = 300000) // every 5 minutes
     @Transactional(readOnly = true)
     public void checkOverstay() {
-        if (!systemConfigService.getBoolean(SystemConfigService.OVERSTAY_NOTIFY_ENABLED, true)) {
+        if (!parkingConfig.isOverstayNotifyEnabled()) {
             return;
         }
-        int defaultMaxHours = systemConfigService.getInt(SystemConfigService.MAX_PARKING_HOURS, 24);
+        int defaultMaxHours = parkingConfig.getMaxParkingHours();
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime prefetchCutoff = now.minusHours(1);
         List<ParkingSession> sessions = parkingSessionRepository.findActiveSessionsCheckedInBefore(prefetchCutoff);

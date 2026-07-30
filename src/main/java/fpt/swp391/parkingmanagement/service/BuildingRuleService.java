@@ -77,6 +77,7 @@ public class BuildingRuleService {
         Building building = findBuilding(buildingId);
         String code = normalizeCode(request.getRuleCode());
         String status = normalizeStatus(request.getStatus() == null ? "ACTIVE" : request.getStatus());
+        validateRuleValue(building, code, request.getRuleValue());
 
         BuildingRule rule = new BuildingRule();
         rule.setBuilding(building);
@@ -104,6 +105,7 @@ public class BuildingRuleService {
         BuildingRule rule = buildingRuleRepository.findById(ruleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Building rule not found: " + ruleId));
         String oldStatus = rule.getStatus();
+        validateRuleValue(rule.getBuilding(), rule.getRuleCode(), request.getRuleValue());
         rule.setTitle(normalizeText(request.getTitle()));
         rule.setDescription(normalizeText(request.getDescription()));
         rule.setRuleValue(normalizeText(request.getRuleValue()));
@@ -181,6 +183,123 @@ public class BuildingRuleService {
                     ErrorCode.INVALID_REQUEST,
                     "Building rule violated (" + rule.getRuleCode() + "): outside operating hours "
                             + start + " - " + end);
+        }
+    }
+
+    private void validateRuleValue(Building building, String ruleCode, String ruleValue) {
+        if (ruleValue == null || ruleValue.isBlank()) {
+            return;
+        }
+        String code = ruleCode == null ? "" : ruleCode.trim().toUpperCase(Locale.ROOT);
+        switch (code) {
+            case CODE_OPERATING_HOURS, CODE_NO_OVERNIGHT ->
+                    validateOperatingHoursRuleValue(building, ruleValue);
+            case CODE_VEHICLE_TYPE_CURFEW ->
+                    validateVehicleCurfewRuleValue(building, ruleValue);
+            case CODE_MAX_PARKING_HOURS ->
+                    validateMaxParkingHoursRuleValue(ruleValue);
+            default -> {
+            }
+        }
+    }
+
+    private void validateOperatingHoursRuleValue(Building building, String ruleValue) {
+        requireBuildingOperatingHours(building);
+        String trimmed = ruleValue.trim();
+        if (trimmed.contains("-")) {
+            String[] parts = trimmed.split("-", 2);
+            if (parts.length != 2) {
+                throw new BaseAPIException(
+                        ErrorCode.INVALID_REQUEST,
+                        "Invalid ruleValue format. Expected HH:mm-HH:mm (e.g. 06:00-23:00)");
+            }
+            LocalTime ruleStart = parseTime(parts[0].trim(), "rule start time");
+            LocalTime ruleEnd = parseTime(parts[1].trim(), "rule end time");
+            if (!ruleEnd.isAfter(ruleStart)) {
+                throw new BaseAPIException(
+                        ErrorCode.INVALID_REQUEST,
+                        "Rule end time must be after rule start time");
+            }
+            assertWithinBuildingHours(building, ruleStart, "Rule start time");
+            assertWithinBuildingHours(building, ruleEnd, "Rule end time");
+            return;
+        }
+        LocalTime single = parseTime(trimmed, "rule time");
+        assertWithinBuildingHours(building, single, "Rule time");
+    }
+
+    private void validateVehicleCurfewRuleValue(Building building, String ruleValue) {
+        requireBuildingOperatingHours(building);
+        String[] parts = ruleValue.split(":");
+        if (parts.length < 3) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Invalid ruleValue format. Expected TypeName:HH:mm (e.g. Truck:22:00)");
+        }
+        String typeName = parts[0].trim();
+        if (typeName.isBlank()) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Vehicle type name is required in ruleValue");
+        }
+        try {
+            LocalTime curfew = LocalTime.of(
+                    Integer.parseInt(parts[1].trim()), Integer.parseInt(parts[2].trim()));
+            assertWithinBuildingHours(building, curfew, "Curfew time");
+        } catch (NumberFormatException e) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Invalid curfew time in ruleValue. Expected TypeName:HH:mm (e.g. Truck:22:00)");
+        }
+    }
+
+    private void validateMaxParkingHoursRuleValue(String ruleValue) {
+        try {
+            int hours = Integer.parseInt(ruleValue.trim());
+            if (hours <= 0) {
+                throw new BaseAPIException(
+                        ErrorCode.INVALID_REQUEST,
+                        "MAX_PARKING_HOURS ruleValue must be a positive integer");
+            }
+        } catch (NumberFormatException e) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "MAX_PARKING_HOURS ruleValue must be a positive integer (e.g. 8)");
+        }
+    }
+
+    private void requireBuildingOperatingHours(Building building) {
+        if (building.getOperatingStartTime() == null || building.getOperatingEndTime() == null) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Building operating hours must be configured before setting time-based rules");
+        }
+    }
+
+    private void assertWithinBuildingHours(Building building, LocalTime time, String label) {
+        LocalTime start = building.getOperatingStartTime();
+        LocalTime end = building.getOperatingEndTime();
+        if (time.isBefore(start) || time.isAfter(end)) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    label + " must be within building operating hours " + start + " - " + end);
+        }
+    }
+
+    private LocalTime parseTime(String value, String label) {
+        if (value == null || value.isBlank()) {
+            throw new BaseAPIException(ErrorCode.INVALID_REQUEST, "Invalid " + label);
+        }
+        try {
+            if (value.length() == 5) {
+                return LocalTime.parse(value);
+            }
+            if (value.length() == 8) {
+                return LocalTime.parse(value);
+            }
+            throw new IllegalArgumentException("unsupported length");
+        } catch (Exception e) {
+            throw new BaseAPIException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Invalid " + label + ". Expected HH:mm or HH:mm:ss (e.g. 06:00)");
         }
     }
 

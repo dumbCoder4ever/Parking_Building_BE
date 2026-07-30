@@ -11,7 +11,6 @@ import fpt.swp391.parkingmanagement.dto.PlateLookupResponse;
 import fpt.swp391.parkingmanagement.dto.PlateTicketCodeResponse;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinRequest;
 import fpt.swp391.parkingmanagement.dto.QuickCheckinResponse;
-import fpt.swp391.parkingmanagement.dto.ReservationResponse;
 import fpt.swp391.parkingmanagement.dto.TicketLookupResponse;
 import fpt.swp391.parkingmanagement.exception.BaseAPIException;
 import fpt.swp391.parkingmanagement.exception.ErrorCode;
@@ -68,24 +67,10 @@ public class ParkingSessionController {
         return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
     }
 
-    @Operation(summary = "Resolve plate -> ticketCode (step 1 for staff checkout walk-in driver)",
+    @Operation(summary = "Resolve plate -> ticketCode (staff checkout step 1)",
             description = """
-                    Tra cứu nhanh plate -> ticketCode cho staff checkout walk-in driver flow.
-
-                    Sau khi staff quet bien so, FE goi API nay de lay ticketCode,
-                    roi tiep tuc goi /api/sessions/ticket/{ticketCode}/lookup de lay full info.
-
-                    Phan biet lookupType:
-                    - WALK_IN_DRIVER: walk-in co user (driver dang ky xe, khong co reservation).
-                    - GUEST          : walk-in khong co user.
-
-                    Driver RESERVATION checkout KHONG dung API nay — FE goi /api/reservations/{id}.
-
-                    Tra { found:false } neu:
-                    - plate khong ton tai;
-                    - vehicle thuoc driver dang co reservation ACTIVE (FE phai dung reservation API);
-                    - user dang giu session ACTIVE tren 1 vehicle khac (chong trung session);
-                    - chua co session ACTIVE/PENDING_PAYMENT tren plate nay.
+                    Tra cứu plate -> ticketCode cho staff checkout walk-in driver / guest flow.
+                    Driver có reservation: FE gọi /api/reservations thay vì API này.
                     """)
     @GetMapping("/sessions/plate/{plateNumber}/ticket-code")
     public ResponseEntity<ApiResponse<PlateTicketCodeResponse>> resolveTicketCodeByPlate(
@@ -97,12 +82,8 @@ public class ParkingSessionController {
 
     @Operation(summary = "Lookup by ticket code for staff checkout",
             description = """
-                    Tra cứu nhanh theo ticketCode trước khi staff checkout.
-                    Phân biệt rõ giữa:
-                    - RESERVATION / DRIVER_SESSION: driver có reservation (đã book trước).
-                    - WALK_IN_DRIVER: driver đã đăng ký xe nhưng không qua reservation (walk-in).
-                    - GUEST_SESSION: khách vãng lai (không phải driver đăng ký).
-                    Trả về `isWalkInDriver=true` và `isGuest=true` để FE render UI/label phù hợp.
+                    Tra cứu theo ticketCode trước khi staff checkout.
+                    Phân biệt RESERVATION / DRIVER_SESSION / WALK_IN_DRIVER / GUEST_SESSION.
                     """)
     @GetMapping("/sessions/ticket/{ticketCode}/lookup")
     public ResponseEntity<ApiResponse<TicketLookupResponse>> lookupByTicket(
