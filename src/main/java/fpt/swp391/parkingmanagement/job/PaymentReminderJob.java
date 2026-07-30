@@ -2,9 +2,9 @@ package fpt.swp391.parkingmanagement.job;
 
 import fpt.swp391.parkingmanagement.entity.ParkingSession;
 import fpt.swp391.parkingmanagement.repository.ParkingSessionRepository;
+import fpt.swp391.parkingmanagement.config.ParkingConfig;
 import fpt.swp391.parkingmanagement.service.AuditLogService;
 import fpt.swp391.parkingmanagement.service.NotificationService;
-import fpt.swp391.parkingmanagement.service.SystemConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PaymentReminderJob {
 
     private final ParkingSessionRepository parkingSessionRepository;
-    private final SystemConfigService systemConfigService;
+    private final ParkingConfig parkingConfig;
     private final NotificationService notificationService;
     private final AuditLogService auditLogService;
 
@@ -31,7 +31,7 @@ public class PaymentReminderJob {
     @Scheduled(fixedRate = 300000) // every 5 minutes
     @Transactional(readOnly = true)
     public void remindUnpaid() {
-        int minutes = systemConfigService.getInt(SystemConfigService.PAYMENT_REMINDER_MINUTES, 15);
+        int minutes = parkingConfig.getPaymentReminderMinutes();
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime cutoff = now.minusMinutes(minutes);
         List<ParkingSession> sessions = parkingSessionRepository.findPendingPaymentSessionsBefore(cutoff);
