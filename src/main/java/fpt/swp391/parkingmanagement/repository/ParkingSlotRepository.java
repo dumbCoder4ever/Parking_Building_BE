@@ -6,9 +6,12 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 import fpt.swp391.parkingmanagement.entity.ParkingSlot;
 
@@ -110,6 +113,27 @@ public interface ParkingSlotRepository extends JpaRepository<ParkingSlot, String
             String buildingId, String typeName) {
         return findAvailableByBuildingAndVehicleTypeName(
                 buildingId, typeName, org.springframework.data.domain.PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"zone.floor.building", "zone.floor.vehicleType"})
+    @Query("SELECT ps FROM ParkingSlot ps " +
+            "JOIN ps.zone z JOIN z.floor f JOIN f.vehicleType vt JOIN f.building b " +
+            "WHERE b.buildingId = :buildingId " +
+            "AND vt.vehicleTypeId = :vehicleTypeId " +
+            "AND ps.slotStatus = 'AVAILABLE' " +
+            "ORDER BY f.floorLevel ASC, ps.slotName ASC")
+    List<ParkingSlot> lockFirstAvailableByBuildingAndVehicleType(
+            @Param("buildingId") String buildingId,
+            @Param("vehicleTypeId") String vehicleTypeId,
+            org.springframework.data.domain.Pageable pageable);
+
+    default java.util.Optional<ParkingSlot> lockFirstAvailableByBuildingAndVehicleType(
+            String buildingId, String vehicleTypeId) {
+        return lockFirstAvailableByBuildingAndVehicleType(
+                buildingId, vehicleTypeId, org.springframework.data.domain.PageRequest.of(0, 1))
                 .stream()
                 .findFirst();
     }

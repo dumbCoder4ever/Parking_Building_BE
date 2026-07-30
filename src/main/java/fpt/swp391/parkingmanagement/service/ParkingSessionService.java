@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 import fpt.swp391.parkingmanagement.dto.CheckinRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutRequest;
 import fpt.swp391.parkingmanagement.dto.CheckoutResponse;
+import fpt.swp391.parkingmanagement.dto.DuplicateSessionInfo;
 import fpt.swp391.parkingmanagement.dto.EstimateResponse;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinOcrRequest;
 import fpt.swp391.parkingmanagement.dto.GuestCheckinRequest;
@@ -113,7 +114,7 @@ public class ParkingSessionService {
         
         // FIX N+1: Use graph query to load reservation, vehicle, slot chain in one query
         Ticket ticket = ticketRepository.findByTicketCodeGraph(req.getTicketCode())
-                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.TICKET_NOT_FOUND));
         System.out.println("[DEBUG-6b654b] Ticket found: " + ticket.getTicketCode() + ", isUsed: " + ticket.getIsUsed());
 
         if (Boolean.TRUE.equals(ticket.getIsUsed())) {
@@ -174,6 +175,7 @@ public class ParkingSessionService {
         session.setReservation(reservation);
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.RESERVATION);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
@@ -702,6 +704,7 @@ public class ParkingSessionService {
         ParkingSession session = new ParkingSession();
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.GUEST);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
@@ -926,6 +929,7 @@ public class ParkingSessionService {
         ParkingSession session = new ParkingSession();
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.GUEST);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("ACTIVE");
@@ -1205,33 +1209,155 @@ public class ParkingSessionService {
     }
 
     /**
-     * Tra cá»©u nhanh biá»ƒn sá»‘ cho mÃ n staff check-in:
-     * 1) reservation PENDING/APPROVED (driver)
-     * 2) guest session ACTIVE (walk-in Ä‘Ã£ check-in)
+     * Tra cứu nhanh biển số cho màn staff (check-in hoặc checkout).
      */
     @Transactional(readOnly = true)
+    public PlateLookupResponse lookupByPlate(String plateNumber, String buildingId, String context) {
+        String normalizedContext = context == null ? "checkin" : context.trim().toLowerCase();
+        if ("checkout".equals(normalizedContext)) {
+            return lookupByPlateForCheckout(plateNumber);
+        }
+        return lookupByPlateForCheckin(plateNumber, buildingId);
+    }
+
+    @Transactional(readOnly = true)
     public PlateLookupResponse lookupByPlate(String plateNumber, String buildingId) {
+        return lookupByPlate(plateNumber, buildingId, "checkin");
+    }
+
+    @Transactional(readOnly = true)
+    public PlateLookupResponse lookupByPlateForCheckin(String plateNumber, String buildingId) {
         Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(plateNumber);
         if (vehicleOpt.isEmpty()) {
             return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
         }
 
         Vehicle vehicle = vehicleOpt.get();
-        Optional<Reservation> matchedReservation = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId())
+        PlateLookupResponse activeOnPlate = guardActiveSessionForPlate(vehicle);
+        if (activeOnPlate != null) {
+            return activeOnPlate;
+        }
+
+        Optional<Reservation> pendingRes = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId())
                 .filter(r -> matchesBuilding(r, buildingId));
-        if (matchedReservation.isPresent()) {
+        if (pendingRes.isPresent()) {
             return PlateLookupResponse.builder()
-                    .lookupType("RESERVATION")
-                    .reservation(toReservationPreview(matchedReservation.get()))
+                    .lookupType("RESERVATION_EXISTS")
+                    .reservation(toReservationPreview(pendingRes.get()))
+                    .isWalkInDriver(false)
+                    .isGuest(false)
                     .build();
         }
 
-        return findActiveGuestSessionByVehicle(vehicle.getVehicleId())
-                .map(ps -> PlateLookupResponse.builder()
-                        .lookupType("GUEST_SESSION")
-                        .guestSession(mapToGuestCheckinResponse(ps))
-                        .build())
-                .orElseGet(() -> PlateLookupResponse.builder().lookupType("NOT_FOUND").build());
+        Optional<Reservation> checkedInRes = reservationRepository.findCheckedInByVehicleId(vehicle.getVehicleId())
+                .filter(r -> matchesBuilding(r, buildingId));
+        if (checkedInRes.isPresent()) {
+            return PlateLookupResponse.builder()
+                    .lookupType("RESERVATION_CHECKED_IN")
+                    .build();
+        }
+
+        boolean isRegisteredDriver = vehicle.getUser() != null;
+        Optional<ParkingSession> activeSession = parkingSessionRepository
+                .findAnyActiveSessionByVehicleIdReadOnly(vehicle.getVehicleId());
+        if (activeSession.isPresent()) {
+            ParkingSession ps = activeSession.get();
+            if (isRegisteredDriver) {
+                return PlateLookupResponse.builder()
+                        .lookupType("WALK_IN_DRIVER")
+                        .walkInDriver(buildWalkInDriverInfo(ps, vehicle))
+                        .duplicateActiveSession(buildDuplicateInfo(ps, "WALK_IN_DRIVER"))
+                        .isWalkInDriver(true)
+                        .isGuest(false)
+                        .build();
+            }
+            return PlateLookupResponse.builder()
+                    .lookupType("GUEST_SESSION")
+                    .guestSession(mapToGuestCheckinResponse(ps))
+                    .duplicateActiveSession(buildDuplicateInfo(ps, "GUEST_SESSION"))
+                    .isWalkInDriver(false)
+                    .isGuest(true)
+                    .build();
+        }
+
+        if ("ACTIVE".equalsIgnoreCase(vehicle.getStatus()) && isRegisteredDriver) {
+            return PlateLookupResponse.builder()
+                    .lookupType("WALK_IN_DRIVER")
+                    .vehicle(toWalkInDriverInfo(vehicle))
+                    .isWalkInDriver(true)
+                    .isGuest(false)
+                    .build();
+        }
+
+        return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+    }
+
+    @Transactional(readOnly = true)
+    public PlateLookupResponse lookupByPlateForCheckout(String plateNumber) {
+        Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(plateNumber);
+        if (vehicleOpt.isEmpty()) {
+            return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+        }
+        Vehicle vehicle = vehicleOpt.get();
+
+        if (vehicle.getUser() != null) {
+            return PlateLookupResponse.builder()
+                    .lookupType("NOT_FOUND")
+                    .isWalkInDriver(false)
+                    .isGuest(false)
+                    .build();
+        }
+
+        Optional<ParkingSession> activeSession = parkingSessionRepository
+                .findAnyActiveSessionByVehicleIdReadOnly(vehicle.getVehicleId());
+        if (activeSession.isPresent()) {
+            ParkingSession ps = activeSession.get();
+            return PlateLookupResponse.builder()
+                    .lookupType("GUEST_SESSION")
+                    .guestSession(mapToGuestCheckinResponse(ps))
+                    .duplicateActiveSession(buildDuplicateInfo(ps, "GUEST_SESSION"))
+                    .isWalkInDriver(false)
+                    .isGuest(true)
+                    .build();
+        }
+
+        return PlateLookupResponse.builder()
+                .lookupType("ALREADY_CHECKED_OUT")
+                .isWalkInDriver(false)
+                .isGuest(false)
+                .build();
+    }
+
+    private PlateLookupResponse guardActiveSessionForPlate(Vehicle vehicle) {
+        Optional<ParkingSession> activeSession = parkingSessionRepository
+                .findAnyActiveSessionByVehicleIdReadOnly(vehicle.getVehicleId());
+        if (activeSession.isEmpty()) {
+            return null;
+        }
+        ParkingSession ps = activeSession.get();
+        String lookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST_SESSION";
+        return PlateLookupResponse.builder()
+                .lookupType("ALREADY_CHECKED_IN")
+                .duplicateActiveSession(buildDuplicateInfo(ps, lookupType))
+                .isWalkInDriver(vehicle.getUser() != null)
+                .isGuest(vehicle.getUser() == null)
+                .build();
+    }
+
+    private DuplicateSessionInfo buildDuplicateInfo(ParkingSession session, String lookupType) {
+        if (session == null) {
+            return null;
+        }
+        return DuplicateSessionInfo.builder()
+                .sessionId(session.getSessionId())
+                .ticketCode(session.getTicket() != null ? session.getTicket().getTicketCode() : null)
+                .slotName(session.getSlot() != null ? session.getSlot().getSlotName() : null)
+                .zoneName(session.getSlot() != null && session.getSlot().getZone() != null
+                        ? session.getSlot().getZone().getZoneName() : null)
+                .checkinTime(session.getCheckinTime())
+                .sessionStatus(session.getSessionStatus())
+                .lookupType(lookupType)
+                .build();
     }
 
     /**
@@ -1912,6 +2038,13 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
                     "Plate number " + normalizedPlate + " already has an active reservation (code: " + r.getReservationCode() + ", status: " + r.getReservationStatus() + "). Please use DRIVER mode to check in.");
         }
+
+        resolveVehicleByPlate(normalizedPlate)
+                .filter(v -> v.getUser() != null)
+                .ifPresent(v -> {
+                    throw new BaseAPIException(ErrorCode.DRIVER_OWNED_PLATE_CANNOT_GUEST_CHECKIN,
+                            "This plate belongs to a registered driver. Please use Walk-in Driver mode.");
+                });
         
         // 3c. Validate khÃ´ng cÃ³ active session (phÃ²ng trÆ°á»ng há»£p guest session trÃ¹ng biá»ƒn sá»‘)
         validateNoActiveSessionForPlate(normalizedPlate);
@@ -1942,6 +2075,7 @@ public class ParkingSessionService {
         ParkingSession session = new ParkingSession();
         session.setVehicle(vehicle);
         session.setSlot(slot);
+        session.setCheckinType(ParkingSession.CheckinType.GUEST);
         session.setCheckinTime(now);
         session.setParkingDuration(0);
         session.setSessionStatus("PENDING_PAYMENT");
@@ -2003,6 +2137,36 @@ public class ParkingSessionService {
         }
     }
 
+    private void validateNoActiveSessionForDriver(String userId, String targetVehicleId) {
+        if (userId == null || userId.isBlank()) {
+            return;
+        }
+        List<ParkingSession> active = parkingSessionRepository.findActiveSessionsByUserId(userId);
+        for (ParkingSession ps : active) {
+            if (ps.getVehicle() == null) {
+                continue;
+            }
+            if (ps.getVehicle().getVehicleId().equals(targetVehicleId)) {
+                throw new BaseAPIException(ErrorCode.PLATE_ALREADY_PARKED,
+                        "This vehicle already has an active session (session: " + ps.getSessionId() + ").");
+            }
+            throw new BaseAPIException(ErrorCode.DRIVER_HAS_ACTIVE_SESSION,
+                    "Driver is already parking another vehicle (plate: "
+                            + ps.getVehicle().getPlateNumber() + "). Please checkout that vehicle first.");
+        }
+    }
+
+    private void applyDriverInfoToResponse(QuickCheckinResponse resp, User driver) {
+        if (driver == null) {
+            return;
+        }
+        resp.setDriverUserId(driver.getUserId());
+        resp.setDriverUsername(driver.getUsername());
+        resp.setDriverFullName(driver.getFullName());
+        resp.setDriverPhone(driver.getPhoneNumber());
+        resp.setDriverEmail(driver.getEmail());
+    }
+
     private void applyHierarchyQuick(QuickCheckinResponse resp, ParkingSlot slot) {
         if (slot == null) return;
         resp.setSlotId(slot.getSlotId());
@@ -2038,19 +2202,14 @@ public class ParkingSessionService {
      */
     @Transactional
     public QuickCheckinResponse quickAutoCheckin(String staffEmail, QuickCheckinRequest req) {
-        // 1. Staff pháº£i Ä‘Æ°á»£c assign vÃ o building
         checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
 
-        // 2. Resolve plate once; downstream driver/guest flows reuse req.plateNumber (no second OCR)
         String plateNumber = resolvePlateNumber(req);
         String normalizedPlate = plateNumber.toUpperCase();
 
-        System.out.println("[DEBUG-6b654b] quickAutoCheckin - plate: '" + normalizedPlate + "', buildingId: " + req.getBuildingId());
+        log.debug("quickAutoCheckin - plate: '{}', buildingId: {}", normalizedPlate, req.getBuildingId());
 
-        // 3. TÃ¬m reservation theo plate
         List<Reservation> reservations = findPendingReservationsByPlate(normalizedPlate);
-
-        // 4. Auto-detect: lá»c reservation theo building
         Reservation matched = null;
         for (Reservation r : reservations) {
             if (r.getSlot() != null && r.getSlot().getZone() != null
@@ -2061,20 +2220,125 @@ public class ParkingSessionService {
             }
         }
 
-        // 5. Xá»­ lÃ½ theo loáº¡i
         if (matched != null) {
-            // DRIVER flow - gá»i quickDriverCheckin (nÃ³ sáº½ validate láº¡i)
-            System.out.println("[DEBUG-6b654b] quickAutoCheckin - DETECTED DRIVER, reservationCode: " + matched.getReservationCode());
+            log.debug("quickAutoCheckin - DETECTED DRIVER, reservationCode: {}", matched.getReservationCode());
             return quickDriverCheckin(staffEmail, req);
-        } else {
-            // GUEST flow
+        }
+
+        Optional<Vehicle> vehicleOpt = resolveVehicleByPlate(normalizedPlate);
+        if (vehicleOpt.isPresent() && vehicleOpt.get().getUser() != null) {
+            log.debug("quickAutoCheckin - DETECTED DRIVER_WALK_IN, owner: {}",
+                    vehicleOpt.get().getUser().getUsername());
             if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
                 throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
-                        "vehicleTypeId is required for Guest mode");
+                        "vehicleTypeId is required for Driver Walk-in mode");
             }
-            System.out.println("[DEBUG-6b654b] quickAutoCheckin - DETECTED GUEST");
-            return quickGuestCheckin(staffEmail, req, normalizedPlate);
+            return quickDriverWalkInCheckin(staffEmail, req, vehicleOpt.get(), normalizedPlate);
         }
+
+        if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
+            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                    "vehicleTypeId is required for Guest mode");
+        }
+        log.debug("quickAutoCheckin - DETECTED GUEST");
+        return quickGuestCheckin(staffEmail, req, normalizedPlate);
+    }
+
+    @Transactional
+    public QuickCheckinResponse quickDriverWalkInCheckin(
+            String staffEmail, QuickCheckinRequest req,
+            Vehicle vehicle, String normalizedPlate) {
+
+        checkStaffBuildingAssignment(staffEmail, req.getBuildingId());
+
+        User driver = vehicle.getUser();
+        if (driver == null) {
+            throw new BaseAPIException(ErrorCode.UNAUTHORIZED, "Vehicle is not linked to any driver account");
+        }
+        if (!"ACTIVE".equalsIgnoreCase(driver.getStatus())) {
+            throw new BaseAPIException(ErrorCode.DRIVER_ACCOUNT_DEACTIVATED,
+                    "Driver account " + driver.getUsername() + " is " + driver.getStatus()
+                            + " and cannot check in.");
+        }
+
+        if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
+            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                    "vehicleTypeId is required for Walk-in Driver mode");
+        }
+        VehicleType vehicleType = vehicle.getVehicleType();
+        if (vehicleType == null || !req.getVehicleTypeId().equals(vehicleType.getVehicleTypeId())) {
+            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_MISMATCH,
+                    "vehicleTypeId does not match registered vehicle type for plate " + normalizedPlate);
+        }
+
+        validateNoActiveSessionForDriver(driver.getUserId(), vehicle.getVehicleId());
+
+        ParkingSlot slot = parkingSlotRepository
+                .lockFirstAvailableByBuildingAndVehicleType(req.getBuildingId(), req.getVehicleTypeId())
+                .orElseThrow(() -> new BaseAPIException(ErrorCode.SLOT_NOT_AVAILABLE,
+                        "No available slots for vehicle type " + vehicleType.getTypeName() + " at this building."));
+
+        PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+        if (policy == null) {
+            throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                    "No pricing policy configured for vehicle type " + vehicleType.getTypeName());
+        }
+        BigDecimal basePrice = policy.getBasePrice() != null ? policy.getBasePrice() : BigDecimal.ZERO;
+        BigDecimal hourlyRate = policy.getHourlyRate() != null ? policy.getHourlyRate() : BigDecimal.ZERO;
+        BigDecimal estimatedFee = pricingService.calculateByPolicy(policy, 1);
+
+        LocalDateTime now = LocalDateTime.now();
+        User staff = userRepository.findByEmail(staffEmail).orElse(null);
+
+        Ticket ticket = new Ticket();
+        ticket.setTicketCode(generateGuestTicketCode());
+        ticket.setIsUsed(false);
+        ticket.setIsLost(false);
+        ticket.setStatus("ACTIVE");
+        ticket.setIssuedAt(now);
+        Ticket savedTicket = ticketRepository.save(ticket);
+
+        ParkingSession session = new ParkingSession();
+        session.setVehicle(vehicle);
+        session.setSlot(slot);
+        session.setTicket(savedTicket);
+        session.setUser(driver);
+        session.setCheckinType(ParkingSession.CheckinType.DRIVER_WALK_IN);
+        session.setCheckinTime(now);
+        session.setParkingDuration(0);
+        session.setSessionStatus("PENDING_PAYMENT");
+        session.setPaymentStatus("UNPAID");
+        session.setEstimatedFee(estimatedFee);
+        session.setNote(req.getNote());
+        session.setCheckinVehicleImage(req.getCheckinVehicleImage());
+        session.setCreatedBy(staff);
+
+        ParkingSession saved = parkingSessionRepository.save(session);
+        zoneStatusSyncService.updateSlotStatus(slot, "OCCUPIED");
+
+        QuickCheckinResponse resp = new QuickCheckinResponse();
+        resp.setCheckinType("DRIVER_WALK_IN");
+        resp.setTicketCode(savedTicket.getTicketCode());
+        resp.setSessionId(saved.getSessionId());
+        resp.setPlateNumber(normalizedPlate);
+        resp.setOcrConfidence(1.0);
+        resp.setVehicleColor(vehicle.getVehicleColor());
+        resp.setBrand(vehicle.getBrand());
+        resp.setModel(vehicle.getModel());
+        resp.setVehicleTypeId(vehicleType.getVehicleTypeId());
+        resp.setVehicleTypeName(vehicleType.getTypeName());
+        applyDriverInfoToResponse(resp, driver);
+        resp.setCheckinTime(now);
+        resp.setCheckinVehicleImage(saved.getCheckinVehicleImage());
+        resp.setParkingDuration(0);
+        resp.setBasePrice(basePrice);
+        resp.setHourlyRate(hourlyRate);
+        resp.setEstimatedFee(estimatedFee);
+        applyHierarchyQuick(resp, slot);
+
+        log.info("quickDriverWalkInCheckin success: sessionId={}, ticket={}, driver={}, plate={}",
+                saved.getSessionId(), savedTicket.getTicketCode(), driver.getUsername(), normalizedPlate);
+        return resp;
     }
 
     // ======================== END QUICK CHECKIN FLOW ========================

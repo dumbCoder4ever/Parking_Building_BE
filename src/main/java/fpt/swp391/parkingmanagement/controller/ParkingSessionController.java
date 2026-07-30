@@ -54,8 +54,9 @@ public class ParkingSessionController {
     public ResponseEntity<ApiResponse<PlateLookupResponse>> lookupByPlate(
             @PathVariable String plateNumber,
             @RequestParam(required = false) String buildingId,
+            @RequestParam(required = false, defaultValue = "checkin") String context,
             Authentication auth) {
-        PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId);
+        PlateLookupResponse resp = parkingSessionService.lookupByPlate(plateNumber, buildingId, context);
         return ResponseEntity.ok(ApiResponse.ok("Plate lookup completed", resp));
     }
 
@@ -107,9 +108,16 @@ public class ParkingSessionController {
             @RequestParam(required = false) MultipartFile plateImage,
             Authentication auth) {
 
-        if (plateImage != null && !plateImage.isEmpty() && buildingId != null && !buildingId.isBlank()) {
+        boolean quickCheckin = (ticketCode == null || ticketCode.isBlank())
+                && buildingId != null && !buildingId.isBlank()
+                && ((plateNumber != null && !plateNumber.isBlank())
+                    || (plateImage != null && !plateImage.isEmpty()));
+
+        if (quickCheckin) {
             QuickCheckinRequest req = new QuickCheckinRequest();
-            req.setPlateImage(plateImage);
+            if (plateImage != null && !plateImage.isEmpty()) {
+                req.setPlateImage(plateImage);
+            }
             req.setPlateNumber(plateNumber);
             req.setBuildingId(buildingId);
             req.setVehicleTypeId(vehicleTypeId);
@@ -118,11 +126,19 @@ public class ParkingSessionController {
             req.setGuestPhone(guestPhone);
             req.setNote(note);
             MultipartFile imageToUpload = checkinImage != null && !checkinImage.isEmpty()
-                    ? checkinImage : plateImage;
-            req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(imageToUpload));
+                    ? checkinImage
+                    : plateImage;
+            if (imageToUpload != null && !imageToUpload.isEmpty()) {
+                req.setCheckinVehicleImage(cloudinaryService.uploadParkingImage(imageToUpload));
+            }
 
             QuickCheckinResponse result = parkingSessionService.quickAutoCheckin(auth.getName(), req);
             return ResponseEntity.ok(ApiResponse.ok("Check-in successful", result));
+        }
+
+        if (ticketCode == null || ticketCode.isBlank()) {
+            throw new BaseAPIException(ErrorCode.BAD_REQUEST,
+                    "ticketCode is required for reservation check-in, or provide plateNumber + buildingId for guest/walk-in check-in");
         }
 
         CheckinRequest req = new CheckinRequest();

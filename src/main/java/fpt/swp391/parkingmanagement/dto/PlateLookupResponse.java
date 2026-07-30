@@ -10,12 +10,17 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Plate lookup result for staff check-in screen. Prioritizes PENDING reservation before guest session.")
+@Schema(description = "Plate lookup result for staff check-in / checkout screen.")
 public class PlateLookupResponse {
 
-    @Schema(description = "RESERVATION | GUEST_SESSION | NOT_FOUND")
+    @Schema(description = "RESERVATION_EXISTS | RESERVATION_CHECKED_IN | WALK_IN_DRIVER | GUEST_SESSION | ALREADY_CHECKED_IN | ALREADY_CHECKED_OUT | NOT_FOUND")
     private String lookupType;
 
     private ReservationResponse reservation;
     private GuestCheckinResponse guestSession;
+    private WalkInDriverInfo walkInDriver;
+    private WalkInDriverInfo vehicle;
+    private Boolean isWalkInDriver;
+    private Boolean isGuest;
+    private DuplicateSessionInfo duplicateActiveSession;
 }

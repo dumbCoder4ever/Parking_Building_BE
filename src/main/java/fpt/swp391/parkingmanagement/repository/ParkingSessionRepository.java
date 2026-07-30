@@ -229,8 +229,36 @@ public interface ParkingSessionRepository extends JpaRepository<ParkingSession, 
     List<ParkingSession> findActiveSessionsIncludingReservationByVehicleId(
             @Param("vehicleId") String vehicleId, Pageable pageable);
 
+    @Query("SELECT ps FROM ParkingSession ps "
+            + "LEFT JOIN FETCH ps.vehicle gv "
+            + "LEFT JOIN FETCH ps.reservation r LEFT JOIN FETCH r.vehicle rv "
+            + "LEFT JOIN FETCH ps.ticket "
+            + "WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT') "
+            + "AND ((gv IS NOT NULL AND gv.vehicleId = :vehicleId) "
+            + "OR (rv IS NOT NULL AND rv.vehicleId = :vehicleId)) "
+            + "ORDER BY ps.checkinTime DESC")
+    List<ParkingSession> findActiveSessionsIncludingReservationByVehicleIdReadOnly(
+            @Param("vehicleId") String vehicleId, Pageable pageable);
+
+    @Query("""
+            SELECT ps FROM ParkingSession ps
+            LEFT JOIN ps.reservation r
+            WHERE ps.sessionStatus IN ('ACTIVE', 'PENDING_PAYMENT')
+              AND (
+                  (r IS NOT NULL AND r.user.userId = :userId)
+                  OR (ps.user IS NOT NULL AND ps.user.userId = :userId)
+              )
+            """)
+    List<ParkingSession> findActiveSessionsByUserId(@Param("userId") String userId);
+
     default Optional<ParkingSession> findAnyActiveSessionByVehicleId(String vehicleId) {
         return findActiveSessionsIncludingReservationByVehicleId(vehicleId, PageRequest.of(0, 1))
+                .stream()
+                .findFirst();
+    }
+
+    default Optional<ParkingSession> findAnyActiveSessionByVehicleIdReadOnly(String vehicleId) {
+        return findActiveSessionsIncludingReservationByVehicleIdReadOnly(vehicleId, PageRequest.of(0, 1))
                 .stream()
                 .findFirst();
     }
