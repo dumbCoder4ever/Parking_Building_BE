@@ -27,6 +27,9 @@ public class QuickCheckinRequest {
     private String guestPhone;
     private String note;
 
+    @Schema(description = "Optional force mode: GUEST skips driver auto-detect when staff chose Guest Walk-in on FE.")
+    private String mode;
+
     /** Set programmatically after Cloudinary upload — not sent by client */
     private String checkinVehicleImage;
 }

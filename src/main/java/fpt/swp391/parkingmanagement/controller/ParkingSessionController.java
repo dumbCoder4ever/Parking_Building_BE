@@ -92,6 +92,7 @@ public class ParkingSessionController {
                     - Test nhanh: gửi `ticketCode` + `plateNumber` hoặc `checkinImage`.
                     - Nếu gửi `plateImage` + `buildingId` thì dùng OCR quick auto check-in: DRIVER nếu đã có reservation, GUEST nếu vãng lai.
                     - GUEST có thể bổ sung `vehicleTypeId`, `guestName`, `guestPhone`, `note`.
+                    - Gửi `mode=GUEST` khi staff chọn Guest Walk-in để bỏ qua auto-detect driver.
                     Lưu ý: authentication header bắt buộc.
                     """)
     @PostMapping(value = "/sessions/checkin", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -104,6 +105,7 @@ public class ParkingSessionController {
             @RequestParam(required = false) String guestName,
             @RequestParam(required = false) String guestPhone,
             @RequestParam(required = false) String note,
+            @RequestParam(required = false) String mode,
             @RequestParam(required = false) MultipartFile checkinImage,
             @RequestParam(required = false) MultipartFile plateImage,
             Authentication auth) {
@@ -125,6 +127,7 @@ public class ParkingSessionController {
             req.setGuestName(guestName);
             req.setGuestPhone(guestPhone);
             req.setNote(note);
+            req.setMode(mode);
             MultipartFile imageToUpload = checkinImage != null && !checkinImage.isEmpty()
                     ? checkinImage
                     : plateImage;

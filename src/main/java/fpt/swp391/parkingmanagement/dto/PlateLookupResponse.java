@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "Plate lookup result for staff check-in / checkout screen.")
 public class PlateLookupResponse {
 
-    @Schema(description = "RESERVATION | WALK_IN_DRIVER | GUEST_SESSION | ALREADY_CHECKED_IN | ALREADY_CHECKED_OUT | NOT_FOUND")
+    @Schema(description = "RESERVATION | GUEST | WALK_IN_DRIVER | GUEST_SESSION | ALREADY_CHECKED_IN | ALREADY_CHECKED_OUT | NOT_FOUND")
     private String lookupType;
 
     private ReservationResponse reservation;

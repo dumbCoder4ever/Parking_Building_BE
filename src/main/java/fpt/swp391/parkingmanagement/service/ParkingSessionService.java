@@ -775,7 +775,8 @@ public class ParkingSessionService {
     public CheckoutResponse guestCheckout(String staffEmail, GuestCheckoutRequest req) {
         String plateNumber = req.getPlateNumber().toUpperCase();
 
-        ParkingSession session = parkingSessionRepository.findActiveGuestByPlateNumber(plateNumber)
+        ParkingSession session = resolveVehicleByPlate(plateNumber)
+                .flatMap(vehicle -> parkingSessionRepository.findActiveGuestByVehicleId(vehicle.getVehicleId()))
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
                         "No active guest session found for plate: " + plateNumber));
 
@@ -895,8 +896,9 @@ public class ParkingSessionService {
         }
         final String finalPlateNumber = plateNumber.toUpperCase();
 
-        // 2. Kiá»ƒm tra biá»ƒn sá»‘ Ä‘Ã£ cÃ³ session ACTIVE chÆ°a (khÃ´ng phÃ¢n biá»‡t driver/guest)
-        Optional<ParkingSession> existingSession = parkingSessionRepository.findActiveGuestByPlateNumber(finalPlateNumber);
+        // 2. Reject duplicate active guest session (supports normalized plate formats).
+        Optional<ParkingSession> existingSession = resolveVehicleByPlate(finalPlateNumber)
+                .flatMap(vehicle -> parkingSessionRepository.findActiveGuestByVehicleId(vehicle.getVehicleId()));
         if (existingSession.isPresent()) {
             ParkingSession dup = existingSession.get();
             String dupTicket = dup.getTicket() != null ? dup.getTicket().getTicketCode() : "N/A";
@@ -1029,8 +1031,8 @@ public class ParkingSessionService {
             throw new BaseAPIException(ErrorCode.VEHICLE_NOT_FOUND,
                     "Session has no vehicle information.");
         }
-        String sessionPlate = sessionVehicle.getPlateNumber().toUpperCase();
-        if (!scannedPlate.equals(sessionPlate)) {
+        String sessionPlate = sessionVehicle.getPlateNumber();
+        if (!platesMatch(scannedPlate, sessionPlate)) {
             throw new BaseAPIException(ErrorCode.PLATE_MISMATCH,
                     "Scanned plate (" + scannedPlate + ") does not match registered plate (" + sessionPlate
                             + "). Verify the vehicle or use manual search.");
@@ -1146,17 +1148,12 @@ public class ParkingSessionService {
     public GuestCheckinResponse findActiveGuestByPlate(String plateNumber) {
         Vehicle vehicle = resolveVehicleByPlate(plateNumber)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
-                        "No active guest session or pending reservation found for plate: " + plateNumber));
-
-        Optional<Reservation> reservation = reservationRepository.findFirstPendingByVehicleId(vehicle.getVehicleId());
-        if (reservation.isPresent()) {
-            return mapReservationToGuestCheckin(reservation.get());
-        }
+                        "No active guest session found for plate: " + plateNumber));
 
         return parkingSessionRepository.findActiveGuestByVehicleId(vehicle.getVehicleId())
                 .map(this::mapToGuestCheckinResponse)
                 .orElseThrow(() -> new BaseAPIException(ErrorCode.GUEST_SESSION_NOT_FOUND,
-                        "No active guest session or pending reservation found for plate: " + plateNumber));
+                        "No active guest session found for plate: " + plateNumber));
     }
 
     private GuestCheckinResponse mapReservationToGuestCheckin(Reservation reservation) {
@@ -1255,7 +1252,7 @@ public class ParkingSessionService {
         }
 
         if (vehicleOpt.isEmpty()) {
-            return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+            return guestWalkInLookup();
         }
 
         Vehicle vehicle = vehicleOpt.get();
@@ -1294,7 +1291,7 @@ public class ParkingSessionService {
                     .build();
         }
 
-        if ("ACTIVE".equalsIgnoreCase(vehicle.getStatus()) && isRegisteredDriver) {
+        if (isRegisteredDriver) {
             return PlateLookupResponse.builder()
                     .lookupType("WALK_IN_DRIVER")
                     .vehicle(toWalkInDriverInfo(vehicle))
@@ -1303,7 +1300,15 @@ public class ParkingSessionService {
                     .build();
         }
 
-        return PlateLookupResponse.builder().lookupType("NOT_FOUND").build();
+        return guestWalkInLookup();
+    }
+
+    private PlateLookupResponse guestWalkInLookup() {
+        return PlateLookupResponse.builder()
+                .lookupType("GUEST")
+                .isGuest(true)
+                .isWalkInDriver(false)
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -1323,7 +1328,7 @@ public class ParkingSessionService {
         }
 
         Optional<ParkingSession> activeSession = parkingSessionRepository
-                .findAnyActiveSessionByVehicleIdReadOnly(vehicle.getVehicleId());
+                .findActiveGuestByVehicleId(vehicle.getVehicleId());
         if (activeSession.isPresent()) {
             ParkingSession ps = activeSession.get();
             return PlateLookupResponse.builder()
@@ -1391,7 +1396,7 @@ public class ParkingSessionService {
         Vehicle vehicle = vehicleOpt.get();
 
         Optional<ParkingSession> sessionOpt = parkingSessionRepository
-                .findAnyActiveSessionByVehicleIdReadOnly(vehicle.getVehicleId());
+                .findActiveByVehicleId(vehicle.getVehicleId());
         if (sessionOpt.isPresent() && sessionOpt.get().getTicket() != null) {
             ParkingSession session = sessionOpt.get();
             String lookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST";
@@ -2042,20 +2047,18 @@ public class ParkingSessionService {
         // [DEBUG] Log OCR result and validation
         System.out.println("[DEBUG-6b654b] OCR raw plate: '" + plateNumber + "', normalized: '" + normalizedPlate + "'");
         
-        // 3b. Cáº¤M Guest checkin náº¿u plate Ä‘Ã£ cÃ³ reservation ACTIVE (PENDING, APPROVED, CHECKED_IN, etc)
-        // â†’ ÄÃ¢y lÃ  Driver, pháº£i dÃ¹ng quickDriverCheckin()
-        // Láº¥y táº¥t cáº£ reservation theo plate vÃ  lá»c trong service
-        List<Reservation> existingReservations = resolveVehicleByPlate(normalizedPlate)
-                .map(vehicle -> reservationRepository.findByVehicleVehicleId(vehicle.getVehicleId()))
-                .orElseGet(List::of);
-        List<Reservation> activeReservations = existingReservations.stream()
-                .filter(r -> !List.of("COMPLETED", "CANCELLED", "EXPIRED").contains(r.getReservationStatus()))
+        // 3b. Block guest check-in when plate has an active reservation at this building.
+        List<Reservation> activeReservations = findPendingReservationsByPlate(normalizedPlate).stream()
+                .filter(r -> matchesBuilding(r, req.getBuildingId()))
                 .toList();
         if (!activeReservations.isEmpty()) {
             Reservation r = activeReservations.get(0);
-            System.out.println("[DEBUG-6b654b] GUEST checkin REJECTED - plate has ACTIVE reservation: " + r.getReservationCode() + ", status: " + r.getReservationStatus());
+            log.info("GUEST checkin REJECTED - plate {} has ACTIVE reservation {}, status: {}",
+                    normalizedPlate, r.getReservationCode(), r.getReservationStatus());
             throw new BaseAPIException(ErrorCode.RESERVATION_EXISTS_FOR_PLATE,
-                    "Plate number " + normalizedPlate + " already has an active reservation (code: " + r.getReservationCode() + ", status: " + r.getReservationStatus() + "). Please use DRIVER mode to check in.");
+                    "Plate number " + normalizedPlate + " already has an active reservation (code: "
+                            + r.getReservationCode() + ", status: " + r.getReservationStatus()
+                            + "). Please use DRIVER mode to check in.");
         }
 
         resolveVehicleByPlate(normalizedPlate)
@@ -2226,7 +2229,17 @@ public class ParkingSessionService {
         String plateNumber = resolvePlateNumber(req);
         String normalizedPlate = plateNumber.toUpperCase();
 
-        log.debug("quickAutoCheckin - plate: '{}', buildingId: {}", normalizedPlate, req.getBuildingId());
+        log.debug("quickAutoCheckin - plate: '{}', buildingId: {}, mode: {}",
+                normalizedPlate, req.getBuildingId(), req.getMode());
+
+        if (isForcedGuestMode(req)) {
+            if (req.getVehicleTypeId() == null || req.getVehicleTypeId().isBlank()) {
+                throw new BaseAPIException(ErrorCode.VEHICLE_TYPE_NOT_FOUND,
+                        "vehicleTypeId is required for Guest mode");
+            }
+            log.debug("quickAutoCheckin - FORCED GUEST mode");
+            return quickGuestCheckin(staffEmail, req, normalizedPlate);
+        }
 
         List<Reservation> reservations = findPendingReservationsByPlate(normalizedPlate);
         Reservation matched = null;
@@ -2261,6 +2274,14 @@ public class ParkingSessionService {
         }
         log.debug("quickAutoCheckin - DETECTED GUEST");
         return quickGuestCheckin(staffEmail, req, normalizedPlate);
+    }
+
+    private boolean isForcedGuestMode(QuickCheckinRequest req) {
+        if (req == null || req.getMode() == null) {
+            return false;
+        }
+        String mode = req.getMode().trim().toUpperCase();
+        return "GUEST".equals(mode) || "GUEST_WALK_IN".equals(mode);
     }
 
     @Transactional
