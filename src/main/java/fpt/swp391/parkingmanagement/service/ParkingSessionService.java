@@ -1335,13 +1335,18 @@ public class ParkingSessionService {
             return null;
         }
         ParkingSession ps = activeSession.get();
-        String lookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST_SESSION";
-        return PlateLookupResponse.builder()
+        String sessionLookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST_SESSION";
+        PlateLookupResponse.PlateLookupResponseBuilder builder = PlateLookupResponse.builder()
                 .lookupType("ALREADY_CHECKED_IN")
-                .duplicateActiveSession(buildDuplicateInfo(ps, lookupType))
+                .duplicateActiveSession(buildDuplicateInfo(ps, sessionLookupType))
                 .isWalkInDriver(vehicle.getUser() != null)
-                .isGuest(vehicle.getUser() == null)
-                .build();
+                .isGuest(vehicle.getUser() == null);
+        if (vehicle.getUser() != null) {
+            builder.walkInDriver(buildWalkInDriverInfo(ps, vehicle));
+        } else {
+            builder.guestSession(mapToGuestCheckinResponse(ps));
+        }
+        return builder.build();
     }
 
     private DuplicateSessionInfo buildDuplicateInfo(ParkingSession session, String lookupType) {
@@ -1371,26 +1376,26 @@ public class ParkingSessionService {
         }
         Vehicle vehicle = vehicleOpt.get();
 
+        Optional<ParkingSession> sessionOpt = parkingSessionRepository
+                .findAnyActiveSessionByVehicleIdReadOnly(vehicle.getVehicleId());
+        if (sessionOpt.isPresent() && sessionOpt.get().getTicket() != null) {
+            ParkingSession session = sessionOpt.get();
+            String lookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST";
+            return PlateTicketCodeResponse.builder()
+                    .found(true)
+                    .ticketCode(session.getTicket().getTicketCode())
+                    .sessionId(session.getSessionId())
+                    .lookupType(lookupType)
+                    .build();
+        }
+
         boolean hasReservation = reservationRepository.existsByVehicleVehicleIdAndReservationStatusIn(
                 vehicle.getVehicleId(), List.of("PENDING", "APPROVED", "CHECKED_IN"));
         if (hasReservation) {
             return PlateTicketCodeResponse.builder().found(false).build();
         }
 
-        Optional<ParkingSession> sessionOpt = parkingSessionRepository.findActiveByVehicleId(vehicle.getVehicleId());
-        if (sessionOpt.isEmpty() || sessionOpt.get().getTicket() == null) {
-            return PlateTicketCodeResponse.builder().found(false).build();
-        }
-
-        ParkingSession session = sessionOpt.get();
-        String lookupType = vehicle.getUser() != null ? "WALK_IN_DRIVER" : "GUEST";
-
-        return PlateTicketCodeResponse.builder()
-                .found(true)
-                .ticketCode(session.getTicket().getTicketCode())
-                .sessionId(session.getSessionId())
-                .lookupType(lookupType)
-                .build();
+        return PlateTicketCodeResponse.builder().found(false).build();
     }
 
     /**
