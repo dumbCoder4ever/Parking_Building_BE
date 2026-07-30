@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -20,7 +22,32 @@ public class PricingService {
 
     @Cacheable(value = "pricingPolicies", key = "#vehicleTypeId", unless = "#result == null")
     public PricingPolicy getActivePolicy(String vehicleTypeId) {
-        return pricingPolicyRepository.findActiveForVehicleType(vehicleTypeId).orElse(null);
+        if (vehicleTypeId == null || vehicleTypeId.isBlank()) {
+            return null;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Optional<PricingPolicy> policy = pricingPolicyRepository.findActiveForVehicleTypeAt(vehicleTypeId, now);
+        if (policy.isPresent()) {
+            return policy.get();
+        }
+        return pricingPolicyRepository.findActiveStatusOnlyForVehicleType(vehicleTypeId).orElse(null);
+    }
+
+    public PricingPolicy getActivePolicyForVehicle(
+            fpt.swp391.parkingmanagement.entity.Vehicle vehicle,
+            fpt.swp391.parkingmanagement.entity.ParkingSlot slot) {
+        String vehicleTypeId = resolveVehicleTypeId(vehicle, slot);
+        PricingPolicy policy = vehicleTypeId != null ? getActivePolicy(vehicleTypeId) : null;
+        if (policy != null) {
+            return policy;
+        }
+        if (vehicle != null && vehicle.getVehicleType() != null
+                && vehicle.getVehicleType().getTypeName() != null) {
+            return pricingPolicyRepository
+                    .findActiveForVehicleTypeNameAt(vehicle.getVehicleType().getTypeName(), LocalDateTime.now())
+                    .orElse(null);
+        }
+        return null;
     }
 
     public BigDecimal calculateFee(String vehicleTypeId, int totalHours) {
@@ -41,9 +68,10 @@ public class PricingService {
 
         String pricingType = normalizePricingType(policy);
         return switch (pricingType) {
-            case "TIERED" -> calculateTieredFee(policy, hours);
+            case "TIERED", "TIERED_HOURLY" -> calculateTieredFee(policy, hours);
             case "DAILY" -> calculateDailyFee(policy, hours);
             case "OVERNIGHT" -> calculateOvernightFee(policy, hours);
+            case "STANDARD", "HOURLY" -> calculateHourlyFee(policy, hours);
             default -> calculateHourlyFee(policy, hours);
         };
     }

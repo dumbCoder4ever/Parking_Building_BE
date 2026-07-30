@@ -270,7 +270,7 @@ public class DriverServiceImpl implements DriverService {
             vehicleTypeName = session.getSlot().getZone().getFloor().getVehicleType().getTypeName();
         }
 
-        PricingPolicy policy = vehicleTypeId != null ? pricingService.getActivePolicy(vehicleTypeId) : null;
+        PricingPolicy policy = pricingService.getActivePolicyForVehicle(vehicle, session.getSlot());
         if (policy != null) {
             basePrice = pricingService.resolveDisplayBasePrice(policy);
             hourlyRate = pricingService.resolveDisplayHourlyRate(policy);
