@@ -55,6 +55,66 @@ public class PricingService {
         return null;
     }
 
+    /**
+     * Resolve vehicle type from vehicle entity or slot floor (fallback when vehicle type missing).
+     */
+    public String resolveVehicleTypeId(
+            fpt.swp391.parkingmanagement.entity.Vehicle vehicle,
+            fpt.swp391.parkingmanagement.entity.ParkingSlot slot) {
+        if (vehicle != null && vehicle.getVehicleType() != null) {
+            return vehicle.getVehicleType().getVehicleTypeId();
+        }
+        if (slot != null && slot.getZone() != null && slot.getZone().getFloor() != null
+                && slot.getZone().getFloor().getVehicleType() != null) {
+            return slot.getZone().getFloor().getVehicleType().getVehicleTypeId();
+        }
+        return null;
+    }
+
+    public String resolveVehicleTypeId(fpt.swp391.parkingmanagement.entity.Reservation reservation) {
+        if (reservation == null) {
+            return null;
+        }
+        return resolveVehicleTypeId(reservation.getVehicle(), reservation.getSlot());
+    }
+
+    public BigDecimal resolveReservationEstimatedFee(
+            fpt.swp391.parkingmanagement.entity.Reservation reservation,
+            fpt.swp391.parkingmanagement.entity.ParkingSession session,
+            PricingPolicy policy) {
+        BigDecimal storedSessionFee = resolveStoredSessionFee(session);
+        if (storedSessionFee != null) {
+            return storedSessionFee;
+        }
+        if (reservation != null && reservation.getEstimatedFee() != null
+                && reservation.getEstimatedFee().compareTo(BigDecimal.ZERO) > 0) {
+            return reservation.getEstimatedFee();
+        }
+        if (policy != null) {
+            return calculateByPolicy(policy, 1);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    public BigDecimal resolveGuestSessionEstimatedFee(
+            fpt.swp391.parkingmanagement.entity.ParkingSession session,
+            PricingPolicy policy,
+            int parkingMinutes) {
+        BigDecimal stored = resolveStoredSessionFee(session);
+        if (stored != null) {
+            return stored;
+        }
+        if (policy != null) {
+            int hours = Math.max(1, (int) Math.ceil(Math.max(parkingMinutes, 1) / 60.0));
+            return calculateByPolicy(policy, hours);
+        }
+        if (session != null && session.getEstimatedFee() != null
+                && session.getEstimatedFee().compareTo(BigDecimal.ZERO) > 0) {
+            return session.getEstimatedFee();
+        }
+        return BigDecimal.ZERO;
+    }
+
     @CacheEvict(value = "pricingPolicies", allEntries = true)
     public void evictAllPricingCache() {
         // Method rỗng - chỉ để evict cache khi Manager cập nhật pricing policy

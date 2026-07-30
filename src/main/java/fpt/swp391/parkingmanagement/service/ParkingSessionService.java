@@ -1292,9 +1292,11 @@ public class ParkingSessionService {
         }
 
         if (isRegisteredDriver) {
+            WalkInDriverInfo walkInInfo = toWalkInDriverInfo(vehicle);
+            applyWalkInPreviewFee(walkInInfo, vehicle);
             return PlateLookupResponse.builder()
                     .lookupType("WALK_IN_DRIVER")
-                    .vehicle(toWalkInDriverInfo(vehicle))
+                    .vehicle(walkInInfo)
                     .isWalkInDriver(true)
                     .isGuest(false)
                     .build();
@@ -1550,16 +1552,43 @@ public class ParkingSessionService {
                 info.setBasePrice(policy.getBasePrice());
                 info.setHourlyRate(policy.getHourlyRate());
                 int hours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
-                info.setEstimatedFee(pricingService.calculateByPolicy(policy, hours));
+                info.setEstimatedFee(pricingService.resolveGuestSessionEstimatedFee(session, policy, parkingMinutes));
             }
         }
         return info;
+    }
+
+    private void applyWalkInPreviewFee(WalkInDriverInfo info, Vehicle vehicle) {
+        if (info == null || vehicle == null || vehicle.getVehicleType() == null) {
+            return;
+        }
+        PricingPolicy policy = pricingService.getActivePolicy(vehicle.getVehicleType().getVehicleTypeId());
+        if (policy == null) {
+            return;
+        }
+        info.setBasePrice(policy.getBasePrice());
+        info.setHourlyRate(policy.getHourlyRate());
+        info.setEstimatedFee(pricingService.calculateByPolicy(policy, 1));
     }
 
     private void enrichReservationPreviewWithFee(ReservationResponse resp, Reservation reservation) {
         ParkingSession session = parkingSessionRepository
                 .findByReservationReservationId(reservation.getReservationId())
                 .orElse(null);
+
+        String vtId = pricingService.resolveVehicleTypeId(reservation);
+        PricingPolicy policy = vtId != null ? pricingService.getActivePolicy(vtId) : null;
+        if (policy != null) {
+            if (resp.getBasePrice() == null) {
+                resp.setBasePrice(policy.getBasePrice());
+            }
+            if (resp.getHourlyRate() == null) {
+                resp.setHourlyRate(policy.getHourlyRate());
+            }
+            if (resp.getMaxHours() == null) {
+                resp.setMaxHours(policy.getMaxHours());
+            }
+        }
 
         if (session != null) {
             resp.setSessionId(session.getSessionId());
@@ -1571,13 +1600,19 @@ public class ParkingSessionService {
                 BigDecimal resolved = session.getTotalFee() != null
                         ? session.getTotalFee() : session.getEstimatedFee();
                 resp.setTotalFee(resolved);
-                resp.setEstimatedFee(resolved);
+                resp.setEstimatedFee(resolved != null ? resolved : BigDecimal.ZERO);
             } else {
-                int hours = Math.max(1, (int) Math.ceil(resolveParkingDurationMinutes(session) / 60.0));
-                String vtId = reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null
-                        ? reservation.getVehicle().getVehicleType().getVehicleTypeId() : null;
-                BigDecimal calc = vtId != null ? pricingService.calculateFee(vtId, hours) : session.getEstimatedFee();
-                resp.setEstimatedFee(calc != null ? calc : session.getEstimatedFee());
+                int parkingMinutes = resolveParkingDurationMinutes(session);
+                int hours = Math.max(1, (int) Math.ceil(parkingMinutes / 60.0));
+                BigDecimal stored = pricingService.resolveStoredSessionFee(session);
+                BigDecimal timeBased = vtId != null ? pricingService.calculateFee(vtId, hours) : null;
+                if (stored != null) {
+                    resp.setEstimatedFee(stored);
+                } else if (timeBased != null && timeBased.compareTo(BigDecimal.ZERO) > 0) {
+                    resp.setEstimatedFee(timeBased);
+                } else {
+                    resp.setEstimatedFee(pricingService.resolveReservationEstimatedFee(reservation, session, policy));
+                }
             }
             if (session.getPaymentStatus() != null) {
                 resp.setPaymentStatus(session.getPaymentStatus());
@@ -1589,14 +1624,7 @@ public class ParkingSessionService {
                 resp.setCheckoutVehicleImage(session.getCheckoutVehicleImage());
             }
         } else {
-            String vtId = reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null
-                    ? reservation.getVehicle().getVehicleType().getVehicleTypeId() : null;
-            if (vtId != null) {
-                PricingPolicy policy = pricingService.getActivePolicy(vtId);
-                if (policy != null) {
-                    resp.setEstimatedFee(pricingService.calculateByPolicy(policy, 1));
-                }
-            }
+            resp.setEstimatedFee(pricingService.resolveReservationEstimatedFee(reservation, null, policy));
         }
     }
 
@@ -1744,12 +1772,6 @@ public class ParkingSessionService {
                 resp.setVehicleTypeName(vehicle.getVehicleType().getTypeName());
                 resp.setFloorVehicleTypeId(vehicle.getVehicleType().getVehicleTypeId());
                 resp.setFloorVehicleTypeName(vehicle.getVehicleType().getTypeName());
-                PricingPolicy policy = pricingService.getActivePolicy(vehicle.getVehicleType().getVehicleTypeId());
-                if (policy != null) {
-                    resp.setBasePrice(policy.getBasePrice());
-                    resp.setHourlyRate(policy.getHourlyRate());
-                    resp.setMaxHours(policy.getMaxHours());
-                }
             }
         }
 
@@ -1769,8 +1791,12 @@ public class ParkingSessionService {
                     resp.setFloorName(floor.getFloorName());
                     resp.setFloorLevel(floor.getFloorLevel());
                     if (floor.getVehicleType() != null) {
-                        resp.setFloorVehicleTypeId(floor.getVehicleType().getVehicleTypeId());
-                        resp.setFloorVehicleTypeName(floor.getVehicleType().getTypeName());
+                        if (resp.getFloorVehicleTypeId() == null) {
+                            resp.setFloorVehicleTypeId(floor.getVehicleType().getVehicleTypeId());
+                        }
+                        if (resp.getFloorVehicleTypeName() == null) {
+                            resp.setFloorVehicleTypeName(floor.getVehicleType().getTypeName());
+                        }
                     }
                     Building building = floor.getBuilding();
                     if (building != null) {
@@ -1781,8 +1807,20 @@ public class ParkingSessionService {
             }
         }
 
+        String vtId = pricingService.resolveVehicleTypeId(reservation);
+        if (vtId != null) {
+            PricingPolicy policy = pricingService.getActivePolicy(vtId);
+            if (policy != null) {
+                resp.setBasePrice(policy.getBasePrice());
+                resp.setHourlyRate(policy.getHourlyRate());
+                resp.setMaxHours(policy.getMaxHours());
+            }
+        }
+
         ticketRepository.findByReservationReservationId(reservation.getReservationId())
                 .ifPresent(ticket -> resp.setTicketCode(ticket.getTicketCode()));
+
+        enrichReservationPreviewWithFee(resp, reservation);
         return resp;
     }
 
@@ -1800,17 +1838,18 @@ public class ParkingSessionService {
         resp.setCheckinTime(ps.getCheckinTime());
         resp.setCheckinVehicleImage(ps.getCheckinVehicleImage());
         resp.setStatus(ps.getSessionStatus());
-        resp.setParkingDuration(resolveParkingDurationMinutes(ps));
-        BigDecimal storedFee = pricingService.resolveStoredSessionFee(ps);
-        resp.setEstimatedFee(storedFee != null ? storedFee : ps.getEstimatedFee());
+        int parkingMinutes = resolveParkingDurationMinutes(ps);
+        resp.setParkingDuration(parkingMinutes);
 
+        PricingPolicy policy = null;
         if (vehicleType != null) {
-            PricingPolicy policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
+            policy = pricingService.getActivePolicy(vehicleType.getVehicleTypeId());
             if (policy != null) {
                 resp.setBasePrice(policy.getBasePrice());
                 resp.setHourlyRate(policy.getHourlyRate());
             }
         }
+        resp.setEstimatedFee(pricingService.resolveGuestSessionEstimatedFee(ps, policy, parkingMinutes));
 
         if (vehicle != null) {
             resp.setVehiclePlate(vehicle.getPlateNumber());

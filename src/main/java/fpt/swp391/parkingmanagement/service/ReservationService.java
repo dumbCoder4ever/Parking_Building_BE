@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -420,12 +421,14 @@ public class ReservationService {
                 .collect(Collectors.toMap(s -> s.getReservation().getReservationId(), Function.identity(), (a, b) -> a));
 
         // Batch 3: load tất cả pricing policies theo vehicle types (1 query)
-        Set<String> vehicleTypeIds = reservations.stream()
-                .filter(r -> r.getVehicle() != null && r.getVehicle().getVehicleType() != null)
-                .map(r -> r.getVehicle().getVehicleType().getVehicleTypeId())
-                .collect(Collectors.toSet());
-
         Map<String, PricingPolicy> policyByVehicleTypeId = new HashMap<>();
+        Set<String> vehicleTypeIds = new HashSet<>();
+        for (Reservation reservation : reservations) {
+            String vtId = pricingService.resolveVehicleTypeId(reservation);
+            if (vtId != null) {
+                vehicleTypeIds.add(vtId);
+            }
+        }
         if (!vehicleTypeIds.isEmpty()) {
             List<PricingPolicy> policies = pricingPolicyRepository.findAllActiveByVehicleTypeIds(vehicleTypeIds);
             for (PricingPolicy p : policies) {
@@ -441,8 +444,7 @@ public class ReservationService {
                         r,
                         ticketByReservationId.get(r.getReservationId()),
                         latestSessionByResId.get(r.getReservationId()),
-                        policyByVehicleTypeId.get(r.getVehicle() != null && r.getVehicle().getVehicleType() != null
-                                ? r.getVehicle().getVehicleType().getVehicleTypeId() : null)))
+                        policyByVehicleTypeId.get(pricingService.resolveVehicleTypeId(r))))
                 .toList();
     }
 
@@ -472,25 +474,14 @@ public class ReservationService {
             resp.setParkingDuration(session.getParkingDuration());
             resp.setPaymentStatus(session.getPaymentStatus());
         } else {
-            resp.setEstimatedFee(reservation.getEstimatedFee());
+            resp.setEstimatedFee(resolveReservationEstimatedFee(reservation, null, policy));
         }
         return resp;
     }
 
     private BigDecimal resolveReservationEstimatedFee(
             Reservation reservation, ParkingSession session, PricingPolicy policy) {
-        BigDecimal storedSessionFee = pricingService.resolveStoredSessionFee(session);
-        if (storedSessionFee != null) {
-            return storedSessionFee;
-        }
-        if (reservation.getEstimatedFee() != null
-                && reservation.getEstimatedFee().compareTo(BigDecimal.ZERO) > 0) {
-            return reservation.getEstimatedFee();
-        }
-        if (policy != null) {
-            return pricingService.calculateByPolicy(policy, 1);
-        }
-        return BigDecimal.ZERO;
+        return pricingService.resolveReservationEstimatedFee(reservation, session, policy);
     }
 
     // ============ STAFF APIs ============
@@ -1048,15 +1039,19 @@ public class ReservationService {
         ReservationResponse resp = toReservationResponseCore(reservation, ticket);
 
         // Pricing query (session đã load sẵn)
+        String vtId = pricingService.resolveVehicleTypeId(reservation);
+        PricingPolicy policy = vtId != null ? pricingService.getActivePolicy(vtId) : null;
         if (reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null) {
-            String vtId = reservation.getVehicle().getVehicleType().getVehicleTypeId();
             resp.setVehicleTypeName(reservation.getVehicle().getVehicleType().getTypeName());
-            var policy = pricingService.getActivePolicy(vtId);
-            if (policy != null) {
-                resp.setBasePrice(policy.getBasePrice());
-                resp.setHourlyRate(policy.getHourlyRate());
-                resp.setMaxHours(policy.getMaxHours());
-            }
+        } else if (reservation.getSlot() != null && reservation.getSlot().getZone() != null
+                && reservation.getSlot().getZone().getFloor() != null
+                && reservation.getSlot().getZone().getFloor().getVehicleType() != null) {
+            resp.setVehicleTypeName(reservation.getSlot().getZone().getFloor().getVehicleType().getTypeName());
+        }
+        if (policy != null) {
+            resp.setBasePrice(policy.getBasePrice());
+            resp.setHourlyRate(policy.getHourlyRate());
+            resp.setMaxHours(policy.getMaxHours());
         }
 
         // Session (đã load sẵn hoặc query nếu null)
@@ -1072,17 +1067,13 @@ public class ReservationService {
             resp.setCheckoutTime(effectiveSession.getCheckoutTime());
             resp.setTotalFee(effectiveSession.getTotalFee());
             resp.setEstimatedFee(resolveReservationEstimatedFee(
-                    reservation, effectiveSession,
-                    reservation.getVehicle() != null && reservation.getVehicle().getVehicleType() != null
-                            ? pricingService.getActivePolicy(
-                                    reservation.getVehicle().getVehicleType().getVehicleTypeId())
-                            : null));
+                    reservation, effectiveSession, policy));
             resp.setCheckinVehicleImage(effectiveSession.getCheckinVehicleImage());
             resp.setCheckoutVehicleImage(effectiveSession.getCheckoutVehicleImage());
             resp.setParkingDuration(effectiveSession.getParkingDuration());
             resp.setPaymentStatus(effectiveSession.getPaymentStatus());
         } else {
-            resp.setEstimatedFee(reservation.getEstimatedFee());
+            resp.setEstimatedFee(resolveReservationEstimatedFee(reservation, null, policy));
         }
 
         return resp;
